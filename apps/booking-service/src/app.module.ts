@@ -5,9 +5,10 @@ import { HouseCatalog } from './application/ports/house-catalog.ts';
 import { UserDirectory } from './application/ports/user-directory.ts';
 import { ConfigSchema } from './config.ts';
 import { BookingRepository } from './domain/booking.repository.ts';
-import { DependencyClientsModule } from './infrastructure/clients/dependency-clients.ts';
 import { GrpcHouseCatalog } from './infrastructure/clients/grpc-house-catalog.ts';
 import { GrpcUserDirectory } from './infrastructure/clients/grpc-user-directory.ts';
+import { HouseServiceClientModule } from './infrastructure/clients/house-service.client.ts';
+import { UserServiceClientModule } from './infrastructure/clients/user-service.client.ts';
 import { DrizzleBookingRepository } from './infrastructure/persistence/drizzle-booking.repository.ts';
 import { SERVICE } from './service.ts';
 import { BookingGrpcController } from './transport/grpc/booking.grpc-controller.ts';
@@ -16,7 +17,8 @@ import { BookingGrpcController } from './transport/grpc/booking.grpc-controller.
 @Module({
   imports: [
     GrpcPlatformModule.forRoot({ service: SERVICE, config: ConfigSchema }),
-    DependencyClientsModule,
+    UserServiceClientModule,
+    HouseServiceClientModule,
   ],
   controllers: [BookingGrpcController],
   providers: [

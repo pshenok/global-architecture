@@ -3,6 +3,15 @@ import { UserDirectory } from '../src/application/ports/user-directory.ts';
 import { type HouseFilter, HouseRepository } from '../src/domain/house.repository.ts';
 import { House, type HouseState } from '../src/domain/house.ts';
 
+/**
+ * "YYYY-MM-DD" n days after `from` (UTC). In use-case tests pass `clock.now()` as `from`,
+ * so dates stay consistent with the FixedClock instead of the real date.
+ */
+export function day(n: number, from: Date = new Date()): string {
+  const base = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  return new Date(base + n * 86_400_000).toISOString().slice(0, 10);
+}
+
 export class SequentialIds extends IdGenerator {
   private next = 0;
 

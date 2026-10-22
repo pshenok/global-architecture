@@ -8,12 +8,14 @@
   "files": {
     "includes": [
       "**",
+      "!pnpm-lock.yaml",
       "!**/src/gen",
       "!**/dist",
       "!**/coverage",
       "!**/.turbo",
       "!**/drizzle/**/snapshot.json",
-      "!_reference"
+      "!_reference",
+      "!.claude/worktrees"
     ]
   },
   "formatter": {
@@ -88,6 +90,10 @@
                       "@nestjs-cls/*"
                     ],
                     "message": "The domain layer is pure TypeScript: import only @ga/kernel and other domain files."
+                  },
+                  {
+                    "group": ["**/application/**", "**/infrastructure/**", "**/transport/**"],
+                    "message": "Domain code must not import other layers; depend on ports defined in the domain instead."
                   }
                 ]
               }
@@ -117,6 +123,10 @@
                       "@nestjs-cls/*"
                     ],
                     "message": "The application layer depends on domain ports only, never on transport or persistence."
+                  },
+                  {
+                    "group": ["**/infrastructure/**", "**/transport/**"],
+                    "message": "The application layer depends on ports, never on adapters; bind adapters in app.module.ts."
                   }
                 ]
               }

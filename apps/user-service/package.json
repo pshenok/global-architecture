@@ -22,6 +22,7 @@
     "@ga/contracts": "workspace:*",
     "@ga/kernel": "workspace:*",
     "@ga/service-kit": "workspace:*",
+    "@grpc/grpc-js": "catalog:",
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
     "@nestjs/microservices": "catalog:",
@@ -31,7 +32,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@grpc/grpc-js": "catalog:",
     "@nestjs/testing": "catalog:",
     "drizzle-kit": "catalog:"
   }

@@ -4,7 +4,10 @@
  *   PG_ADMIN_URL (default postgresql://$USER@localhost:5432/postgres)
  */
 import pg from 'pg';
+import { ensureEnvFiles } from './env-files.ts';
 import { DEFAULT_PG_ADMIN_URL, readRegistry, TEST_DATABASE } from './lib.ts';
+
+for (const file of ensureEnvFiles()) console.log(`created ${file} from .env.example`);
 
 const adminUrl = process.env.PG_ADMIN_URL ?? DEFAULT_PG_ADMIN_URL;
 const client = new pg.Client({ connectionString: adminUrl });

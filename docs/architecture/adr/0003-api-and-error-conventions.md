@@ -10,7 +10,9 @@ reliably, and the legacy boilerplate returned `UNKNOWN` for every error.
 
 ## Decision
 
-**gRPC (internal)**: a pragmatic subset of Google AIPs, enforced by buf STANDARD lint:
+**gRPC (internal)**: a pragmatic subset of Google AIPs. buf STANDARD lint enforces the
+versioned package names and per-RPC request/response messages; the rest is a review
+convention (`ga-grpc-contracts`, `ga-code-review`):
 versioned packages `ga.<domain>.v1`; request/response wrappers per RPC; `page_size` /
 `page_token` / `next_page_token` keyset pagination; `google.protobuf.Timestamp`;
 partial updates with proto3 `optional` fields (not FieldMask, for type safety);
@@ -45,4 +47,6 @@ custom actions as `POST /v1/<resources>/{id}/<verb>`. Every error is RFC 9457
 ## Consequences
 
 Clients branch on `code`, never on messages. Changing an existing reason is a breaking
-change. Standard gRPC tooling (buf curl, grpcurl, Connect) decodes the error details.
+change. The details are standard `google.rpc` messages; gRPC tooling shows their type
+(buf curl prints the value base64-encoded), and the gateway and the test helpers decode
+them.

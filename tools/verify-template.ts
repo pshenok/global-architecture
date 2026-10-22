@@ -15,9 +15,27 @@ const run = (args: string[]) => {
   execFileSync(args[0] as string, args.slice(1), { cwd: ROOT, stdio: 'inherit' });
 };
 
+const status = () =>
+  execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter(
+      (line) => line && !line.includes(`${NAME}-service`) && !line.includes('zz_template_check'),
+    )
+    .sort()
+    .join('\n');
+const before = status();
+
 let failed = false;
 try {
-  run(['node', 'tools/new-service.ts', NAME, '--no-register', '--port', '59999']);
+  run([process.execPath, 'tools/new-service.ts', NAME, '--no-register', '--port', '59999']);
+  run([
+    'pnpm',
+    'exec',
+    'biome',
+    'ci',
+    `apps/${NAME}-service`,
+    'packages/contracts/proto/ga/zz_template_check',
+  ]);
   run(['pnpm', '--filter', PACKAGE, 'typecheck']);
   run(['pnpm', '--filter', PACKAGE, 'lint']);
   run(['pnpm', '--filter', PACKAGE, 'test']);
@@ -33,6 +51,11 @@ try {
     force: true,
   });
   run(['pnpm', '--filter', '@ga/contracts', 'codegen']);
-  run(['pnpm', 'install', '--prefer-offline']);
+  run(['pnpm', 'install', '--prefer-offline', '--no-frozen-lockfile']);
+}
+const after = status();
+if (after !== before) {
+  console.error(`\ntemplate:verify left changes behind:\n${after}\n(before:\n${before})`);
+  failed = true;
 }
 process.exit(failed ? 1 : 0);

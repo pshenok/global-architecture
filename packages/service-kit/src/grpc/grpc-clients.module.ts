@@ -4,6 +4,7 @@ import { InterceptingCall, type Interceptor, status } from '@grpc/grpc-js';
 import {
   type DynamicModule,
   Inject,
+  Injectable,
   Module,
   type OnApplicationShutdown,
   type Provider,
@@ -68,6 +69,7 @@ function splitService(fqn: string): { pkg: string; name: string } {
 
 const CLIENTS = Symbol('GRPC_CLIENT_PROXIES');
 
+@Injectable()
 class GrpcClientsLifecycle implements OnApplicationShutdown {
   constructor(@Inject(CLIENTS) private readonly clients: ClientGrpc[]) {}
 

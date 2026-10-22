@@ -22,15 +22,19 @@ drizzle.config.ts
 
 ## Column conventions
 
-| Data                                  | Column                                                                           | Notes                                            |
-| ------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------ |
-| id                                    | `uuid('id').primaryKey()`                                                        | value from `IdGenerator` (UUIDv7); no DB default |
-| reference to another service's entity | `uuid('owner_id').notNull()` + index                                             | no foreign key across services                   |
-| text                                  | `text(...)`                                                                      | lengths are enforced in the domain               |
-| money                                 | `bigint('x_minor', { mode: 'number' })` + `char('currency_code', { length: 3 })` | integer minor units                              |
-| timestamp                             | `timestamp('created_at', { withTimezone: true, precision: 3 })`                  | ms precision round-trips with JS Date            |
-| calendar date                         | `date('check_in', { mode: 'string' })`                                           | 'YYYY-MM-DD' strings, no time zone bugs          |
-| enum-like status                      | `text('status', { enum: [...] })` + `check(...)`                                 | adding a value is a cheap migration              |
+| Data                                        | Column                                                                           | Notes                                             |
+| ------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------- |
+| id                                          | `uuid('id').primaryKey()`                                                        | value from `IdGenerator` (UUIDv7); no DB default  |
+| reference to another service's entity       | `uuid('owner_id').notNull()` + index                                             | no foreign key across services                    |
+| text                                        | `text(...)`                                                                      | lengths are enforced in the domain                |
+| money                                       | `bigint('x_minor', { mode: 'number' })` + `char('currency_code', { length: 3 })` | integer minor units                               |
+| timestamp                                   | `timestamp('created_at', { withTimezone: true, precision: 3 })`                  | ms precision round-trips with JS Date             |
+| calendar date                               | `date('check_in', { mode: 'string' })`                                           | 'YYYY-MM-DD' strings, no time zone bugs           |
+| enum-like status                            | `text('status', { enum: [...] })` + `check(...)`                                 | adding a value is a migration (see zero-downtime) |
+| small bounded integer (rating 1..5, guests) | `smallint`/`integer` + `check('x_check', sql\`... between 1 and 5\`)`            |                                                   |
+
+Ranges of numbers and enum-like values also get a `CHECK` constraint (cheap, and it
+protects data written by future code paths); text lengths are enforced in the domain only.
 
 Name constraints explicitly (`unique('users_email_key')`, `check('bookings_dates_check', ...)`):
 the names are how `translateDbError` maps violations to domain errors.
@@ -91,8 +95,9 @@ export class DrizzleHouseRepository extends HouseRepository {
   the only place that knows both shapes.
 - Use the core query builder (`select/insert/update/delete`), not the relational query
   API: the core builder is the stable part of Drizzle 1.0 RC.
-- Keyset pagination works because UUIDv7 ids sort by creation time; add an index for
-  every filter column.
+- Keyset pagination works because UUIDv7 ids sort by creation time. A filtered list
+  (`WHERE owner_id = $1 AND id < $2 ORDER BY id DESC`) needs a composite `(filter, id)`
+  index, e.g. `index('houses_owner_id_id_idx').on(table.ownerId, table.id)`.
 - Return `boolean` from deletes (`.returning({ id })`), let the use case raise `NotFound`.
 
 ## Migrations
@@ -113,10 +118,15 @@ pnpm db:migrate                                                  # all services
 - Never edit or delete a migration that may have run anywhere; add a new one.
 - Never use `drizzle-kit push` against shared databases.
 - `runMigrations` (in `src/migrate.ts`) takes a Postgres advisory lock, so N replicas
-  starting at once apply each migration exactly once. Run it as a release step (a job
-  before rollout), not from `main.ts`.
-- All pending migrations run in one transaction, so `CREATE INDEX CONCURRENTLY` must be a
-  separate, later release step.
+  starting at once apply each migration exactly once, and sets `lock_timeout` (default
+  5 s, option `lockTimeoutMs`) for the migration statements so a migration stuck behind
+  live traffic fails instead of blocking it. Run it as a release step (a job before
+  rollout), not from `main.ts`. Locally `pnpm db:migrate` / `pnpm stack:up` run it for
+  every service with the stack's `DATABASE_URL`.
+- All pending migrations run in one transaction. `CREATE INDEX CONCURRENTLY` cannot run
+  there: do not use Drizzle's `.concurrently()`. Big-table indexes are a manual release
+  step (`psql -c 'CREATE INDEX CONCURRENTLY ...'`) before the migration that declares the
+  index with `IF NOT EXISTS`; there is no tooling for it yet.
 
 Changing a live schema without downtime (expand -> migrate -> contract):
 `references/zero-downtime.md`.

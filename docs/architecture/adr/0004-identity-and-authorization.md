@@ -7,7 +7,8 @@
 
 Today every endpoint is anonymous: any caller can update or delete any user, house or
 booking, and list all bookings. This is acceptable only for local development, which is
-why every process binds to 127.0.0.1.
+why processes bind to 127.0.0.1 by default (`GRPC_HOST`, `GATEWAY_HOST`); container images
+opt into `0.0.0.0` explicitly.
 
 ## Proposal
 

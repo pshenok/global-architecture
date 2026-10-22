@@ -3,6 +3,15 @@ import { userEmailTaken } from '../src/domain/user.errors.ts';
 import { UserRepository } from '../src/domain/user.repository.ts';
 import { User } from '../src/domain/user.ts';
 
+/**
+ * "YYYY-MM-DD" n days after `from` (UTC). In use-case tests pass `clock.now()` as `from`,
+ * so dates stay consistent with the FixedClock instead of the real date.
+ */
+export function day(n: number, from: Date = new Date()): string {
+  const base = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  return new Date(base + n * 86_400_000).toISOString().slice(0, 10);
+}
+
 /** Deterministic, sortable UUIDv7-shaped ids: ...-000000000001, ...-000000000002, ... */
 export class SequentialIds extends IdGenerator {
   private next = 0;

@@ -38,5 +38,10 @@ export function writeRegistry(registry: Registry): void {
   writeFileSync(REGISTRY_PATH, `${JSON.stringify(registry, null, 2)}\n`);
 }
 
+/** Connection URL the local stack uses for a service database (role ga, see db:setup). */
+export function databaseUrl(database: string): string {
+  return `postgresql://ga:ga@localhost:5432/${database}`;
+}
+
 export const DEFAULT_PG_ADMIN_URL = `postgresql://${process.env.USER ?? 'postgres'}@localhost:5432/postgres`;
 export const TEST_DATABASE = 'ga_test';

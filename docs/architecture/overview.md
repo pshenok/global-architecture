@@ -58,8 +58,9 @@ flowchart TB
   cli -. implements .-> ports
 ```
 
-The composition root (`app.module.ts`) binds ports to adapters. Biome enforces the
-dependency rule for `src/domain` and `src/application`.
+The composition root (`app.module.ts`) binds ports to adapters. Biome blocks framework
+and persistence packages and relative imports of the wrong layers in `src/domain` and
+`src/application`; review covers what lint cannot see.
 
 ## Request lifecycle (create a booking)
 
@@ -67,7 +68,7 @@ dependency rule for `src/domain` and `src/application`.
    validates the body with Zod, calls `BookingService.CreateBooking` with a 5 s deadline.
 2. booking-service validates the request (Zod), the use case validates the stay locally,
    then asks user-service and house-service in parallel (2 s deadlines, request id
-   propagated, retry on UNAVAILABLE).
+   propagated, retry only when a request never reached a handler).
 3. The aggregate prices the stay; the repository inserts it. Postgres' exclusion
    constraint rejects an overlapping confirmed booking atomically.
 4. A violation becomes `ConflictError(BOOKING_DATES_UNAVAILABLE)` -> gRPC

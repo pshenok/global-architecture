@@ -136,10 +136,20 @@ const run = (command: string, args: string[]) => {
   execFileSync(command, args, { cwd: ROOT, stdio: 'inherit' });
 };
 if (!values['skip-install']) {
-  run('pnpm', ['install', '--prefer-offline']);
+  run('pnpm', ['install', '--prefer-offline', '--no-frozen-lockfile']);
   run('pnpm', ['--filter', '@ga/contracts', 'codegen']);
   run('pnpm', ['--filter', entry.package, 'db:generate', '--name', 'init']);
 }
+// Renames change line lengths and import order: let Biome restore the canonical format.
+run('pnpm', [
+  'exec',
+  'biome',
+  'check',
+  '--write',
+  relative(ROOT, appDir),
+  relative(ROOT, protoPath),
+  'services.json',
+]);
 
 console.log(`
 Created ${entry.package}
@@ -148,9 +158,10 @@ Created ${entry.package}
   gRPC      ${entry.grpcService} on :${port}
   database  ${entry.database}
 
-Next:
-  1. Model the domain: src/domain/${singular.kebab}.ts, then the contract, schema.ts and use cases.
-  2. pnpm --filter @ga/contracts codegen          (after editing the .proto)
-  3. pnpm --filter ${entry.package} db:generate   (after editing schema.ts)
-  4. pnpm db:setup && pnpm --filter ${entry.package} test
+Next (the ga-new-service skill has the details):
+  1. Contract: edit packages/contracts/proto/${protoRel}, then pnpm --filter @ga/contracts codegen
+  2. Domain + use cases: src/domain/${singular.kebab}.ts, ${singular.kebab}.errors.ts, src/application/
+  3. Persistence: edit schema.ts, then rm -r ${entry.dir}/drizzle && pnpm --filter ${entry.package} db:generate --name init
+  4. Transport: src/transport/grpc/ (requests, mapper, controller); dependencies: ga-service-communication
+  5. Tests: pnpm db:setup && pnpm --filter ${entry.package} test
 `);

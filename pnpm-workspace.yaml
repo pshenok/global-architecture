@@ -95,3 +95,5 @@ peerDependencyRules:
   allowedVersions:
     # @fastify/otel 0.21.x still depends on OTel core 2.x, whose peer range stops below api 1.10
     "@opentelemetry/core@2>@opentelemetry/api": "1.10"
+    # optional peer used only by the Swagger CLI plugin (needs the TS 6 API); we generate OpenAPI from Zod
+    "@nestjs/swagger>typescript": "7"

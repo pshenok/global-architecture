@@ -35,14 +35,16 @@ pnpm new:service invoice --port 50070   # explicit port (default: next after the
 
 Creates:
 
-| Output                                               | Example for `review`                             |
-| ---------------------------------------------------- | ------------------------------------------------ |
-| `apps/review-service/`                               | full service, `.env` from `.env.example`         |
-| `packages/contracts/proto/ga/review/v1/review.proto` | `ga.review.v1.ReviewService`                     |
-| registry entry in `services.json`                    | port, database `ga_review`, `REVIEW_SERVICE_URL` |
-| `apps/review-service/drizzle/<ts>_init/`             | initial migration                                |
+| Output                                               | Example for `review`                                                                                             |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `apps/review-service/`                               | full service, `.env` from `.env.example`                                                                         |
+| `packages/contracts/proto/ga/review/v1/review.proto` | `ga.review.v1.ReviewService` (multi-word nouns use snake_case here: `ga/payment_method/v1/payment_method.proto`) |
+| registry entry in `services.json`                    | port, database `ga_review`, `REVIEW_SERVICE_URL`                                                                 |
+| `apps/review-service/drizzle/<ts>_init/`             | initial migration                                                                                                |
 
-It also runs `pnpm install`, contracts codegen and `db:generate`. Then:
+It also runs `pnpm install`, contracts codegen and `db:generate`, and formats what it
+wrote with Biome. Below, `<noun>` is the kebab form (`payment-method`) and
+`<noun_snake>` the snake form used by the contract (`payment_method`). Then:
 
 ```bash
 pnpm db:setup                                   # creates ga_review (+ ga_test) locally
@@ -51,8 +53,10 @@ pnpm --filter @ga/review-service test           # the scaffold is green before y
 
 ## 2. Reshape, in this order
 
-Each step keeps the service compiling, so you can run the tests after each one.
-1. **Contract** (`packages/contracts/proto/ga/<noun>/v1/<noun>.proto`): real fields,
+Steps 1-5 are one unit: changing the contract breaks the scaffold's controller, mapper
+and tests until transport (5) and tests (7) are reshaped. Run `typecheck` after step 5 and
+the tests after step 7.
+1. **Contract** (`packages/contracts/proto/ga/<noun_snake>/v1/<noun_snake>.proto`): real fields,
    RPCs and doc comments listing each RPC's error codes. Then
    `pnpm --filter @ga/contracts codegen`. Follow `ga-grpc-contracts`.
 2. **Domain** (`src/domain/<noun>.ts`, `<noun>.errors.ts`, `<noun>.repository.ts`): state,
@@ -61,8 +65,9 @@ Each step keeps the service compiling, so you can run the tests after each one.
 3. **Use cases** (`src/application/<noun>.service.ts`): one method per use case, ports for
    other systems in `src/application/ports/`.
 4. **Persistence** (`src/infrastructure/persistence/schema.ts` + repository): columns,
-   constraints, indexes; then delete the generated `drizzle/` folder (it still describes
-   `sample_items`) and run `pnpm --filter @ga/<noun>-service db:generate --name init`.
+   constraints, indexes; then delete the generated `drizzle/` folder (it creates your table
+   with the placeholder columns `name`/`description`) and run
+   `pnpm --filter @ga/<noun>-service db:generate --name init`.
    Follow `ga-database`. Once a migration has been applied anywhere shared, never
    regenerate it; add a new one instead.
 5. **Transport** (`src/transport/grpc/`): Zod request schemas, mapper, controller
@@ -72,14 +77,16 @@ Each step keeps the service compiling, so you can run the tests after each one.
    `.env`/`.env.example` entries. Follow `ga-service-communication`.
 7. **Tests**: domain specs, use-case specs with fakes (`test/fakes.ts`), and the gRPC +
    Postgres spec in `test/`. Follow `ga-testing`.
-8. **Docs**: the service `README.md` (purpose, RPCs, dependencies, owned tables).
+8. **Docs**: the service `README.md` (purpose, RPCs, dependencies, owned tables), and the
+   system views that list services: the container diagram and dependency graph in
+   `docs/architecture/overview.md` and the diagram/table in the root `README.md`.
 9. **Gateway exposure** (only if clients need it): `ga-gateway-endpoint`, then add the
    service URL to the gateway config and `apps/gateway/.env.example`.
 
 Search for leftovers when done; nothing named after the placeholder may remain:
 
 ```bash
-grep -rniE "sample.?item" apps/<noun>-service packages/contracts/proto/ga/<noun> && echo "leftovers!"
+grep -rniE "sample.?item" apps/<noun>-service packages/contracts/proto/ga/<noun_snake> && echo "leftovers!"
 ```
 
 ## 3. Definition of done
@@ -91,11 +98,14 @@ pnpm --filter @ga/<noun>-service lint
 pnpm --filter @ga/<noun>-service test
 pnpm biome ci .
 pnpm build
-pnpm stack:up && pnpm test:e2e          # the new service starts under PM2 and is SERVING
+pnpm stack:up && pnpm test:e2e          # stack:up waits until every registered service is SERVING
+git status                               # only your intended changes remain
 ```
 
 `pnpm stack:up` reads `services.json`, so a registered service is started, migrated
-and health-checked automatically; it does not need its own PM2 entry.
+(with the stack's `DATABASE_URL`) and health-checked over `grpc.health.v1` automatically;
+it does not need its own PM2 entry. If it should be public, also add it to the gateway's
+readiness targets (`ga-gateway-endpoint`).
 
 ## Things the generator cannot know
 
@@ -103,5 +113,10 @@ and health-checked automatically; it does not need its own PM2 entry.
   same layered shape.
 - Postgres extensions your migrations need: add `"extensions": ["btree_gist"]` to the
   service's entry in `services.json` so `pnpm db:setup` pre-creates them.
-- Removing a service: delete `apps/<noun>-service`, its proto directory, its
-  `services.json` entry, regenerate contracts, and check `buf breaking` consumers first.
+- Removing a service: first remove every consumer (other services' clients, ports and
+  `*_SERVICE_URL` config; gateway routes, `clients.ts`, config, readiness target, test
+  harness env), because consumer config validation fails at boot once the URL is gone.
+  Then delete `apps/<noun>-service`, its proto directory and its `services.json` entry,
+  regenerate contracts, update the docs listed in step 8, and drop its database when no
+  environment needs it. `buf breaking` will flag the removed contract; that is expected
+  for a deliberate removal.

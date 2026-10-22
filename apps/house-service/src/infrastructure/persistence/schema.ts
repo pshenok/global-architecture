@@ -20,8 +20,9 @@ export const houses = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true, precision: 3 }).notNull(),
   },
   (table) => [
-    index('houses_owner_id_idx').on(table.ownerId),
-    index('houses_city_lower_idx').on(sql`lower(${table.city})`),
+    // (filter, id) indexes serve the filtered keyset lists: WHERE owner_id = $1 AND id < $2 ORDER BY id DESC
+    index('houses_owner_id_id_idx').on(table.ownerId, table.id),
+    index('houses_city_lower_id_idx').on(sql`lower(${table.city})`, table.id),
   ],
 );
 

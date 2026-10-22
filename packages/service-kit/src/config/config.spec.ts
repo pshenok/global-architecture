@@ -13,7 +13,7 @@ describe('parseConfig', () => {
     });
     expect(config).toMatchObject({
       GRPC_PORT: 50051,
-      GRPC_HOST: '0.0.0.0',
+      GRPC_HOST: '127.0.0.1',
       LOG_PRETTY: true,
       DB_POOL_MAX: 10,
     });

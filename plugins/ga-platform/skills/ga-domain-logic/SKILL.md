@@ -46,15 +46,19 @@ export class House {
 
 ## Errors: pick the kind by what the caller should do
 
-| Throw                                            | gRPC / HTTP               | When                                                                                                     |
-| ------------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `ValidationError(message, violations)`           | INVALID_ARGUMENT / 400    | input is malformed regardless of system state                                                            |
-| `NotFoundError(reason, msg, meta)`               | NOT_FOUND / 404           | the addressed resource does not exist                                                                    |
-| `ConflictError`                                  | ALREADY_EXISTS / 409      | a conflicting resource exists (unique key, overlapping range)                                            |
-| `PreconditionFailedError`                        | FAILED_PRECONDITION / 400 | valid input, but the system state forbids it (cancelled twice, referenced user missing, too many guests) |
-| `ConcurrencyError`                               | ABORTED / 409             | lost a race (serialization failure); safe to retry                                                       |
-| `DependencyUnavailableError`                     | UNAVAILABLE / 503         | another service or the DB is down; nothing was changed                                                   |
-| `PermissionDeniedError` / `UnauthenticatedError` | 403 / 401                 | reserved for the auth work (see ADR-0004)                                                                |
+| Throw                                            | gRPC / HTTP               | When                                                                                                                                                                                                                                                           |
+| ------------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ValidationError(message, violations)`           | INVALID_ARGUMENT / 400    | input is malformed regardless of system state                                                                                                                                                                                                                  |
+| `NotFoundError(reason, msg, meta)`               | NOT_FOUND / 404           | the addressed resource does not exist                                                                                                                                                                                                                          |
+| `ConflictError`                                  | ALREADY_EXISTS / 409      | a conflicting resource exists (unique key, overlapping range)                                                                                                                                                                                                  |
+| `PreconditionFailedError`                        | FAILED_PRECONDITION / 400 | valid input, but the system state forbids it (cancelled twice, referenced user missing, too many guests)                                                                                                                                                       |
+| `ConcurrencyError`                               | ABORTED / 409             | lost a race (serialization failure); safe to retry                                                                                                                                                                                                             |
+| `DependencyUnavailableError`                     | UNAVAILABLE / 503         | another service is down (adapters raise it via `toDependencyError`) or a DB statement timed out (`translateDbError`); nothing was changed. A database that is completely unreachable currently surfaces as INTERNAL while the health check reports NOT_SERVING |
+| `PermissionDeniedError` / `UnauthenticatedError` | 403 / 401                 | reserved for the auth work (see ADR-0004)                                                                                                                                                                                                                      |
+
+Constructors: `new NotFoundError(reason, message, metadata?)` and the same
+`(reason, message, metadata = {}, options?)` for every kind except
+`new ValidationError(message, violations = [], reason = 'VALIDATION_FAILED')`.
 
 Write a factory per error in `<noun>.errors.ts` with a stable UPPER_SNAKE `reason`
 prefixed by the aggregate (`BOOKING_DATES_UNAVAILABLE`). Clients branch on `reason`,
@@ -95,7 +99,8 @@ export class BookingService {
 - Read-modify-write goes inside `this.unitOfWork.run(...)` with
   `findById(id, { forUpdate: true })`, so concurrent updates serialize instead of
   overwriting each other. Repositories called inside `run()` join the transaction
-  automatically; nested `run()` becomes a savepoint.
+  automatically, and a nested `run()` joins the outer transaction too (no savepoint):
+  an error anywhere rolls back everything. Do not nest `run()` expecting partial rollback.
 - Single-statement writes (insert, delete) do not need a unit of work.
 - Imports allowed: domain, `@ga/kernel`, `@nestjs/common` (`Injectable`, `Logger`).
   Constructor parameters that are classes must be **value imports** (DI metadata);
@@ -118,4 +123,6 @@ this.logger.log(`booking ${id} cancelled`);
 
 The request id is attached automatically. Every RPC already gets one structured line
 with method, status and duration, so log business events, not entry/exit. Never log
-emails, names or tokens.
+emails, names or tokens. Logging is optional; when a use case logs, its unit tests (which
+construct the class without Nest) print those lines unless the spec calls
+`Logger.overrideLogger(false)` in `beforeAll`.

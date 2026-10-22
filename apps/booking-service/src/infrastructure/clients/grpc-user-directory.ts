@@ -4,7 +4,7 @@ import { status } from '@grpc/grpc-js';
 import { Inject, Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { UserDirectory } from '../../application/ports/user-directory.ts';
-import { USER_SERVICE } from './dependency-clients.ts';
+import { USER_SERVICE } from './user-service.client.ts';
 
 /** UserDirectory backed by user-service over gRPC. */
 @Injectable()

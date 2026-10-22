@@ -14,14 +14,20 @@ there is a change to all of them. Make it once, prove it on the template, then r
 Every version is in the `catalog:` of `pnpm-workspace.yaml` (`catalogMode: strict`);
 `package.json` files say `"x": "catalog:"`. To upgrade:
 1. Edit the catalog version. pnpm refuses versions younger than 24 h
-   (`minimumReleaseAge`); wait or pin the previous patch.
+   (`minimumReleaseAge`); wait or pin the previous patch. `@grpc/proto-loader` and
+   `protobufjs` are pinned twice (catalog and `overrides`); bump both or nothing changes.
+   Node and pnpm are not in the catalog: they are pinned in `package.json`
+   (`devEngines`, `engines`), `.github/workflows/ci.yml` and every `Dockerfile`.
 2. `pnpm install`. If a new package has an install script, decide in `allowBuilds`
    (allow only what needs it; deny telemetry like `@scarf/scarf`).
 3. Read the changelog for breaking changes, then run the full gate:
 
    ```bash
    pnpm check && pnpm build && pnpm template:verify
+   pnpm --filter @ga/contracts codegen && git diff --exit-code packages/contracts   # codegen stable
+   pnpm --filter @ga/contracts lint:proto
    pnpm stack:up && pnpm test:e2e
+   git status                                  # the gate must leave the tree clean
    ```
 
 Upgrade framework families together (all `@nestjs/*` 12.x at once; `@grpc/grpc-js` with
@@ -30,23 +36,23 @@ they guarantee a single copy (see the contracts skill for why).
 
 ## Sharp edges (each was hit and fixed once; keep them fixed)
 
-| Area                 | Edge                                                                                           | Guard                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| TypeScript 7         | no compiler API: tools needing it (Nest CLI, Swagger CLI plugin, typescript-eslint) cannot run | SWC builds, oxlint + Biome lint, own generator                     |
-| Decorators           | `import type` of an injected class -> metadata `Object` -> DI fails silently                   | Biome `useImportType` off; review checklist                        |
-| ESM                  | circular imports of injectables crash at load (TDZ)                                            | no cycles; `Ref<T>` as last resort                                 |
-| ESM + generated code | interfaces imported as values crash at link time                                               | `postgen.ts` rewrites to `import type`; `check-esm` in every build |
-| Timestamps           | without wrappers a Date is sent as 1970-01-01                                                  | `installWellKnownTypes()` in every entrypoint                      |
-| SWC target           | `es2025` unsupported by SWC 1.16                                                               | `target: es2024` in tsconfig and `.swcrc`                          |
-| Vitest 5             | Vite 8 oxc emits wrong enum metadata                                                           | `unplugin-swc` in `vitest.shared.ts`                               |
-| Drizzle 1.0 RC       | relational query API still changing                                                            | core query builder only; exact pin                                 |
-| drizzle-kit          | `strict`/`verbose` are push-only options                                                       | not used                                                           |
-| Migrations           | Drizzle's migrator takes no lock                                                               | `runMigrations` wraps it in an advisory lock                       |
-| gRPC hybrid apps     | enhancers added after `connectMicroservice` are ignored                                        | services are pure microservices; filters before `listen()`         |
-| Nest 12 gRPC errors  | `GrpcException` without a filter -> UNKNOWN                                                    | `GrpcErrorFilter` always registered                                |
-| Fastify docs page    | raw responses skip `onSend` hooks                                                              | `/docs` CSP set by middleware                                      |
-| PM2                  | `@` in the interpreter path is read as an nvm version                                          | interpreter is `node_modules/.bin/node`                            |
-| pnpm 12              | npm inside the repo fails `devEngines`                                                         | use pnpm / run npm outside the repo                                |
+| Area                 | Edge                                                                                                                                                                                                 | Guard                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| TypeScript 7         | no compiler API: tools needing it (Nest CLI, Swagger CLI plugin, typescript-eslint) cannot run                                                                                                       | SWC builds, oxlint + Biome lint, own generator                     |
+| Decorators           | `import type` of an injected class -> metadata `Object` -> Nest fails at boot with `UnknownDependenciesException` (it hints at `import type`); tests that construct classes directly do not catch it | Biome `useImportType` off; review checklist                        |
+| ESM                  | circular imports of injectables crash at load (TDZ)                                                                                                                                                  | no cycles; `Ref<T>` as last resort                                 |
+| ESM + generated code | interfaces imported as values crash at link time                                                                                                                                                     | `postgen.ts` rewrites to `import type`; `check-esm` in every build |
+| Timestamps           | without wrappers a Date is sent as 1970-01-01                                                                                                                                                        | `installWellKnownTypes()` in every entrypoint                      |
+| SWC target           | `es2025` unsupported by SWC 1.16                                                                                                                                                                     | `target: es2024` in tsconfig and `.swcrc`                          |
+| Vitest 5             | Vite 8 oxc emits wrong enum metadata                                                                                                                                                                 | `unplugin-swc` in `vitest.shared.ts`                               |
+| Drizzle 1.0 RC       | relational query API still changing                                                                                                                                                                  | core query builder only; exact pin                                 |
+| drizzle-kit          | `strict`/`verbose` are push-only options                                                                                                                                                             | not used                                                           |
+| Migrations           | Drizzle's migrator takes no lock                                                                                                                                                                     | `runMigrations` wraps it in an advisory lock                       |
+| gRPC hybrid apps     | enhancers added after `connectMicroservice` are ignored                                                                                                                                              | services are pure microservices; filters before `listen()`         |
+| Nest 12 gRPC errors  | `GrpcException` without a filter -> UNKNOWN                                                                                                                                                          | `GrpcErrorFilter` always registered                                |
+| Fastify docs page    | raw responses skip `onSend` hooks                                                                                                                                                                    | `/docs` CSP set by middleware                                      |
+| PM2                  | `@` in the interpreter path is read as an nvm version                                                                                                                                                | interpreter is `node_modules/.bin/node`                            |
+| pnpm 12              | npm inside the repo fails `devEngines`                                                                                                                                                               | use pnpm / run npm outside the repo                                |
 
 ## Changing shared code
 
@@ -59,7 +65,9 @@ they guarantee a single copy (see the contracts skill for why).
   `buf.gen.yaml`.
 - `templates/service`: after any change run `pnpm template:verify`; then apply the same
   change to existing services (they are generated copies, not linked to the template).
-  Keep `SampleItem` naming so the generator's replacements still match.
+  Keep `SampleItem` naming so the generator's replacements still match, and keep the
+  two literal anchors the generator rewrites: `GRPC_PORT=50099` in `.env.example` and
+  `EXPOSE 50051` in the `Dockerfile` (`tools/new-service.ts`).
 
 ## Recording decisions
 

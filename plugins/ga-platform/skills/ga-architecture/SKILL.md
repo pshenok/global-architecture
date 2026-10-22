@@ -13,21 +13,21 @@ the chassis reaches every service.
 
 ## Repository layout
 
-| Path                    | What                                                                                                                                     | Package                    |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `apps/<name>-service/`  | gRPC domain service, owns one Postgres database                                                                                          | `@ga/<name>-service`       |
-| `apps/gateway/`         | HTTPS REST API (HTTP/2 + HTTP/1.1) -> gRPC                                                                                               | `@ga/gateway`              |
-| `packages/kernel/`      | Framework-free domain primitives: errors, ports, Money, pagination                                                                       | `@ga/kernel`               |
-| `packages/contracts/`   | All `.proto` contracts (one buf module), generated TS, proto runtime                                                                     | `@ga/contracts`            |
-| `packages/service-kit/` | Chassis: config, logging, request context, gRPC server/clients, health, reflection, errors, DB, UoW, migrations, test helpers, telemetry | `@ga/service-kit`          |
-| `templates/service/`    | The service template (`SampleItem` placeholder)                                                                                          | not a workspace package    |
-| `tools/`                | Generator, template check, db setup, local stack, dev certs                                                                              | run with `node tools/x.ts` |
-| `tests/e2e/`            | End-to-end suite against the running local stack                                                                                         |                            |
-| `services.json`         | Registry: ports, databases, env var names of every service                                                                               | managed by the generator   |
-| `docs/architecture/`    | Overview and ADRs (the "why")                                                                                                            |                            |
+| Path                    | What                                                                                                                                     | Package                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `apps/<name>-service/`  | gRPC domain service, owns one Postgres database                                                                                          | `@ga/<name>-service`                                 |
+| `apps/gateway/`         | HTTPS REST API (HTTP/2 + HTTP/1.1) -> gRPC                                                                                               | `@ga/gateway`                                        |
+| `packages/kernel/`      | Framework-free domain primitives: errors, ports, Money, pagination                                                                       | `@ga/kernel`                                         |
+| `packages/contracts/`   | All `.proto` contracts (one buf module), generated TS, proto runtime                                                                     | `@ga/contracts`                                      |
+| `packages/service-kit/` | Chassis: config, logging, request context, gRPC server/clients, health, reflection, errors, DB, UoW, migrations, test helpers, telemetry | `@ga/service-kit`                                    |
+| `templates/service/`    | The service template (`SampleItem` placeholder)                                                                                          | not a workspace package                              |
+| `tools/`                | Generator, template check, db setup, local stack, dev certs                                                                              | run through the root `pnpm` scripts (pinned Node 26) |
+| `tests/e2e/`            | End-to-end suite against the running local stack                                                                                         |                                                      |
+| `services.json`         | Registry: ports, databases, env var names of every service                                                                               | managed by the generator                             |
+| `docs/architecture/`    | Overview and ADRs (the "why")                                                                                                            |                                                      |
 
-Existing services: `user-service` (50051), `house-service` (50052, calls user),
-`booking-service` (50053, calls user + house), `gateway` (8443).
+The current services, their ports, databases and env var names are in `services.json`;
+the dependency graph is in `docs/architecture/overview.md`. The gateway listens on 8443.
 
 ## Layers inside a service (dependency rule points inward)
 
@@ -40,10 +40,13 @@ transport/grpc  ->  application  ->  domain  <-  infrastructure
 app.module.ts = composition root: binds every port to its adapter.
 ```
 
-- `src/domain/` imports only `@ga/kernel` and other domain files. Biome enforces this
-  (`noRestrictedImports` override in `biome.json`).
+- `src/domain/` imports only `@ga/kernel` and other domain files.
 - `src/application/` may import domain, `@ga/kernel`, `@nestjs/common`; never Drizzle,
-  gRPC, `@ga/contracts` or `@nestjs/microservices` (also enforced).
+  gRPC, `@ga/contracts`, `@nestjs/microservices`, infrastructure or transport.
+- Biome's `noRestrictedImports` overrides (`biome.json`) block the framework/persistence
+  packages and relative imports of the wrong layers (`**/infrastructure/**`, ...). Lint
+  cannot see everything (an unexpected npm package in the domain, a cross-layer import
+  through a re-export), so reviewers still check the direction of dependencies.
 - Ports are **abstract classes**, not interfaces, so they double as Nest DI tokens:
   `constructor(private readonly users: UserRepository)` needs no `@Inject()`.
 - Infrastructure and transport are adapters; only `app.module.ts` knows both sides.
@@ -57,8 +60,10 @@ Details and examples: the `ga-domain-logic` skill.
   decorator metadata becomes `Object` and Nest DI breaks silently. Interfaces and type
   aliases must be `import type` (`verbatimModuleSyntax` enforces it). Biome's
   `useImportType` is deliberately off; do not turn it on.
-- **Circular imports between injectables crash under ESM** even with `forwardRef`.
-  Remove the cycle; if impossible, type the parameter as `Ref<T>` from `@ga/service-kit`.
+- **No circular imports.** Between injectables they crash under ESM even with
+  `forwardRef`, and Biome's `noImportCycles` fails the build. Break a cycle by extracting
+  the shared part into a third provider or a port. (`Ref<T>` in `@ga/service-kit` exists
+  for code outside this repo's lint rules; it only works with `@Inject(forwardRef(() => B))`.)
 - **Errors**: business failures throw a `DomainError` subclass from `@ga/kernel`
   (`ValidationError`, `NotFoundError`, `ConflictError`, `PreconditionFailedError`,
   `ConcurrencyError`, `DependencyUnavailableError`, ...) with an UPPER_SNAKE `reason`.
@@ -102,12 +107,13 @@ pnpm check                   # biome + oxlint + typecheck + tests
 pnpm build                   # SWC build of everything (turbo-cached)
 pnpm --filter @ga/user-service test
 pnpm stack:up                # whole system on PM2: https://localhost:8443/docs
+                             # (creates missing .env files, databases, migrations; checks every service)
 ```
 
 ## Known gaps (do not paper over them)
 
 - **No authentication or authorization yet.** Every endpoint is open; processes bind
-  to 127.0.0.1 locally. Do not expose the gateway publicly. The planned design is in
+  to 127.0.0.1 by default (containers opt into 0.0.0.0). Do not expose the gateway publicly. The planned design is in
   `docs/architecture/adr/0004-identity-and-authorization.md`.
 - **No asynchronous messaging yet.** Cross-service consistency on delete (e.g. bookings
   of a deleted house) is not handled; the planned outbox + broker design is in

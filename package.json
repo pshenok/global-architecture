@@ -32,7 +32,7 @@
     "template:verify": "node tools/verify-template.ts",
     "certs": "node tools/dev-certs.ts",
     "db:setup": "node tools/db-setup.ts",
-    "db:migrate": "turbo run db:migrate",
+    "db:migrate": "node tools/stack.ts migrate",
     "stack:up": "node tools/stack.ts up",
     "stack:down": "node tools/stack.ts down",
     "stack:status": "pm2 status",
@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@ga/service-kit": "workspace:*",
     "@swc/cli": "catalog:",
     "@swc/core": "catalog:",
     "@types/node": "catalog:",

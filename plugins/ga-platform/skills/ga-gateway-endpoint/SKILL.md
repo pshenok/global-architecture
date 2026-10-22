@@ -18,7 +18,8 @@ apps/gateway/src/clients.ts                    gRPC client per downstream servic
 apps/gateway/src/<resource>/<resource>.schemas.ts   Zod: request bodies/queries + response views + mapper
 apps/gateway/src/<resource>/<resource>.controller.ts
 apps/gateway/src/app.module.ts                 register the controller
-apps/gateway/test/gateway.spec.ts              tests with fake gRPC clients
+apps/gateway/test/harness.ts                   createTestGateway(): real gateway, fake gRPC clients
+apps/gateway/test/<resource>.spec.ts           one spec per resource
 ```
 
 ## REST conventions
@@ -31,6 +32,10 @@ apps/gateway/test/gateway.spec.ts              tests with fake gRPC clients
 | partial update | `PATCH /v1/houses/{id}` (only sent fields change; nested objects replace whole) | 200                                      |
 | delete         | `DELETE /v1/houses/{id}`                                                        | 204                                      |
 | custom action  | `POST /v1/bookings/{id}/cancel`                                                 | 200 + resource                           |
+
+Status codes need decorators: Nest answers `@Post()` with 201 and `@Delete()` with 200,
+so a delete needs `@HttpCode(204)` and a custom action (`POST .../cancel`) needs
+`@HttpCode(200)`.
 
 Paths are versioned (`/v1`), plural nouns, camelCase JSON, ISO-8601 timestamps,
 `YYYY-MM-DD` dates, money as `{ currencyCode, amountMinor }`, enums without the proto
@@ -109,12 +114,15 @@ follows `google/rpc/code.proto` (`GRPC_TO_HTTP_STATUS` in the service kit).
 
 ## Adding a new downstream service to the gateway
 
-1. `apps/gateway/src/config.ts`: `X_SERVICE_URL: grpcTarget()`; `.env.example`.
+1. `apps/gateway/src/config.ts`: `X_SERVICE_URL: grpcTarget()` (required, no default), and
+   the value in `apps/gateway/.env.example`, your local `apps/gateway/.env` (or rerun
+   `pnpm stack:up`, which injects every `*_SERVICE_URL` from `services.json`) and
+   `TEST_ENV` in `apps/gateway/test/harness.ts`.
 2. `apps/gateway/src/clients.ts`: token + entry in `GrpcClientsModule.register`.
 3. `apps/gateway/src/health/health.controller.ts`: add it to the readiness targets.
 4. Controller + schemas, register the controller in `app.module.ts`.
-5. Tests in `apps/gateway/test/` with the client overridden by `vi.fn()` fakes; then the
-   e2e suite (`tests/e2e`) against the running stack.
+5. Tests in `apps/gateway/test/<resource>.spec.ts` via `createTestGateway` with the client
+   overridden by `vi.fn()` fakes; then the e2e suite (`tests/e2e`) against the running stack.
 
 ## Cross-cutting behaviour (already on, do not re-implement)
 

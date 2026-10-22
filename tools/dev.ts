@@ -24,7 +24,14 @@ const children = [
   spawn(swc, [...swcArgs, '--watch'], { stdio: 'inherit' }),
   spawn(
     process.execPath,
-    ['--watch', '--enable-source-maps', '--env-file-if-exists=.env', 'dist/main.js'],
+    [
+      '--watch',
+      '--enable-source-maps',
+      '--env-file-if-exists=.env',
+      '--import',
+      '@ga/service-kit/telemetry',
+      'dist/main.js',
+    ],
     { stdio: 'inherit' },
   ),
 ];

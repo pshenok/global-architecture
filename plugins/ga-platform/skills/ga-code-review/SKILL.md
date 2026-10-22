@@ -6,7 +6,9 @@ description: Review checklist for changes in the global-architecture monorepo - 
 
 # Reviewing a change
 
-Read the diff with `git diff main...HEAD` (or the PR), then walk the list. Report
+Read the whole change: committed branch work with `git diff main...HEAD`, uncommitted
+work (the usual case when reviewing your own change) with `git diff HEAD` plus
+`git status` for new files, or the PR diff. Then walk the list. Report
 findings with file:line, why it breaks in production, and the fix. Verify claims by
 running the relevant command rather than guessing.
 
@@ -16,6 +18,7 @@ running the relevant command rather than guessing.
 pnpm biome ci . && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 pnpm --filter @ga/contracts breaking        # any .proto change
 pnpm template:verify                         # any change to templates/ or packages/
+git status                                   # the gate must not leave changes behind
 ```
 
 ## Architecture

@@ -39,8 +39,9 @@ export const bookings = pgTable(
     cancelledAt: timestamp('cancelled_at', { withTimezone: true, precision: 3 }),
   },
   (table) => [
-    index('bookings_house_id_idx').on(table.houseId),
-    index('bookings_guest_id_idx').on(table.guestId),
+    // (filter, id) indexes serve the filtered keyset lists: WHERE house_id = $1 AND id < $2 ORDER BY id DESC
+    index('bookings_house_id_id_idx').on(table.houseId, table.id),
+    index('bookings_guest_id_id_idx').on(table.guestId, table.id),
     check('bookings_dates_check', sql`${table.checkIn} < ${table.checkOut}`),
     check('bookings_status_check', sql`${table.status} in ('CONFIRMED', 'CANCELLED')`),
     check('bookings_guests_check', sql`${table.guests} > 0`),

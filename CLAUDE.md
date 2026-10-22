@@ -13,7 +13,7 @@ pnpm build                      # SWC build (turbo-cached); runs an ESM link che
 pnpm new:service <noun>         # new service from templates/service
 pnpm --filter @ga/contracts codegen   # after editing any .proto
 pnpm --filter @ga/<svc> db:generate --name <change>   # after editing schema.ts
-pnpm db:setup && pnpm stack:up && pnpm test:e2e       # whole system locally (PM2)
+pnpm stack:up && pnpm test:e2e  # whole system locally (PM2): .env files, DBs, migrations, health
 ```
 
 ## Rules that break production when ignored
@@ -21,7 +21,7 @@ pnpm db:setup && pnpm stack:up && pnpm test:e2e       # whole system locally (PM
 - Domain code (`src/domain`) imports only `@ga/kernel`; application code never imports
   Drizzle, gRPC or `@ga/contracts`. Ports are abstract classes bound in `app.module.ts`.
 - Constructor-injected classes are value imports; `import type` only for interfaces and
-  types. Never enable Biome's `useImportType`. No circular imports between injectables.
+  types. Never enable Biome's `useImportType`. No circular imports (Biome fails them).
 - Relative imports end in `.ts`. ESM everywhere.
 - Fail with `DomainError` subclasses from `@ga/kernel` (stable UPPER_SNAKE reasons); their
   message and metadata reach API clients. Never throw HTTP/gRPC exceptions from domain or
@@ -35,4 +35,4 @@ pnpm db:setup && pnpm stack:up && pnpm test:e2e       # whole system locally (PM
 ## Status
 
 No authentication/authorization and no async messaging yet (ADR-0004, ADR-0005 in
-`docs/architecture/adr/`). Everything binds to 127.0.0.1 locally; do not expose it.
+`docs/architecture/adr/`). Processes bind to 127.0.0.1 by default; do not expose them.

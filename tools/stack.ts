@@ -1,62 +1,97 @@
 /**
  * Local stack lifecycle (PM2 + local Postgres).
- *   pnpm stack:up     build -> certs -> db:setup -> migrations -> pm2 start -> wait for /readyz
+ *   pnpm stack:up     build -> .env files -> certs -> db:setup -> migrations -> PM2 -> wait until ready
  *   pnpm stack:down   stop and remove the PM2 processes
+ *   pnpm db:migrate   apply every service's migrations (DATABASE_URL from services.json)
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { checkGrpcHealth, closeHealthClients } from '@ga/service-kit';
 import { Agent, request } from 'undici';
-import { ROOT, readRegistry } from './lib.ts';
+import { ensureEnvFiles } from './env-files.ts';
+import { databaseUrl, ROOT, readRegistry } from './lib.ts';
 
-const run = (args: string[]) => {
+const run = (args: string[], cwd = ROOT, env: NodeJS.ProcessEnv = process.env) => {
   console.log(`\n$ ${args.join(' ')}`);
-  execFileSync(args[0] as string, args.slice(1), { cwd: ROOT, stdio: 'inherit' });
+  execFileSync(args[0] as string, args.slice(1), { cwd, env, stdio: 'inherit' });
 };
 const pm2 = (...args: string[]) => run(['pnpm', 'exec', 'pm2', ...args]);
 
-const command = process.argv[2];
-if (command === 'down') {
-  pm2('delete', 'ecosystem.config.cjs');
-  process.exit(0);
-}
-if (command !== 'up') {
-  console.error('usage: node tools/stack.ts up|down');
-  process.exit(1);
-}
-
-run(['pnpm', 'turbo', 'run', 'build']);
-run(['node', 'tools/dev-certs.ts']);
-run(['node', 'tools/db-setup.ts']);
-run(['pnpm', 'turbo', 'run', 'db:migrate']);
-pm2('startOrReload', 'ecosystem.config.cjs', '--update-env');
-
-const { gateway, services } = readRegistry();
-const base = `https://localhost:${gateway.httpsPort}`;
-const dispatcher = new Agent({ connect: { ca: readFileSync(join(ROOT, '.certs/dev-cert.pem')) } });
-const deadline = Date.now() + 60_000;
-let last = 'no response';
-while (Date.now() < deadline) {
-  try {
-    const response = await request(`${base}/readyz`, { dispatcher });
-    last = JSON.stringify(await response.body.json());
-    if (response.statusCode === 200) {
-      console.log(`\nstack ready: ${last}`);
-      console.log(`\n  API      ${base}/v1/...`);
-      console.log(`  Docs     ${base}/docs`);
-      console.log(`  OpenAPI  ${base}/openapi.json`);
-      for (const s of services)
-        console.log(`  ${s.name.padEnd(16)} grpc://127.0.0.1:${s.grpcPort}  (${s.grpcService})`);
-      console.log('\n  pnpm stack:status | pnpm stack:logs | pnpm stack:down | pnpm test:e2e');
-      process.exit(0);
-    }
-  } catch (error) {
-    last = String(error);
+/** Runs each service's built migrate.js with the DATABASE_URL the stack uses (not its .env). */
+function migrateAll(): void {
+  for (const service of readRegistry().services) {
+    run([process.execPath, 'dist/migrate.js'], join(ROOT, service.dir), {
+      ...process.env,
+      DATABASE_URL: databaseUrl(service.database),
+    });
   }
-  await sleep(1_000);
 }
-console.error(
-  `\nstack did not become ready within 60s; last /readyz: ${last}\nsee: pnpm stack:logs`,
-);
-process.exit(1);
+
+async function waitUntilReady(): Promise<boolean> {
+  const { gateway, services } = readRegistry();
+  const base = `https://localhost:${gateway.httpsPort}`;
+  const dispatcher = new Agent({
+    connect: { ca: readFileSync(join(ROOT, '.certs/dev-cert.pem')) },
+  });
+  const deadline = Date.now() + 60_000;
+  let last = 'no response';
+  while (Date.now() < deadline) {
+    try {
+      const health = await Promise.all(
+        services.map(
+          async (s) => [s.name, await checkGrpcHealth(`127.0.0.1:${s.grpcPort}`)] as const,
+        ),
+      );
+      const notServing = health.filter(([, status]) => status !== 'SERVING');
+      const response = await request(`${base}/readyz`, { dispatcher });
+      const gatewayReady = response.statusCode === 200;
+      await response.body.text();
+      last = JSON.stringify({ gatewayReady, services: Object.fromEntries(health) });
+      if (gatewayReady && notServing.length === 0) {
+        console.log(`\nstack ready: ${last}`);
+        console.log(`\n  API      ${base}/v1/...`);
+        console.log(`  Docs     ${base}/docs`);
+        console.log(`  OpenAPI  ${base}/openapi.json`);
+        for (const s of services)
+          console.log(`  ${s.name.padEnd(16)} grpc://127.0.0.1:${s.grpcPort}  (${s.grpcService})`);
+        console.log('\n  pnpm stack:status | pnpm stack:logs | pnpm stack:down | pnpm test:e2e');
+        return true;
+      }
+    } catch (error) {
+      last = String(error);
+    }
+    await sleep(1_000);
+  }
+  console.error(
+    `\nstack did not become ready within 60s; last state: ${last}\nsee: pnpm stack:logs`,
+  );
+  return false;
+}
+
+const command = process.argv[2];
+switch (command) {
+  case 'down':
+    pm2('delete', 'ecosystem.config.cjs');
+    break;
+  case 'migrate':
+    migrateAll();
+    break;
+  case 'up': {
+    run(['pnpm', 'turbo', 'run', 'build']);
+    const created = ensureEnvFiles();
+    if (created.length > 0) console.log(`created ${created.join(', ')} from .env.example`);
+    run([process.execPath, 'tools/dev-certs.ts']);
+    run([process.execPath, 'tools/db-setup.ts']);
+    migrateAll();
+    pm2('startOrReload', 'ecosystem.config.cjs', '--update-env');
+    const ready = await waitUntilReady();
+    closeHealthClients();
+    process.exit(ready ? 0 : 1);
+    break;
+  }
+  default:
+    console.error('usage: node tools/stack.ts up|down|migrate');
+    process.exit(1);
+}

@@ -7,6 +7,9 @@ import {
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
 import { DependencyUnavailableError, NotFoundError } from '@ga/kernel';
+
+let unavailableCalls = 0;
+
 import { status } from '@grpc/grpc-js';
 import { Controller, type INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -50,6 +53,13 @@ class FakeUserController implements UserServiceController {
 
   async getUser(request: GetUserRequest) {
     if (request.id === 'boom') throw new Error('secret internals');
+    if (request.id === 'dependency-down') {
+      unavailableCalls += 1;
+      throw new DependencyUnavailableError(
+        'HOUSE_SERVICE_UNAVAILABLE',
+        'house-service is unavailable',
+      );
+    }
     if (request.id === 'slow') {
       await sleep(1_000);
       return { user: null };
@@ -190,6 +200,15 @@ describe('gRPC server bootstrap (in-process)', () => {
   it('applies the default deadline to outbound calls', async () => {
     const error = await firstValueFrom(users.getUser({ id: 'slow' })).catch((e: unknown) => e);
     expect((error as { code: number }).code).toBe(status.DEADLINE_EXCEEDED);
+  });
+
+  it('does not let callers retry an UNAVAILABLE that the handler already produced', async () => {
+    unavailableCalls = 0;
+    const error = await firstValueFrom(users.getUser({ id: 'dependency-down' })).catch(
+      (e: unknown) => e,
+    );
+    expect((error as { code: number }).code).toBe(status.UNAVAILABLE);
+    expect(unavailableCalls).toBe(1);
   });
 
   it('turns an unreachable dependency into DependencyUnavailableError', async () => {

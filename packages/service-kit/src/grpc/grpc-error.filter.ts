@@ -6,6 +6,9 @@ import { GrpcException, RpcException } from '@nestjs/microservices';
 import { type Observable, throwError } from 'rxjs';
 import { KIND_TO_GRPC_STATUS } from './error-mapping.ts';
 
+/** gRFC A6 server pushback trailer; a negative value disables client retries for the call. */
+export const RETRY_PUSHBACK_KEY = 'grpc-retry-pushback-ms';
+
 interface GrpcErrorPayload {
   code: number;
   message: string;
@@ -18,6 +21,8 @@ interface GrpcErrorPayload {
  *
  * - DomainError -> its status code, its message, and a google.rpc.Status trailer
  *   with ErrorInfo (reason, domain, metadata) and BadRequest field violations.
+ *   UNAVAILABLE from a DomainError also carries `grpc-retry-pushback-ms: -1`, because
+ *   the work was attempted and an automatic retry would only amplify the outage.
  * - Nest GrpcException / RpcException({ code }) -> passed through.
  * - Anything else -> INTERNAL with a generic message. The original message and
  *   stack never leave the process (they are logged by the RPC logger).
@@ -45,6 +50,11 @@ export class GrpcErrorFilter implements RpcExceptionFilter<unknown> {
           ...(error instanceof ValidationError ? { fieldViolations: error.violations } : {}),
         }),
       );
+      if (code === status.UNAVAILABLE) {
+        // The handler already ran and reports a dependency outage. A negative pushback tells
+        // grpc-js clients not to retry (gRFC A6), so retries do not multiply across hops.
+        metadata.set(RETRY_PUSHBACK_KEY, '-1');
+      }
       return { code, message: error.message, metadata };
     }
     if (error instanceof GrpcException) return error.getError();

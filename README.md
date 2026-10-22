@@ -21,13 +21,15 @@ client ────────────────────────�
 
 ## Quick start
 
-Prerequisites: a reachable Postgres 16+ with a superuser login (default
-`postgresql://$USER@localhost:5432/postgres`, override with `PG_ADMIN_URL`) and any
-`pnpm` 10+ (the repo pins and downloads Node 26 and pnpm 12 itself).
+Prerequisites: Postgres 16+ listening on `localhost:5432` with a superuser login
+(default `postgresql://$USER@localhost:5432/postgres`; `PG_ADMIN_URL` changes only the
+login `pnpm db:setup` uses, while services, migrations and tests connect as
+`ga:ga@localhost:5432`), and any `pnpm` 10+ (the repo pins and downloads Node 26 and
+pnpm 12 itself).
 
 ```bash
 pnpm install
-pnpm stack:up        # build, TLS cert, databases, migrations, start on PM2, wait for readiness
+pnpm stack:up        # build, .env files, TLS cert, databases, migrations, PM2, wait until every service is SERVING
 pnpm test:e2e        # end-to-end checks over HTTPS
 open https://localhost:8443/docs
 pnpm stack:down
@@ -55,8 +57,8 @@ curl -s --cacert .certs/dev-cert.pem https://localhost:8443/v1/users \
 ## Stack
 
 Node 26, pnpm 12 + Turborepo, TypeScript 7 (type checking) + SWC (emit), NestJS 12,
-gRPC (`@grpc/grpc-js`, buf, ts-proto), Fastify 5 (gateway), Zod 4, Drizzle ORM 1.0 +
-node-postgres, pino, OpenTelemetry, Vitest 5, Biome + oxlint, PM2 for the local stack.
+gRPC (`@grpc/grpc-js`, buf, ts-proto), Fastify 5 (gateway), Zod 4, Drizzle ORM 1.0 RC
+(exact pin) + node-postgres, pino, OpenTelemetry, Vitest 5, Biome + oxlint, PM2 for the local stack.
 Why each was chosen: `docs/architecture/adr/0001-platform-stack.md`.
 
 ## Everyday commands
@@ -74,7 +76,8 @@ pnpm stack:status | pnpm stack:logs
 ## Working with Claude Code
 
 Open the repo in Claude Code: `CLAUDE.md` and the `ga-*` skills load automatically.
-Start from the `ga-architecture` skill. To use the skills in another repository:
+Start from the `ga-architecture` skill. To use the skills in another repository (you need
+read access to this GitHub repository):
 
 ```text
 /plugin marketplace add pshenok/global-architecture
@@ -83,10 +86,11 @@ Start from the `ga-architecture` skill. To use the skills in another repository:
 
 ## Status and known gaps
 
-Verified locally: every package's tests, the template check, the PM2 stack and the
-end-to-end suite. Not built yet, by design of this first iteration:
+Verified: every package's tests, the template check, the PM2 stack with the end-to-end
+suite, a fresh-clone start, and the user-service container image (distroless, non-root).
+CI (`.github/workflows/ci.yml`) runs the same gate on every push and PR. Not built yet,
+by design of this first iteration:
 - authentication and authorization (proposal: ADR-0004), so do not expose the gateway;
 - asynchronous events / outbox (proposal: ADR-0005);
 - idempotency keys for create RPCs;
-- CI pipeline, container publishing and infrastructure (Dockerfiles exist but were not
-  built here).
+- image publishing and deployment infrastructure.

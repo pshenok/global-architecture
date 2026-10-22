@@ -6,16 +6,18 @@ description: Testing strategy and helpers of global-architecture - Vitest 5 with
 
 # Testing
 
-Four layers, from fast to realistic. Each catches bugs the others cannot, and every
-service from the template has all of them.
+Layers from fast to realistic; each catches bugs the others cannot. Every service from
+the template has the domain, use-case and integration layers; a service with client
+adapters adds adapter tests; the gateway and the whole system have their own suites.
 
-| Layer               | Where                         | Runs against                                       | Example                                  |
-| ------------------- | ----------------------------- | -------------------------------------------------- | ---------------------------------------- |
-| Domain unit         | `src/domain/*.spec.ts`        | nothing                                            | `booking.spec.ts`: pricing, cancel twice |
-| Use case            | `src/application/*.spec.ts`   | in-memory fakes from `test/fakes.ts`               | `booking.service.spec.ts`                |
-| Service integration | `test/*.spec.ts`              | real gRPC server in-process + real Postgres schema | `test/booking.grpc.spec.ts`              |
-| Gateway             | `apps/gateway/test/*.spec.ts` | Fastify inject + fake gRPC clients                 | `gateway.spec.ts`                        |
-| End to end          | `tests/e2e/*.e2e.spec.ts`     | the running local stack over HTTPS                 | `stack.e2e.spec.ts`                      |
+| Layer               | Where                                  | Runs against                                                   | Example                                     |
+| ------------------- | -------------------------------------- | -------------------------------------------------------------- | ------------------------------------------- |
+| Domain unit         | `src/domain/*.spec.ts`                 | nothing                                                        | `booking.spec.ts`: pricing, cancel twice    |
+| Use case            | `src/application/*.spec.ts`            | in-memory fakes from `test/fakes.ts`                           | `booking.service.spec.ts`                   |
+| Adapter             | `src/infrastructure/clients/*.spec.ts` | typed gRPC client faked with `vi.fn()` + `of()`/`throwError()` | house-service `grpc-user-directory.spec.ts` |
+| Service integration | `test/*.spec.ts`                       | real gRPC server in-process + real Postgres schema             | `test/booking.grpc.spec.ts`                 |
+| Gateway             | `apps/gateway/test/*.spec.ts`          | Fastify inject + fake gRPC clients                             | `gateway.spec.ts`                           |
+| End to end          | `tests/e2e/*.e2e.spec.ts`              | the running local stack over HTTPS                             | `stack.e2e.spec.ts`                         |
 
 ```bash
 pnpm --filter @ga/booking-service test                 # one package (unit + integration)
@@ -25,7 +27,9 @@ pnpm stack:up && pnpm test:e2e                         # end to end
 ```
 
 Integration tests need Postgres and the `ga_test` database (`pnpm db:setup`). They use
-`TEST_DATABASE_URL` (default `postgresql://ga:ga@localhost:5432/ga_test`).
+`TEST_DATABASE_URL` (default `postgresql://ga:ga@localhost:5432/ga_test`). Turbo caches
+test results; the `transit` task makes a package re-run when a workspace package it
+depends on (kernel, contracts, service-kit) changes.
 
 ## Use-case tests with fakes
 
@@ -46,6 +50,8 @@ Fakes implement the same abstract port and the **same contract** as the real ada
 including its failure modes (the in-memory booking repository rejects overlaps like the
 exclusion constraint does). A fake that is more permissive than production hides bugs.
 `SequentialIds` yields sortable UUID-shaped ids so pagination behaves like UUIDv7.
+With a `FixedClock`, build dates relative to the clock (`day(30, clock.now())` from
+`test/fakes.ts`), never relative to the real date, or "in the past" rules flip silently.
 
 ## Service integration tests (the most valuable layer)
 
@@ -54,8 +60,11 @@ db = await createTestDatabase({ migrationsFolder: fileURLToPath(new URL('../driz
 service = await startTestService({
   module: AppModule,
   service: SERVICE,
-  env: { DATABASE_URL: db.url, USER_SERVICE_URL: '127.0.0.1:1' },
-  override: (b) => b.overrideProvider(UserDirectory).useValue(new FakeUserDirectory()),
+  // every *_SERVICE_URL in the service's config is validated at boot, even when faked
+  env: { DATABASE_URL: db.url, USER_SERVICE_URL: '127.0.0.1:1', HOUSE_SERVICE_URL: '127.0.0.1:1' },
+  override: (b) =>
+    b.overrideProvider(UserDirectory).useValue(new FakeUserDirectory())
+     .overrideProvider(HouseCatalog).useValue(new FakeHouseCatalog()),
 });
 client = createGrpcTestClient<BookingServiceClient>('ga.booking.v1.BookingService', SERVICE.protoFiles, service.url);
 ...
@@ -76,7 +85,11 @@ afterAll(async () => { client.close(); await service.close(); await db.dispose()
   expect(error.code).toBe(status.ALREADY_EXISTS);
   expect(error.details?.errorInfo?.reason).toBe('BOOKING_DATES_UNAVAILABLE');
   ```
-- Dates relative to now (`day(30)`) keep "not in the past" rules green forever.
+- Dates relative to the real date (`day(30)`, the system clock is real here) keep
+  "not in the past" rules green forever.
+- To prove the "dependency down" path through the real adapter, start a second service
+  instance without the port override and with `X_SERVICE_URL: '127.0.0.1:1'`: calls fail
+  with `UNAVAILABLE` and reason `<DEP>_SERVICE_UNAVAILABLE`.
 
 ## Test what production will break on
 
@@ -91,11 +104,13 @@ afterAll(async () => { client.close(); await service.close(); await db.dispose()
 
 ## Gateway tests
 
-Compile `AppModule` with `overrideProvider(USER_SERVICE).useValue({ createUser: vi.fn(), ... })`,
-build the app with the production `createAdapter(config)` and `configureGateway(app, config)`
-(TLS off via `TLS_ENABLED=false`), then `fastify.inject(...)`. Return `of(response)` or
-`throwError(() => grpcError)` from the fakes; build gRPC errors with a `Metadata` that
-carries `encodeStatusDetails(...)` to test the problem+json mapping.
+Use `createTestGateway(new Map([[USER_SERVICE, fakeUsers]]))` from
+`apps/gateway/test/harness.ts`: it sets every required env var (`TEST_ENV`), boots the
+real gateway with the production adapter and configuration (TLS off) and returns
+`inject(...)`. Write one spec per resource (`test/<resource>.spec.ts`). Fakes return
+`of(response)` or `throwError(() => error)`; build gRPC errors with a `Metadata` that
+carries `encodeStatusDetails(...)` to test the problem+json mapping. When the gateway
+gains a downstream service, add its URL to `TEST_ENV`.
 
 ## Conventions and pitfalls
 
@@ -103,6 +118,10 @@ carries `encodeStatusDetails(...)` to test the problem+json mapping.
 - Tests import TS sources of workspace packages through the `@ga/source` condition; no
   build is needed to test.
 - SWC (unplugin-swc) transforms tests so decorator metadata equals production. If DI
-  suddenly fails only in tests after a tsconfig change, clear `node_modules/.vitest`.
+  suddenly fails only in tests after a tsconfig change, clear Vitest's transform cache
+  (`rm -rf node_modules/.vitest-cache` at the repo root).
+- Flows that need data in the past (a finished stay) cannot be produced through the
+  running stack (bookings in the past are rejected); cover their happy path in the
+  integration layer with fakes behind the port, and their error paths end to end.
 - Never use `setTimeout`-based waits for async results; await the call.
 - Never point tests at a service's real database or at the PM2 stack (except `tests/e2e`).

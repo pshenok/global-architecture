@@ -44,8 +44,10 @@ TypeScript that every service and the gateway import from `@ga/contracts/ga/<dom
 | Errors         | gRPC status + `google.rpc.ErrorInfo` (reason, domain, metadata) + `google.rpc.BadRequest` for validation, produced by the service kit                               |
 
 We use proto3 `optional` instead of `FieldMask` for updates: it is type-safe in
-TypeScript and needs no path mapping. The trade-off is that a field cannot be "cleared
-to its default"; model clearing explicitly when you need it.
+TypeScript and needs no path mapping. `optional` scalars keep presence, so a caller can
+set `description: ''` or `max_guests: 0` explicitly and the server sees it. What cannot be
+expressed is clearing a **message** field (an unset `Address` arrives as `null`, which
+means "unchanged"); add an explicit field or RPC when you need that.
 
 ## Workflow
 
@@ -54,7 +56,7 @@ to its default"; model clearing explicitly when you need it.
 pnpm --filter @ga/contracts codegen      # buf lint + generate + postgen + descriptors
 pnpm --filter @ga/contracts breaking     # compare with main (needs main in .git)
 pnpm --filter @ga/contracts test
-pnpm typecheck                           # every consumer sees the change
+pnpm typecheck                           # every consumer re-checks (turbo "transit" tasks hash dependencies)
 ```
 
 Generated files (`src/gen/**`) and `descriptors.binpb` are committed: reviewers see the
@@ -65,14 +67,17 @@ TypeScript impact, and nobody needs buf to build. Never edit them by hand.
 Safe: add a field with a new number, add an RPC, add an enum value (old readers see the
 raw number; keep a `default` branch), add an optional filter.
 
-Breaking (blocked by `buf breaking` with FILE rules): rename or renumber a field, change
-a type, remove anything, rename a package/service/RPC, reuse a number. Renames break
-TypeScript callers even when the wire is unchanged, which is why the check uses FILE,
-not WIRE.
+Breaking (blocked by `buf breaking` with FILE rules, run in CI on every PR): rename or
+renumber a field, change a type, remove anything, rename a package/service/RPC, reuse a
+number. Renames break TypeScript callers even when the wire is unchanged, which is why the
+check uses FILE, not WIRE. Under FILE, deleting a field fails even when you `reserved` its
+number and name.
 
-To change something breaking: add the new field/RPC, migrate callers, deprecate the old one
-(`[deprecated = true]`), delete it later with `reserved 4; reserved "old_name";`. A truly
-new API is `v2` (`ga.<domain>.v2`) served side by side with `v1` until callers move.
+To change something breaking: add the new field/RPC, migrate callers, mark the old one
+`[deprecated = true]` and leave it in place. Removing it later is a deliberate, reviewed
+exception (a PR that touches `buf.yaml` breaking `ignore_only` for that file, with
+`reserved 4; reserved "old_name";` in the proto). A truly new API is `v2`
+(`ga.<domain>.v2`) served side by side with `v1` until callers move.
 
 ## Runtime behaviour you must know (generated types vs. what arrives)
 

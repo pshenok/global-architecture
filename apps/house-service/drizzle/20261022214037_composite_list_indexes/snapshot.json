@@ -1,0 +1,165 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "72c045d7-a487-4206-ab07-b45c7889f286",
+  "prevIds": [
+    "9cda2d3b-9c88-4cdf-9cb8-274824b934e6"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "houses",
+        "houses_owner_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.houses_owner_id_idx",
+        "n|idx|public.houses_owner_id_idx",
+        "e|idx|public.houses_owner_id_idx",
+        "n|rel|public.houses_owner_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.houses",
+        "n|sch|public",
+        "e|col|public.houses.owner_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "houses",
+        "houses_city_lower_idx"
+      ],
+      "writes": [
+        "s|idx|public.houses_city_lower_idx",
+        "n|idx|public.houses_city_lower_idx",
+        "e|idx|public.houses_city_lower_idx",
+        "n|rel|public.houses_city_lower_idx"
+      ],
+      "reads": [
+        "e|tbl|public.houses",
+        "n|sch|public"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "houses",
+        "houses_owner_id_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.houses_owner_id_id_idx",
+        "n|idx|public.houses_owner_id_id_idx",
+        "e|idx|public.houses_owner_id_id_idx",
+        "n|rel|public.houses_owner_id_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.houses",
+        "n|sch|public",
+        "n|col|public.houses.owner_id",
+        "n|col|public.houses.id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "houses",
+        "houses_city_lower_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.houses_city_lower_id_idx",
+        "n|idx|public.houses_city_lower_id_idx",
+        "e|idx|public.houses_city_lower_id_idx",
+        "n|rel|public.houses_city_lower_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.houses",
+        "n|sch|public",
+        "n|col|public.houses.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "houses",
+        "name": "houses_owner_id_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "houses",
+        "name": "houses_city_lower_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "lower(\"city\")",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"houses_owner_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"houses_city_lower_idx\"]"
+    }
+  ]
+}

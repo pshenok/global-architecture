@@ -1,16 +1,13 @@
 import { encodeStatusDetails, STATUS_DETAILS_KEY } from '@ga/contracts/runtime';
 import { parseConfig } from '@ga/service-kit';
 import { Metadata, status } from '@grpc/grpc-js';
-import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { Test } from '@nestjs/testing';
 import { ThrottlerException } from '@nestjs/throttler';
 import { of, throwError } from 'rxjs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppModule } from '../src/app.module.ts';
-import { configureGateway, createAdapter } from '../src/bootstrap.ts';
 import { BOOKING_SERVICE, HOUSE_SERVICE, USER_SERVICE } from '../src/clients.ts';
 import { ConfigSchema } from '../src/config.ts';
 import { toProblemDetails } from '../src/http/problem-details.ts';
+import { createTestGateway, type TestGateway } from './harness.ts';
 
 const USER_ID = '01900000-0000-7000-8000-000000000001';
 const user = {
@@ -45,43 +42,25 @@ const users = {
 };
 
 describe('gateway (REST -> gRPC)', () => {
-  let app: NestFastifyApplication;
+  let gateway: TestGateway;
 
   beforeAll(async () => {
-    Object.assign(process.env, {
-      LOG_LEVEL: 'silent',
-      TLS_ENABLED: 'false',
-      USER_SERVICE_URL: '127.0.0.1:1',
-      HOUSE_SERVICE_URL: '127.0.0.1:1',
-      BOOKING_SERVICE_URL: '127.0.0.1:1',
-    });
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(USER_SERVICE)
-      .useValue(users)
-      .overrideProvider(HOUSE_SERVICE)
-      .useValue({})
-      .overrideProvider(BOOKING_SERVICE)
-      .useValue({})
-      .compile();
-    const config = parseConfig(ConfigSchema);
-    app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(config));
-    configureGateway(app, config);
-    await app.init();
-    await app.getHttpAdapter().getInstance().ready();
+    gateway = await createTestGateway(
+      new Map<symbol, unknown>([
+        [USER_SERVICE, users],
+        [HOUSE_SERVICE, {}],
+        [BOOKING_SERVICE, {}],
+      ]),
+    );
   });
 
   afterAll(async () => {
-    await app?.close();
+    await gateway?.close();
   });
 
   beforeEach(() => vi.resetAllMocks());
 
-  const inject = (options: {
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-    url: string;
-    payload?: object;
-    headers?: Record<string, string>;
-  }) => app.getHttpAdapter().getInstance().inject(options);
+  const inject: TestGateway['inject'] = (options) => gateway.inject(options);
 
   it('creates a user: 201, Location, REST field names, ISO timestamps', async () => {
     users.createUser.mockReturnValue(of({ user }));

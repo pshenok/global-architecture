@@ -5,7 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { HouseCatalog } from '../../application/ports/house-catalog.ts';
 import type { HouseTerms } from '../../domain/booking.ts';
-import { HOUSE_SERVICE } from './dependency-clients.ts';
+import { HOUSE_SERVICE } from './house-service.client.ts';
 
 /** HouseCatalog backed by house-service over gRPC (anti-corruption layer: maps its House to our HouseTerms). */
 @Injectable()

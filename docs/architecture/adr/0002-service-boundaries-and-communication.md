@@ -14,8 +14,10 @@ turning into a distributed monolith.
    cross-service foreign keys, no reporting queries into another service's database.
    References to another service's entities are plain ids (`owner_id`, `guest_id`).
 2. **Synchronous calls are gRPC** through typed clients from `@ga/contracts`, with a
-   default deadline, retry on `UNAVAILABLE` only, and request-id propagation
-   (`GrpcClientsModule`).
+   default deadline, request-id propagation and retries only for transport-level
+   `UNAVAILABLE` (`GrpcClientsModule`). A handler that itself reports `UNAVAILABLE`
+   (`DependencyUnavailableError`) sends `grpc-retry-pushback-ms: -1`, so outages are not
+   amplified by retries at every hop. Deadlines do not cancel the callee's work.
 3. **Dependencies form a directed acyclic graph.** A call that would close a cycle must be
    an event instead (ADR-0005).
 4. **Ports and adapters at the boundary.** A service depends on another service through a

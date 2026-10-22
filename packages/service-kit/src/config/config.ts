@@ -14,7 +14,8 @@ export const grpcServiceConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: logLevel.default('info'),
   LOG_PRETTY: z.stringbool().default(false),
-  GRPC_HOST: z.string().min(1).default('0.0.0.0'),
+  /** Bind address. Loopback by default (safe); containers set 0.0.0.0 explicitly. */
+  GRPC_HOST: z.string().min(1).default('127.0.0.1'),
   GRPC_PORT: z.coerce.number().int().min(1).max(65_535),
   /** Max inbound/outbound gRPC message size. Keep small: big messages are a memory DoS vector. */
   GRPC_MAX_MESSAGE_BYTES: z.coerce
