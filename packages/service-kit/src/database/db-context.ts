@@ -1,0 +1,31 @@
+import { UnitOfWork } from '@ga/kernel';
+import { Injectable } from '@nestjs/common';
+import { TransactionHost } from '@nestjs-cls/transactional';
+import type { TransactionalAdapterDrizzleOrm } from '@nestjs-cls/transactional-adapter-drizzle-orm';
+import type { Database } from './tokens.ts';
+
+/**
+ * What repositories inject. `tx` is the current transaction when called inside
+ * `UnitOfWork.run()`, otherwise the root database, so repositories never care
+ * whether they run in a transaction.
+ */
+@Injectable()
+export class DbContext {
+  constructor(private readonly host: TransactionHost<TransactionalAdapterDrizzleOrm<Database>>) {}
+
+  get tx(): Database {
+    return this.host.tx;
+  }
+}
+
+/** UnitOfWork port backed by nestjs-cls transactions (nested calls become savepoints). */
+@Injectable()
+export class DrizzleUnitOfWork extends UnitOfWork {
+  constructor(private readonly host: TransactionHost<TransactionalAdapterDrizzleOrm<Database>>) {
+    super();
+  }
+
+  run<T>(work: () => Promise<T>): Promise<T> {
+    return this.host.withTransaction(work);
+  }
+}

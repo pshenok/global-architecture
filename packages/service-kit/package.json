@@ -1,0 +1,62 @@
+{
+  "name": "@ga/service-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Microservice chassis: config, logging, request context, gRPC server/client bootstrap, error mapping, health, reflection, database (Drizzle + pg), unit of work, migrations and test helpers.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@ga/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@ga/source": "./src/testing/index.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./telemetry": {
+      "@ga/source": "./src/telemetry/instrumentation.ts",
+      "default": "./dist/telemetry/instrumentation.js"
+    }
+  },
+  "scripts": {
+    "build": "swc src -d dist --strip-leading-paths --config-file ../../.swcrc --ignore \"**/*.spec.ts\" && node ../../tools/check-esm.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ga/contracts": "workspace:*",
+    "@ga/kernel": "workspace:*",
+    "@grpc/grpc-js": "catalog:",
+    "@grpc/proto-loader": "catalog:",
+    "@grpc/reflection": "catalog:",
+    "@nestjs-cls/transactional": "catalog:",
+    "@nestjs-cls/transactional-adapter-drizzle-orm": "catalog:",
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "@nestjs/microservices": "catalog:",
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/instrumentation-grpc": "catalog:",
+    "@opentelemetry/instrumentation-http": "catalog:",
+    "@opentelemetry/instrumentation-pg": "catalog:",
+    "@opentelemetry/instrumentation-pino": "catalog:",
+    "@opentelemetry/sdk-node": "catalog:",
+    "drizzle-orm": "catalog:",
+    "grpc-health-check": "catalog:",
+    "import-in-the-middle": "catalog:",
+    "nestjs-cls": "catalog:",
+    "nestjs-pino": "catalog:",
+    "pg": "catalog:",
+    "pino": "catalog:",
+    "pino-http": "catalog:",
+    "pino-pretty": "catalog:",
+    "reflect-metadata": "catalog:",
+    "rxjs": "catalog:",
+    "uuid": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "catalog:",
+    "@types/pg": "catalog:"
+  }
+}

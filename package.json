@@ -1,0 +1,60 @@
+{
+  "name": "global-architecture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Platform monorepo: NestJS 12 gRPC microservices, HTTPS API gateway, shared kit, service template and Claude Code skills.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^26.12.1",
+      "onFail": "download"
+    },
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^12.15.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=26.12.1"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "biome ci . && turbo run lint",
+    "format": "biome check --write .",
+    "codegen": "turbo run codegen",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "new:service": "node tools/new-service.ts",
+    "template:verify": "node tools/verify-template.ts",
+    "certs": "node tools/dev-certs.ts",
+    "db:setup": "node tools/db-setup.ts",
+    "db:migrate": "turbo run db:migrate",
+    "stack:up": "node tools/stack.ts up",
+    "stack:down": "node tools/stack.ts down",
+    "stack:status": "pm2 status",
+    "stack:logs": "pm2 logs",
+    "test:e2e": "vitest run --config tests/e2e/vitest.config.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@swc/cli": "catalog:",
+    "@swc/core": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "chokidar": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "pg": "catalog:",
+    "pm2": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "undici": "catalog:",
+    "unplugin-swc": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

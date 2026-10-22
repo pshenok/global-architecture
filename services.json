@@ -1,0 +1,5 @@
+{
+  "$comment": "Local registry of services: gRPC ports and databases used by the local stack (PM2, db:setup, gateway). Managed by `pnpm new:service`.",
+  "gateway": { "name": "gateway", "dir": "apps/gateway", "httpsPort": 8443 },
+  "services": []
+}

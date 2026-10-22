@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package ga.booking.v1;
+
+import "ga/common/v1/money.proto";
+import "google/protobuf/timestamp.proto";
+
+// BookingService owns reservations of houses by guests.
+service BookingService {
+  // CreateBooking reserves a house for a date range.
+  // Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest or house missing,
+  // too many guests), ALREADY_EXISTS (dates overlap an active booking),
+  // UNAVAILABLE (a dependency is unreachable).
+  rpc CreateBooking(CreateBookingRequest) returns (CreateBookingResponse);
+  // GetBooking returns one booking.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  rpc GetBooking(GetBookingRequest) returns (GetBookingResponse);
+  // ListBookings pages through bookings, newest first, with optional filters.
+  // Errors: INVALID_ARGUMENT.
+  rpc ListBookings(ListBookingsRequest) returns (ListBookingsResponse);
+  // CancelBooking cancels a confirmed booking and frees its dates.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, FAILED_PRECONDITION (already cancelled).
+  rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse);
+}
+
+// BookingStatus is the lifecycle state of a booking.
+enum BookingStatus {
+  BOOKING_STATUS_UNSPECIFIED = 0;
+  BOOKING_STATUS_CONFIRMED = 1;
+  BOOKING_STATUS_CANCELLED = 2;
+}
+
+// Booking is a reservation of a house for [check_in, check_out).
+message Booking {
+  // Server-generated UUIDv7.
+  string id = 1;
+  string house_id = 2;
+  // Id of the ga.user.v1.User who stays.
+  string guest_id = 3;
+  // ISO 8601 calendar date, inclusive, for example "2026-11-01".
+  string check_in = 4;
+  // ISO 8601 calendar date, exclusive.
+  string check_out = 5;
+  int32 guests = 6;
+  // nights * house nightly price, frozen at booking time.
+  ga.common.v1.Money total_price = 7;
+  BookingStatus status = 8;
+  google.protobuf.Timestamp create_time = 9;
+  google.protobuf.Timestamp update_time = 10;
+  // Set when status is BOOKING_STATUS_CANCELLED.
+  google.protobuf.Timestamp cancel_time = 11;
+}
+
+message CreateBookingRequest {
+  string house_id = 1;
+  string guest_id = 2;
+  string check_in = 3;
+  string check_out = 4;
+  // 1..50 and at most the house max_guests.
+  int32 guests = 5;
+}
+
+message CreateBookingResponse {
+  Booking booking = 1;
+}
+
+message GetBookingRequest {
+  string id = 1;
+}
+
+message GetBookingResponse {
+  Booking booking = 1;
+}
+
+message ListBookingsRequest {
+  // 1..100, defaults to 20 when 0.
+  int32 page_size = 1;
+  string page_token = 2;
+  optional string guest_id = 3;
+  optional string house_id = 4;
+}
+
+message ListBookingsResponse {
+  repeated Booking bookings = 1;
+  string next_page_token = 2;
+}
+
+message CancelBookingRequest {
+  string id = 1;
+}
+
+message CancelBookingResponse {
+  Booking booking = 1;
+}

@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package ga.sample_item.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// SampleItemService owns sample items.
+service SampleItemService {
+  // CreateSampleItem creates a sample item.
+  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (name taken).
+  rpc CreateSampleItem(CreateSampleItemRequest) returns (CreateSampleItemResponse);
+  // GetSampleItem returns one sample item.
+  // Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND.
+  rpc GetSampleItem(GetSampleItemRequest) returns (GetSampleItemResponse);
+  // ListSampleItems pages through sample items, newest first.
+  // Errors: INVALID_ARGUMENT (bad page_size or page_token).
+  rpc ListSampleItems(ListSampleItemsRequest) returns (ListSampleItemsResponse);
+  // UpdateSampleItem changes only the fields that are set.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (name taken).
+  rpc UpdateSampleItem(UpdateSampleItemRequest) returns (UpdateSampleItemResponse);
+  // DeleteSampleItem removes a sample item.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  rpc DeleteSampleItem(DeleteSampleItemRequest) returns (DeleteSampleItemResponse);
+}
+
+// SampleItem is the aggregate this service owns.
+message SampleItem {
+  // Server-generated UUIDv7.
+  string id = 1;
+  // Unique, 1..200 characters.
+  string name = 2;
+  // Up to 2000 characters.
+  string description = 3;
+  google.protobuf.Timestamp create_time = 4;
+  google.protobuf.Timestamp update_time = 5;
+}
+
+message CreateSampleItemRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message CreateSampleItemResponse {
+  SampleItem sample_item = 1;
+}
+
+message GetSampleItemRequest {
+  string id = 1;
+}
+
+message GetSampleItemResponse {
+  SampleItem sample_item = 1;
+}
+
+message ListSampleItemsRequest {
+  // 1..100, defaults to 20 when 0.
+  int32 page_size = 1;
+  // Opaque token from a previous ListSampleItemsResponse.next_page_token.
+  string page_token = 2;
+}
+
+message ListSampleItemsResponse {
+  repeated SampleItem sample_items = 1;
+  // Empty when there are no more pages.
+  string next_page_token = 2;
+}
+
+message UpdateSampleItemRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+}
+
+message UpdateSampleItemResponse {
+  SampleItem sample_item = 1;
+}
+
+message DeleteSampleItemRequest {
+  string id = 1;
+}
+
+message DeleteSampleItemResponse {}

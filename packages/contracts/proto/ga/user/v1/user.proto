@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package ga.user.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// UserService owns platform user accounts.
+service UserService {
+  // CreateUser registers a new user.
+  // Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  // GetUser returns one user.
+  // Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  // ListUsers pages through users, newest first.
+  // Errors: INVALID_ARGUMENT (bad page_size or page_token).
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // UpdateUser changes only the fields that are set.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (email taken).
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  // DeleteUser removes a user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+}
+
+// User is a person with an account on the platform.
+message User {
+  // Server-generated UUIDv7.
+  string id = 1;
+  // Unique, stored lower-cased.
+  string email = 2;
+  string full_name = 3;
+  google.protobuf.Timestamp create_time = 4;
+  google.protobuf.Timestamp update_time = 5;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  // 1..200 characters.
+  string full_name = 2;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {
+  // 1..100, defaults to 20 when 0.
+  int32 page_size = 1;
+  // Opaque token from a previous ListUsersResponse.next_page_token.
+  string page_token = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  // Empty when there are no more pages.
+  string next_page_token = 2;
+}
+
+message UpdateUserRequest {
+  string id = 1;
+  optional string email = 2;
+  optional string full_name = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+}
+
+message DeleteUserResponse {}

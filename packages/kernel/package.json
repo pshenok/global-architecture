@@ -1,0 +1,19 @@
+{
+  "name": "@ga/kernel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared kernel: framework-free domain primitives (errors, ports, pagination). The only package the domain layer may import.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@ga/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "swc src -d dist --strip-leading-paths --config-file ../../.swcrc --ignore \"**/*.spec.ts\" && node ../../tools/check-esm.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint",
+    "test": "vitest run"
+  }
+}

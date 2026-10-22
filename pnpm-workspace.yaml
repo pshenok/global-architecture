@@ -1,0 +1,96 @@
+packages:
+  - apps/*
+  - packages/*
+
+# ---- supply chain (pnpm 12) -------------------------------------------------
+# New versions become installable only after 24h; transitive deps may not come
+# from git/tarball URLs; unknown install scripts fail the install.
+minimumReleaseAge: 1440
+blockExoticSubdeps: true
+strictDepBuilds: true
+engineStrict: true
+
+# The ONLY packages allowed to run install scripts.
+allowBuilds:
+  "@swc/core": true
+  esbuild: true
+  protobufjs: false # postinstall only prints a warning
+  "@bufbuild/buf": false # optional binary-shim optimisation; CLI works without it
+
+# Single copies of the gRPC loader stack: Nest resolves @grpc/proto-loader from
+# its own location, and the well-known-type wrappers patch one protobufjs instance.
+overrides:
+  "@grpc/proto-loader": 0.8.1
+  protobufjs: 7.6.6
+
+# ---- dependency catalog: every version lives here ---------------------------
+catalogMode: strict
+savePrefix: ""
+
+catalog:
+  # framework
+  "@nestjs/common": 12.2.0
+  "@nestjs/core": 12.2.0
+  "@nestjs/microservices": 12.2.0
+  "@nestjs/platform-fastify": 12.2.0
+  "@nestjs/swagger": 12.0.2
+  "@nestjs/terminus": 12.1.0
+  "@nestjs/testing": 12.2.0
+  "@nestjs/throttler": 6.7.1
+  fastify: 5.12.7
+  reflect-metadata: 0.2.2
+  rxjs: 7.8.2
+  # gRPC
+  "@grpc/grpc-js": 1.14.6
+  "@grpc/proto-loader": 0.8.1
+  "@grpc/reflection": 1.0.4
+  grpc-health-check: 2.1.0
+  protobufjs: 7.6.6
+  # data
+  drizzle-orm: 1.0.0-rc.5
+  drizzle-kit: 1.0.0-rc.5
+  pg: 8.23.1
+  "@types/pg": 8.23.1
+  uuid: 14.0.3
+  nestjs-cls: 7.0.1
+  "@nestjs-cls/transactional": 4.0.1
+  "@nestjs-cls/transactional-adapter-drizzle-orm": 2.0.1
+  # validation, logging
+  zod: 4.6.7
+  pino: 10.4.0
+  pino-http: 11.0.0
+  nestjs-pino: 5.3.1
+  pino-pretty: 13.2.0
+  "@scalar/nestjs-api-reference": 1.2.30
+  # observability (loaded only when OTEL_EXPORTER_OTLP_ENDPOINT is set)
+  "@opentelemetry/api": 1.10.0
+  "@opentelemetry/sdk-node": 0.300.0
+  "@opentelemetry/instrumentation-http": 0.300.0
+  "@opentelemetry/instrumentation-grpc": 0.300.0
+  "@opentelemetry/instrumentation-pg": 0.77.0
+  "@opentelemetry/instrumentation-pino": 0.70.0
+  "@fastify/otel": 0.21.3
+  import-in-the-middle: 3.5.2
+  # codegen
+  "@bufbuild/buf": 1.74.0
+  ts-proto: 2.18.0
+  # tooling
+  "@biomejs/biome": 2.6.2
+  oxlint: 1.89.0
+  oxlint-tsgolint: 7.0.2004
+  turbo: 2.11.10
+  typescript: 7.0.2
+  "@swc/core": 1.16.18
+  "@swc/cli": 0.8.1
+  chokidar: 5.0.0
+  unplugin-swc: 2.0.0
+  vitest: 5.0.5
+  vite: 8.3.5
+  pm2: 7.1.0
+  undici: 8.12.3
+  "@types/node": 26.6.5
+
+peerDependencyRules:
+  allowedVersions:
+    # @fastify/otel 0.21.x still depends on OTel core 2.x, whose peer range stops below api 1.10
+    "@opentelemetry/core@2>@opentelemetry/api": "1.10"

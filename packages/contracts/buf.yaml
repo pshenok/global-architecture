@@ -1,0 +1,19 @@
+# One buf module holds every platform contract. Packages are versioned:
+# ga.<domain>.v1 lives in proto/ga/<domain>/v1/<domain>.proto.
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  ignore:
+    - proto/grpc # vendored grpc/health/v1/health.proto (upstream file)
+    - proto/google # vendored google/rpc error model (upstream files)
+breaking:
+  # FILE (not WIRE): generated TypeScript uses field names, so a rename that is
+  # wire-safe still breaks callers.
+  use:
+    - FILE
+  ignore:
+    - proto/grpc
+    - proto/google

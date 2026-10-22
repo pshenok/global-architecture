@@ -1,0 +1,42 @@
+{
+  "name": "@ga/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "gRPC contracts: one buf module with every service's .proto, generated TypeScript (ts-proto, NestJS flavour) and the proto runtime helpers shared by services and the gateway.",
+  "type": "module",
+  "exports": {
+    "./runtime": {
+      "@ga/source": "./src/runtime/index.ts",
+      "default": "./dist/runtime/index.js"
+    },
+    "./ga/*": {
+      "@ga/source": "./src/gen/ga/*.ts",
+      "default": "./dist/gen/ga/*.js"
+    },
+    "./descriptors.binpb": "./descriptors.binpb"
+  },
+  "scripts": {
+    "codegen": "buf lint && buf generate && node scripts/postgen.ts && buf build -o descriptors.binpb",
+    "lint:proto": "buf lint",
+    "format:proto": "buf format -w",
+    "breaking": "buf breaking --against '../../.git#branch=main,subdir=packages/contracts'",
+    "build": "swc src -d dist --strip-leading-paths --config-file ../../.swcrc --ignore \"**/*.spec.ts\" && node ../../tools/check-esm.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "catalog:",
+    "@grpc/proto-loader": "catalog:",
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "@nestjs/microservices": "catalog:",
+    "protobufjs": "catalog:",
+    "reflect-metadata": "catalog:",
+    "rxjs": "catalog:"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "catalog:",
+    "ts-proto": "catalog:"
+  }
+}

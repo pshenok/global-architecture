@@ -1,0 +1,129 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/src/gen",
+      "!**/dist",
+      "!**/coverage",
+      "!**/.turbo",
+      "!**/drizzle/**/snapshot.json",
+      "!_reference"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": true
+    },
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "domains": {
+      "project": "recommended"
+    },
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "useImportType": "off",
+        "useNodejsImportProtocol": "error"
+      },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "suspicious": {
+        "noImportCycles": "error"
+      },
+      "complexity": {
+        "noStaticOnlyClass": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["**/src/domain/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@nestjs/*",
+                      "drizzle-orm",
+                      "drizzle-orm/*",
+                      "pg",
+                      "@grpc/*",
+                      "@ga/contracts",
+                      "@ga/contracts/*",
+                      "@ga/service-kit",
+                      "@ga/service-kit/*",
+                      "nestjs-cls",
+                      "@nestjs-cls/*"
+                    ],
+                    "message": "The domain layer is pure TypeScript: import only @ga/kernel and other domain files."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/src/application/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "drizzle-orm",
+                      "drizzle-orm/*",
+                      "pg",
+                      "@grpc/*",
+                      "@ga/contracts",
+                      "@ga/contracts/*",
+                      "@nestjs/microservices",
+                      "@nestjs-cls/*"
+                    ],
+                    "message": "The application layer depends on domain ports only, never on transport or persistence."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

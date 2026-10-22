@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package ga.house.v1;
+
+import "ga/common/v1/money.proto";
+import "google/protobuf/timestamp.proto";
+
+// HouseService owns rentable houses (listings).
+service HouseService {
+  // CreateHouse lists a new house for an existing owner.
+  // Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (owner does not exist),
+  // UNAVAILABLE (user-service unreachable).
+  rpc CreateHouse(CreateHouseRequest) returns (CreateHouseResponse);
+  // GetHouse returns one house.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  rpc GetHouse(GetHouseRequest) returns (GetHouseResponse);
+  // ListHouses pages through houses, newest first, with optional filters.
+  // Errors: INVALID_ARGUMENT.
+  rpc ListHouses(ListHousesRequest) returns (ListHousesResponse);
+  // UpdateHouse changes only the fields that are set.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  rpc UpdateHouse(UpdateHouseRequest) returns (UpdateHouseResponse);
+  // DeleteHouse removes a house.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  rpc DeleteHouse(DeleteHouseRequest) returns (DeleteHouseResponse);
+}
+
+// House is a property that guests can book.
+message House {
+  // Server-generated UUIDv7.
+  string id = 1;
+  // Id of the owning ga.user.v1.User.
+  string owner_id = 2;
+  string title = 3;
+  string description = 4;
+  Address address = 5;
+  ga.common.v1.Money nightly_price = 6;
+  int32 max_guests = 7;
+  google.protobuf.Timestamp create_time = 8;
+  google.protobuf.Timestamp update_time = 9;
+}
+
+// Address is a postal address.
+message Address {
+  string line1 = 1;
+  string city = 2;
+  // ISO 3166-1 alpha-2, for example "UA" or "US".
+  string country_code = 3;
+}
+
+message CreateHouseRequest {
+  string owner_id = 1;
+  // 1..200 characters.
+  string title = 2;
+  // Up to 5000 characters.
+  string description = 3;
+  Address address = 4;
+  ga.common.v1.Money nightly_price = 5;
+  // 1..50.
+  int32 max_guests = 6;
+}
+
+message CreateHouseResponse {
+  House house = 1;
+}
+
+message GetHouseRequest {
+  string id = 1;
+}
+
+message GetHouseResponse {
+  House house = 1;
+}
+
+message ListHousesRequest {
+  // 1..100, defaults to 20 when 0.
+  int32 page_size = 1;
+  string page_token = 2;
+  // Only houses of this owner when set.
+  optional string owner_id = 3;
+  // Only houses in this city (case-insensitive) when set.
+  optional string city = 4;
+}
+
+message ListHousesResponse {
+  repeated House houses = 1;
+  string next_page_token = 2;
+}
+
+message UpdateHouseRequest {
+  string id = 1;
+  optional string title = 2;
+  optional string description = 3;
+  // Replaces the whole address when set.
+  Address address = 4;
+  // Replaces the price when set.
+  ga.common.v1.Money nightly_price = 5;
+  optional int32 max_guests = 6;
+}
+
+message UpdateHouseResponse {
+  House house = 1;
+}
+
+message DeleteHouseRequest {
+  string id = 1;
+}
+
+message DeleteHouseResponse {}

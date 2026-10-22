@@ -1,0 +1,25 @@
+version: v2
+clean: true
+inputs:
+  - directory: proto
+    exclude_paths:
+      - proto/grpc
+      - proto/google
+plugins:
+  # Local plugin from node_modules (run through `pnpm codegen`, which puts .bin on PATH).
+  - local: protoc-gen-ts_proto
+    out: src/gen
+    strategy: all
+    opt:
+      - nestJs=true # interfaces + @XxxServiceControllerMethods() decorator, no codecs
+      - addGrpcMetadata=true # handlers receive (request, metadata)
+      - useNestjsFqnServiceName=true # GrpcMethod('ga.user.v1.UserService', ...): no cross-package collisions
+      - useDate=true # google.protobuf.Timestamp <-> Date (needs installWellKnownTypes() at runtime)
+      - stringEnums=true # matches proto-loader enums: String
+      - unrecognizedEnum=false # proto-loader never produces UNRECOGNIZED
+      - useOptionals=messages # message fields optional in TS
+      - useNullAsOptional=true # proto-loader returns null for unset message fields
+      - forceLong=number # matches proto-loader longs: Number (ids are strings, int64 only for amounts)
+      - env=node
+      - esModuleInterop=true
+      - importSuffix=.js # Node ESM

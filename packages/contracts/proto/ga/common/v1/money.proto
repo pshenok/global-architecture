@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ga.common.v1;
+
+// Money is an amount in the minor unit of a currency (cents for USD).
+// Integer minor units avoid floating point rounding errors.
+message Money {
+  // ISO 4217 currency code, for example "USD".
+  string currency_code = 1;
+  // Amount in minor units, for example 12550 for 125.50 USD.
+  int64 amount_minor = 2;
+}
