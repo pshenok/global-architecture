@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
 import { GrpcPlatformModule } from '@ga/service-kit';
+import { Module } from '@nestjs/common';
 import { SampleItemService } from './application/sample-item.service.ts';
 import { ConfigSchema } from './config.ts';
 import { SampleItemRepository } from './domain/sample-item.repository.ts';
@@ -11,6 +11,9 @@ import { SampleItemGrpcController } from './transport/grpc/sample-item.grpc-cont
 @Module({
   imports: [GrpcPlatformModule.forRoot({ service: SERVICE, config: ConfigSchema })],
   controllers: [SampleItemGrpcController],
-  providers: [SampleItemService, { provide: SampleItemRepository, useClass: DrizzleSampleItemRepository }],
+  providers: [
+    SampleItemService,
+    { provide: SampleItemRepository, useClass: DrizzleSampleItemRepository },
+  ],
 })
 export class AppModule {}

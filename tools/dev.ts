@@ -8,7 +8,16 @@ import { join } from 'node:path';
 import { ROOT } from './lib.ts';
 
 const swc = join(ROOT, 'node_modules/.bin/swc');
-const swcArgs = ['src', '-d', 'dist', '--strip-leading-paths', '--config-file', join(ROOT, '.swcrc'), '--ignore', '**/*.spec.ts'];
+const swcArgs = [
+  'src',
+  '-d',
+  'dist',
+  '--strip-leading-paths',
+  '--config-file',
+  join(ROOT, '.swcrc'),
+  '--ignore',
+  '**/*.spec.ts',
+];
 
 execFileSync(swc, swcArgs, { stdio: 'inherit' });
 const children = [
@@ -24,7 +33,8 @@ const stop = () => {
 };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-for (const child of children) child.on('exit', (code) => {
-  stop();
-  process.exitCode = code ?? 0;
-});
+for (const child of children)
+  child.on('exit', (code) => {
+    stop();
+    process.exitCode = code ?? 0;
+  });

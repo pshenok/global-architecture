@@ -15,7 +15,8 @@ try {
     await client.query("create role ga login password 'ga' createdb");
     console.log('created role ga');
   }
-  const databases = [...readRegistry().services.map((s) => s.database), TEST_DATABASE];
+  const services = readRegistry().services;
+  const databases = [...services.map((s) => s.database), TEST_DATABASE];
   for (const name of databases) {
     if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error(`refusing unsafe database name ${name}`);
     const exists = await client.query('select 1 from pg_database where datname = $1', [name]);
@@ -28,4 +29,32 @@ try {
   }
 } finally {
   await client.end();
+}
+
+// Extensions: in each service database that needs them, and in the shared test database.
+const extensionsByDatabase = new Map<string, Set<string>>();
+for (const service of readRegistry().services) {
+  for (const extension of service.extensions ?? []) {
+    for (const database of [service.database, TEST_DATABASE]) {
+      const set = extensionsByDatabase.get(database) ?? new Set<string>();
+      set.add(extension);
+      extensionsByDatabase.set(database, set);
+    }
+  }
+}
+for (const [database, extensions] of extensionsByDatabase) {
+  const url = new URL(adminUrl);
+  url.pathname = `/${database}`;
+  const db = new pg.Client({ connectionString: url.toString() });
+  await db.connect();
+  try {
+    for (const extension of extensions) {
+      if (!/^[a-z_][a-z0-9_]*$/.test(extension))
+        throw new Error(`refusing unsafe extension name ${extension}`);
+      await db.query(`create extension if not exists ${extension} with schema public`);
+      console.log(`extension ${extension} ready in ${database}`);
+    }
+  } finally {
+    await db.end();
+  }
 }

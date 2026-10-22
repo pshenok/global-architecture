@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '@ga/kernel';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FixedClock,
   InMemorySampleItemRepository,
@@ -16,7 +16,12 @@ describe('SampleItemService', () => {
   beforeEach(() => {
     repository = new InMemorySampleItemRepository();
     clock = new FixedClock();
-    service = new SampleItemService(repository, new SequentialIds(), clock, new PassThroughUnitOfWork());
+    service = new SampleItemService(
+      repository,
+      new SequentialIds(),
+      clock,
+      new PassThroughUnitOfWork(),
+    );
   });
 
   it('creates and reads back a sample item', async () => {
@@ -26,7 +31,9 @@ describe('SampleItemService', () => {
 
   it('rejects a duplicate name', async () => {
     await service.create({ name: 'Lamp', description: '' });
-    await expect(service.create({ name: 'Lamp', description: 'again' })).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.create({ name: 'Lamp', description: 'again' })).rejects.toBeInstanceOf(
+      ConflictError,
+    );
   });
 
   it('pages newest first', async () => {

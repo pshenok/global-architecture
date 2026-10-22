@@ -20,6 +20,8 @@ export interface ServiceEntry {
   protoFile: string;
   /** Env var other services and the gateway use to reach it, e.g. `HOUSE_SERVICE_URL`. */
   urlEnv: string;
+  /** Postgres extensions its migrations need (pre-created by `pnpm db:setup`), e.g. `btree_gist`. */
+  extensions?: string[];
 }
 
 export interface Registry {

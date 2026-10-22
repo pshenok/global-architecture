@@ -1,7 +1,7 @@
 import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } from '@ga/kernel';
-import { SampleItem } from '../src/domain/sample-item.ts';
 import { sampleItemNameTaken } from '../src/domain/sample-item.errors.ts';
 import { SampleItemRepository } from '../src/domain/sample-item.repository.ts';
+import { SampleItem } from '../src/domain/sample-item.ts';
 
 /** Deterministic, sortable UUIDv7-shaped ids: ...-000000000001, ...-000000000002, ... */
 export class SequentialIds extends IdGenerator {
@@ -68,7 +68,8 @@ export class InMemorySampleItemRepository extends SampleItemRepository {
 
   private assertNameFree(sampleItem: SampleItem): void {
     for (const state of this.rows.values()) {
-      if (state.name === sampleItem.name && state.id !== sampleItem.id) throw sampleItemNameTaken(sampleItem.name);
+      if (state.name === sampleItem.name && state.id !== sampleItem.id)
+        throw sampleItemNameTaken(sampleItem.name);
     }
   }
 }

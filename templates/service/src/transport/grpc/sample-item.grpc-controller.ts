@@ -1,4 +1,3 @@
-import { Controller } from '@nestjs/common';
 import {
   type CreateSampleItemRequest,
   type CreateSampleItemResponse,
@@ -15,6 +14,7 @@ import {
 } from '@ga/contracts/ga/sample_item/v1/sample_item';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
 import { parseRequest } from '@ga/service-kit';
+import { Controller } from '@nestjs/common';
 import { SampleItemService } from '../../application/sample-item.service.ts';
 import { toSampleItemMessage } from './sample-item.mapper.ts';
 import {

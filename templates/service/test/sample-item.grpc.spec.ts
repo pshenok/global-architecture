@@ -1,6 +1,4 @@
 import { fileURLToPath } from 'node:url';
-import { status } from '@grpc/grpc-js';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { SampleItemServiceClient } from '@ga/contracts/ga/sample_item/v1/sample_item';
 import {
   createGrpcTestClient,
@@ -11,6 +9,8 @@ import {
   type TestDatabase,
   type TestService,
 } from '@ga/service-kit/testing';
+import { status } from '@grpc/grpc-js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
 import { SERVICE } from '../src/service.ts';
 
@@ -24,9 +24,19 @@ describe('SampleItemService over gRPC', () => {
   let client: GrpcTestClient<SampleItemServiceClient>;
 
   beforeAll(async () => {
-    db = await createTestDatabase({ migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)) });
-    service = await startTestService({ module: AppModule, service: SERVICE, env: { DATABASE_URL: db.url } });
-    client = createGrpcTestClient<SampleItemServiceClient>(SERVICE.services[0] as string, SERVICE.protoFiles, service.url);
+    db = await createTestDatabase({
+      migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)),
+    });
+    service = await startTestService({
+      module: AppModule,
+      service: SERVICE,
+      env: { DATABASE_URL: db.url },
+    });
+    client = createGrpcTestClient<SampleItemServiceClient>(
+      SERVICE.services[0] as string,
+      SERVICE.protoFiles,
+      service.url,
+    );
   });
 
   afterAll(async () => {
@@ -43,7 +53,9 @@ describe('SampleItemService over gRPC', () => {
     expect(sampleItem?.createTime).toBeInstanceOf(Date);
     const id = sampleItem?.id as string;
 
-    await expect(client.getSampleItem({ id })).resolves.toMatchObject({ sampleItem: { id, name: 'Lamp' } });
+    await expect(client.getSampleItem({ id })).resolves.toMatchObject({
+      sampleItem: { id, name: 'Lamp' },
+    });
 
     const updated = await client.updateSampleItem({ id, description: 'cold' });
     expect(updated.sampleItem).toMatchObject({ name: 'Lamp', description: 'cold' });
@@ -69,7 +81,8 @@ describe('SampleItemService over gRPC', () => {
   });
 
   it('pages with opaque tokens, newest first', async () => {
-    for (const name of ['a', 'b', 'c', 'd', 'e']) await client.createSampleItem({ name, description: '' });
+    for (const name of ['a', 'b', 'c', 'd', 'e'])
+      await client.createSampleItem({ name, description: '' });
     const first = await client.listSampleItems({ pageSize: 2, pageToken: '' });
     expect(first.sampleItems.map((i) => i.name)).toEqual(['e', 'd']);
     const second = await client.listSampleItems({ pageSize: 2, pageToken: first.nextPageToken });

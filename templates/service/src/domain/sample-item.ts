@@ -30,9 +30,15 @@ function normalizeName(name: string): string {
 function normalizeDescription(description: string): string {
   const trimmed = description.trim();
   if (trimmed.length > SAMPLE_ITEM_DESCRIPTION_MAX) {
-    throw new ValidationError(`description must be at most ${SAMPLE_ITEM_DESCRIPTION_MAX} characters`, [
-      { field: 'description', description: `must be at most ${SAMPLE_ITEM_DESCRIPTION_MAX} characters` },
-    ]);
+    throw new ValidationError(
+      `description must be at most ${SAMPLE_ITEM_DESCRIPTION_MAX} characters`,
+      [
+        {
+          field: 'description',
+          description: `must be at most ${SAMPLE_ITEM_DESCRIPTION_MAX} characters`,
+        },
+      ],
+    );
   }
   return trimmed;
 }
@@ -84,7 +90,9 @@ export class SampleItem {
   update(changes: SampleItemChanges, now: Date): void {
     const name = changes.name === undefined ? this.state.name : normalizeName(changes.name);
     const description =
-      changes.description === undefined ? this.state.description : normalizeDescription(changes.description);
+      changes.description === undefined
+        ? this.state.description
+        : normalizeDescription(changes.description);
     if (name === this.state.name && description === this.state.description) return;
     this.state = { ...this.state, name, description, updatedAt: now };
   }

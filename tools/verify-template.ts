@@ -28,7 +28,10 @@ try {
   console.error('\ntemplate:verify FAILED');
 } finally {
   rmSync(join(ROOT, 'apps', `${NAME}-service`), { recursive: true, force: true });
-  rmSync(join(ROOT, 'packages/contracts/proto/ga/zz_template_check'), { recursive: true, force: true });
+  rmSync(join(ROOT, 'packages/contracts/proto/ga/zz_template_check'), {
+    recursive: true,
+    force: true,
+  });
   run(['pnpm', '--filter', '@ga/contracts', 'codegen']);
   run(['pnpm', 'install', '--prefer-offline']);
 }

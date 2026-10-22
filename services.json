@@ -1,5 +1,41 @@
 {
   "$comment": "Local registry of services: gRPC ports and databases used by the local stack (PM2, db:setup, gateway). Managed by `pnpm new:service`.",
-  "gateway": { "name": "gateway", "dir": "apps/gateway", "httpsPort": 8443 },
-  "services": []
+  "gateway": {
+    "name": "gateway",
+    "dir": "apps/gateway",
+    "httpsPort": 8443
+  },
+  "services": [
+    {
+      "name": "user-service",
+      "dir": "apps/user-service",
+      "package": "@ga/user-service",
+      "grpcPort": 50051,
+      "database": "ga_user",
+      "grpcService": "ga.user.v1.UserService",
+      "protoFile": "ga/user/v1/user.proto",
+      "urlEnv": "USER_SERVICE_URL"
+    },
+    {
+      "name": "house-service",
+      "dir": "apps/house-service",
+      "package": "@ga/house-service",
+      "grpcPort": 50052,
+      "database": "ga_house",
+      "grpcService": "ga.house.v1.HouseService",
+      "protoFile": "ga/house/v1/house.proto",
+      "urlEnv": "HOUSE_SERVICE_URL"
+    },
+    {
+      "name": "booking-service",
+      "dir": "apps/booking-service",
+      "package": "@ga/booking-service",
+      "grpcPort": 50053,
+      "database": "ga_booking",
+      "grpcService": "ga.booking.v1.BookingService",
+      "protoFile": "ga/booking/v1/booking.proto",
+      "urlEnv": "BOOKING_SERVICE_URL",
+      "extensions": ["btree_gist"]
+    }
+  ]
 }

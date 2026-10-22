@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import { readRegistry, ROOT, type ServiceEntry, writeRegistry } from './lib.ts';
+import { ROOT, readRegistry, type ServiceEntry, writeRegistry } from './lib.ts';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -27,7 +27,9 @@ const { values, positionals } = parseArgs({
 const KEBAB = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
 const name = positionals[0];
 if (!name || !KEBAB.test(name) || name.endsWith('-service')) {
-  console.error('usage: pnpm new:service <kebab-case-noun> (e.g. house, payment-method; without "-service")');
+  console.error(
+    'usage: pnpm new:service <kebab-case-noun> (e.g. house, payment-method; without "-service")',
+  );
   process.exit(1);
 }
 
@@ -79,8 +81,10 @@ const port = values.port
 
 if (existsSync(appDir)) throw new Error(`${relative(ROOT, appDir)} already exists`);
 if (existsSync(protoPath)) throw new Error(`contract ${protoRel} already exists`);
-if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`invalid port ${values.port}`);
-if (registry.services.some((s) => s.grpcPort === port)) throw new Error(`port ${port} is already used`);
+if (!Number.isInteger(port) || port < 1024 || port > 65535)
+  throw new Error(`invalid port ${values.port}`);
+if (registry.services.some((s) => s.grpcPort === port))
+  throw new Error(`port ${port} is already used`);
 
 const substitute = (text: string): string => {
   let out = text;
@@ -94,7 +98,10 @@ const templateDir = join(ROOT, 'templates/service');
 const files = (await readdir(templateDir, { recursive: true, withFileTypes: true }))
   .filter((entry) => entry.isFile())
   .map((entry) => relative(templateDir, join(entry.parentPath, entry.name)))
-  .filter((file) => !file.startsWith('proto/') && !file.startsWith('node_modules/') && !file.startsWith('dist/'));
+  .filter(
+    (file) =>
+      !file.startsWith('proto/') && !file.startsWith('node_modules/') && !file.startsWith('dist/'),
+  );
 
 for (const file of files) {
   const target = join(appDir, substitute(file));
@@ -104,7 +111,10 @@ for (const file of files) {
 await writeFile(join(appDir, '.env'), await readFile(join(appDir, '.env.example'), 'utf8'));
 
 await mkdir(dirname(protoPath), { recursive: true });
-await writeFile(protoPath, substitute(await readFile(join(templateDir, 'proto/sample_item.proto'), 'utf8')));
+await writeFile(
+  protoPath,
+  substitute(await readFile(join(templateDir, 'proto/sample_item.proto'), 'utf8')),
+);
 
 const entry: ServiceEntry = {
   name: serviceName,

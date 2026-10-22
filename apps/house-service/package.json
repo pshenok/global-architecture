@@ -1,0 +1,39 @@
+{
+  "name": "@ga/house-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "gRPC service that owns houses.",
+  "type": "module",
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "build": "swc src -d dist --strip-leading-paths --config-file ../../.swcrc --ignore \"**/*.spec.ts\" && node ../../tools/check-esm.ts",
+    "start": "node --enable-source-maps --env-file-if-exists=.env --import @ga/service-kit/telemetry dist/main.js",
+    "dev": "node ../../tools/dev.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists=.env dist/migrate.js"
+  },
+  "dependencies": {
+    "@ga/contracts": "workspace:*",
+    "@ga/kernel": "workspace:*",
+    "@ga/service-kit": "workspace:*",
+    "@grpc/grpc-js": "catalog:",
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "@nestjs/microservices": "catalog:",
+    "drizzle-orm": "catalog:",
+    "reflect-metadata": "catalog:",
+    "rxjs": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@grpc/grpc-js": "catalog:",
+    "@nestjs/testing": "catalog:",
+    "drizzle-kit": "catalog:"
+  }
+}

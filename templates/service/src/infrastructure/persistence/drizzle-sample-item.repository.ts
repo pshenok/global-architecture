@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
-import { desc, eq, lt } from 'drizzle-orm';
 import { type Page, type PageRequest, toPage } from '@ga/kernel';
 import { DbContext, translateDbError } from '@ga/service-kit';
-import { SampleItem } from '../../domain/sample-item.ts';
+import { Injectable } from '@nestjs/common';
+import { desc, eq, lt } from 'drizzle-orm';
 import { sampleItemNameTaken } from '../../domain/sample-item.errors.ts';
 import { SampleItemRepository } from '../../domain/sample-item.repository.ts';
+import { SampleItem } from '../../domain/sample-item.ts';
 import { type SampleItemRow, sampleItems } from './schema.ts';
 
 const toDomain = (row: SampleItemRow): SampleItem => SampleItem.restore(row);
@@ -36,7 +36,9 @@ export class DrizzleSampleItemRepository extends SampleItemRepository {
     try {
       await this.db.tx.insert(sampleItems).values(sampleItem.toState());
     } catch (error) {
-      throw translateDbError(error, { sample_items_name_key: () => sampleItemNameTaken(sampleItem.name) });
+      throw translateDbError(error, {
+        sample_items_name_key: () => sampleItemNameTaken(sampleItem.name),
+      });
     }
   }
 
@@ -45,12 +47,17 @@ export class DrizzleSampleItemRepository extends SampleItemRepository {
     try {
       await this.db.tx.update(sampleItems).set(state).where(eq(sampleItems.id, id));
     } catch (error) {
-      throw translateDbError(error, { sample_items_name_key: () => sampleItemNameTaken(sampleItem.name) });
+      throw translateDbError(error, {
+        sample_items_name_key: () => sampleItemNameTaken(sampleItem.name),
+      });
     }
   }
 
   async delete(id: string): Promise<boolean> {
-    const rows = await this.db.tx.delete(sampleItems).where(eq(sampleItems.id, id)).returning({ id: sampleItems.id });
+    const rows = await this.db.tx
+      .delete(sampleItems)
+      .where(eq(sampleItems.id, id))
+      .returning({ id: sampleItems.id });
     return rows.length > 0;
   }
 }
