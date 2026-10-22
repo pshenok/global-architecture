@@ -11,14 +11,14 @@ export const DependencyClientsModule = GrpcClientsModule.register([
     token: USER_SERVICE,
     service: 'ga.user.v1.UserService',
     protoFiles: ['ga/user/v1/user.proto'],
-    url: (config) => String(config['USER_SERVICE_URL']),
+    url: (config) => String(config.USER_SERVICE_URL),
     timeoutMs: 2_000,
   },
   {
     token: HOUSE_SERVICE,
     service: 'ga.house.v1.HouseService',
     protoFiles: ['ga/house/v1/house.proto'],
-    url: (config) => String(config['HOUSE_SERVICE_URL']),
+    url: (config) => String(config.HOUSE_SERVICE_URL),
     timeoutMs: 2_000,
   },
 ]);

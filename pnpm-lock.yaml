@@ -240,6 +240,9 @@ catalogs:
     "@bufbuild/buf":
       specifier: 1.74.0
       version: 1.74.0
+    "@fastify/otel":
+      specifier: 0.21.3
+      version: 0.21.3
     "@grpc/grpc-js":
       specifier: 1.14.6
       version: 1.14.6
@@ -261,9 +264,18 @@ catalogs:
     "@nestjs/microservices":
       specifier: 12.2.0
       version: 12.2.0
+    "@nestjs/platform-fastify":
+      specifier: 12.2.0
+      version: 12.2.0
+    "@nestjs/swagger":
+      specifier: 12.0.2
+      version: 12.0.2
     "@nestjs/testing":
       specifier: 12.2.0
       version: 12.2.0
+    "@nestjs/throttler":
+      specifier: 6.7.1
+      version: 6.7.1
     "@opentelemetry/api":
       specifier: 1.10.0
       version: 1.10.0
@@ -282,6 +294,9 @@ catalogs:
     "@opentelemetry/sdk-node":
       specifier: 0.300.0
       version: 0.300.0
+    "@scalar/nestjs-api-reference":
+      specifier: 1.2.30
+      version: 1.2.30
     "@swc/cli":
       specifier: 0.8.1
       version: 0.8.1
@@ -303,6 +318,9 @@ catalogs:
     drizzle-orm:
       specifier: 1.0.0-rc.5
       version: 1.0.0-rc.5
+    fastify:
+      specifier: 5.12.7
+      version: 5.12.7
     grpc-health-check:
       specifier: 2.1.0
       version: 2.1.0
@@ -471,6 +489,73 @@ importers:
       drizzle-kit:
         specifier: "catalog:"
         version: 1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7))
+
+  apps/gateway:
+    dependencies:
+      "@fastify/otel":
+        specifier: "catalog:"
+        version: 0.21.3(@opentelemetry/api@1.9.1)(supports-color@7.2.0)
+      "@ga/contracts":
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      "@ga/kernel":
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      "@ga/service-kit":
+        specifier: workspace:*
+        version: link:../../packages/service-kit
+      "@grpc/grpc-js":
+        specifier: "catalog:"
+        version: 1.14.6
+      "@nestjs/common":
+        specifier: "catalog:"
+        version: 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      "@nestjs/core":
+        specifier: "catalog:"
+        version: 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      "@nestjs/microservices":
+        specifier: "catalog:"
+        version: 12.2.0(@grpc/grpc-js@1.14.6)(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      "@nestjs/platform-fastify":
+        specifier: "catalog:"
+        version: 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)
+      "@nestjs/swagger":
+        specifier: "catalog:"
+        version: 12.0.2(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(typescript@7.0.2)
+      "@nestjs/throttler":
+        specifier: "catalog:"
+        version: 6.7.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)
+      "@scalar/nestjs-api-reference":
+        specifier: "catalog:"
+        version: 1.2.30
+      fastify:
+        specifier: "catalog:"
+        version: 5.12.7
+      nestjs-cls:
+        specifier: "catalog:"
+        version: 7.0.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      nestjs-pino:
+        specifier: "catalog:"
+        version: 5.3.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(pino-http@11.0.0)(pino@10.4.0)(rxjs@7.8.2)
+      pino-http:
+        specifier: "catalog:"
+        version: 11.0.0
+      reflect-metadata:
+        specifier: "catalog:"
+        version: 0.2.2
+      rxjs:
+        specifier: "catalog:"
+        version: 7.8.2
+      zod:
+        specifier: "catalog:"
+        version: 4.6.7
+    devDependencies:
+      "@nestjs/testing":
+        specifier: "catalog:"
+        version: 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(@nestjs/microservices@12.2.0)
+      undici:
+        specifier: "catalog:"
+        version: 8.12.3
 
   apps/house-service:
     dependencies:
@@ -877,6 +962,74 @@ packages:
         integrity: sha512-FWa0sPlqYGJgpTs6OxBRcL/AW4JT0OIO+W1ajerluoTVh8CV0B7XM1qsNCRgnkSCkRCgOICKHRQlY17jrsm0+Q==,
       }
 
+  "@fastify/ajv-compiler@4.0.7":
+    resolution:
+      {
+        integrity: sha512-VP0yIfwlc1ohj733keYDqyHm1VWeP9VQxYomunhr90jkC4aNNibbkrRiaNgPgqj1ORxUenILR4qzA/ppYBNAtQ==,
+      }
+
+  "@fastify/cors@11.3.1":
+    resolution:
+      {
+        integrity: sha512-gZXNzd6FLHzOIfvoK4+Az3Wko2V6Y0MIsLxpyo4AEYl7a9q1JBPwPaxLea4nkr++8FCiJiPpYYo6E02uZW0dqw==,
+      }
+
+  "@fastify/deepmerge@3.2.2":
+    resolution:
+      {
+        integrity: sha512-155eqA/WMQdN6gUD4RrhS2K0Pcz2Ou9pQ86L0sipOpP9ONbTA6oYw/hW4VdBjR4egcDHqmWUK9x80oUX7S1mDQ==,
+      }
+
+  "@fastify/error@4.2.1":
+    resolution:
+      {
+        integrity: sha512-MYBumuIwP+5MIpXSyKm6/o1Eigcoij186lWUssX3LH5U8KWqU0ktZhzC4CErIX9EJeQeRGI+zJZQWakBlFbUcg==,
+      }
+
+  "@fastify/fast-json-stringify-compiler@5.1.1":
+    resolution:
+      {
+        integrity: sha512-pyxRKk7UpUnnrztP9pF4+ZYxusEQ4LifTyzRdiXmyql1QezNHxO02D25MVU2o4kMeAMYWAjG6RKRlojgkbiDAw==,
+      }
+
+  "@fastify/formbody@9.0.1":
+    resolution:
+      {
+        integrity: sha512-QaUet4NQavwnl6iPYMaf5hJC2N7kRPOmC58RhDiFThfg7Hcc8X2LdpcEfmaOEBimq5z7yZLy1e1q+PIv3o3tFQ==,
+      }
+
+  "@fastify/forwarded@3.1.2":
+    resolution:
+      {
+        integrity: sha512-89WiRG+hW3VQSfCwg4Hb8b43PeyEX15K5+lEfsZ4EUth/FyOjS/lv8HsVuswUNXWiSnxMGNouE/fq/0w3VumHQ==,
+      }
+
+  "@fastify/merge-json-schemas@0.2.2":
+    resolution:
+      {
+        integrity: sha512-d/gx9sRbUCVgGRGzma46wLcwiY8noTqO2Nmjg/vbTARxHRE5bdh5PIL8s97Lt1X7ScRWRW52eVYxwIoPwIdVUA==,
+      }
+
+  "@fastify/middie@9.3.5":
+    resolution:
+      {
+        integrity: sha512-oY1Yp/UfwS/qcmSV4PgOEqlTxHytRWSjl5MB07hDhlKfecAwJ4TQ7zBxdX2AWAuq+xbfPXM7EgH7EwOIQ2fSPA==,
+      }
+
+  "@fastify/otel@0.21.3":
+    resolution:
+      {
+        integrity: sha512-qyEqVSEGdT1xu/BmaSDdOgivR3EC7mJcea2YpaAxg6D03qc9RfmuDBZAL5uWIE0Um7K8fBzAmUfbyA1CHrDo/Q==,
+      }
+    peerDependencies:
+      "@opentelemetry/api": ^1.9.0
+
+  "@fastify/proxy-addr@5.1.2":
+    resolution:
+      {
+        integrity: sha512-uqB4QsgVoro0XDC+DIftIMGXHdBPn+lK6Ek3xXAIxPMCJfqxnbtyEoMCm2KPUVOuIosd7Cyw9HawEqMFM/UA+g==,
+      }
+
   "@grpc/grpc-js@1.14.6":
     resolution:
       {
@@ -949,6 +1102,12 @@ packages:
         integrity: sha512-Z7C/xXCiGWsg0KuKsHTKJxbWhpI3Vs5GwLfOean7MGyVFGqdRgBbAjOCh6u4bbjPc/8MJ2pZmK/0DLdCbivLDA==,
       }
     engines: { node: ">=8" }
+
+  "@microsoft/tsdoc@0.17.0":
+    resolution:
+      {
+        integrity: sha512-p68VexhnH7ojf3U27RdryUDqnKJgKaWUbCL96vJR7N0mqDuhKG5OIECk3sCPPdynxjk+yoVhRkScqtv5KQjzsw==,
+      }
 
   "@napi-rs/nice-android-arm-eabi@1.1.1":
     resolution:
@@ -1178,6 +1337,23 @@ packages:
       "@nestjs/websockets":
         optional: true
 
+  "@nestjs/mapped-types@12.0.0":
+    resolution:
+      {
+        integrity: sha512-aX7lxZcqXldtnSr0bgT2ZPQvpTpIwBMW1GMX29o4s3q02vmq6JoTYuPW0GwYXa8BiFMRX7WbGZVDA703pNqOMQ==,
+      }
+    engines: { node: ">=20.19.0" }
+    peerDependencies:
+      "@nestjs/common": ^10.0.0 || ^11.0.0 || ^12.0.0
+      class-transformer: ^0.4.0 || ^0.5.0
+      class-validator: ^0.13.0 || ^0.14.0 || ^0.15.0
+      reflect-metadata: ^0.1.12 || ^0.2.0
+    peerDependenciesMeta:
+      class-transformer:
+        optional: true
+      class-validator:
+        optional: true
+
   "@nestjs/microservices@12.2.0":
     resolution:
       {
@@ -1217,6 +1393,49 @@ packages:
       mqtt:
         optional: true
 
+  "@nestjs/platform-fastify@12.2.0":
+    resolution:
+      {
+        integrity: sha512-jy9+4c29VER0d0/FfNzCP/ZiuhRME7pvAGEzrUoHkP4ZxP4N0EFpZwsLEtj7BCb786i5HkbAY8duHujfzNYPTA==,
+      }
+    peerDependencies:
+      "@fastify/multipart": ^10.1.0
+      "@fastify/static": ^10.1.2
+      "@fastify/view": ^10.0.0 || ^11.0.0 || ^12.0.0
+      "@nestjs/common": ^12.0.0
+      "@nestjs/core": ^12.0.0
+    peerDependenciesMeta:
+      "@fastify/multipart":
+        optional: true
+      "@fastify/static":
+        optional: true
+      "@fastify/view":
+        optional: true
+
+  "@nestjs/swagger@12.0.2":
+    resolution:
+      {
+        integrity: sha512-/IDj6o2k1wqZybhIkMaJp58YNrAos/4TwTf3zBn/j1flKpMb5Tyfbj9sP6rpLucQ7PzHHu7n4ucmeHWEisfn6A==,
+      }
+    engines: { node: ^20.19.0 || >=22.12.0 }
+    peerDependencies:
+      "@fastify/static": ^8.0.0 || ^9.0.0 || ^10.0.0
+      "@nestjs/common": ^12.0.0
+      "@nestjs/core": ^12.0.0
+      class-transformer: "*"
+      class-validator: "*"
+      reflect-metadata: ^0.1.12 || ^0.2.0
+      typescript: ^5.5.0 || ^6.0.0
+    peerDependenciesMeta:
+      "@fastify/static":
+        optional: true
+      class-transformer:
+        optional: true
+      class-validator:
+        optional: true
+      typescript:
+        optional: true
+
   "@nestjs/testing@12.2.0":
     resolution:
       {
@@ -1233,10 +1452,35 @@ packages:
       "@nestjs/platform-express":
         optional: true
 
+  "@nestjs/throttler@6.7.1":
+    resolution:
+      {
+        integrity: sha512-gAyY1AkU+cSK5DCjFOB43xax9oakameH4xZa9kAgqBqSBQZgmv3DZylLV8KyZNzOGhceL3kDVtby+CF8VAdmEA==,
+      }
+    engines: { node: ^20.19.0 || ^22.12.0 || >=24.0.0 }
+    peerDependencies:
+      "@nestjs/common": ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0
+      "@nestjs/core": ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0
+      reflect-metadata: ^0.1.13 || ^0.2.0
+
+  "@opentelemetry/api-logs@0.223.0":
+    resolution:
+      {
+        integrity: sha512-Oepm6etVPFCn0VWB1t833iOTgz1eYBDUPxcrOR/XvwzD1+Ag9VzSPSrrKAFNJ/haatj+8CXbG47pZXvdNQKDJw==,
+      }
+    engines: { node: ">=8.0.0" }
+
   "@opentelemetry/api@1.10.0":
     resolution:
       {
         integrity: sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ==,
+      }
+    engines: { node: ">=8.0.0" }
+
+  "@opentelemetry/api@1.9.1":
+    resolution:
+      {
+        integrity: sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==,
       }
     engines: { node: ">=8.0.0" }
 
@@ -1257,6 +1501,15 @@ packages:
     engines: { node: ">=22.15.0" }
     peerDependencies:
       "@opentelemetry/api": ">=1.0.0 <1.11.0"
+
+  "@opentelemetry/core@2.12.0":
+    resolution:
+      {
+        integrity: sha512-1HsSAuvT4/my0QrXWsyXFdWjKaPeCHsismKZgEEIb8NK13LP6DrMRlsUbvD/0F9mDWK3xDom9AMv3IscxgOnOQ==,
+      }
+    engines: { node: ^18.19.0 || >=20.6.0 }
+    peerDependencies:
+      "@opentelemetry/api": ">=1.0.0 <1.10.0"
 
   "@opentelemetry/core@3.0.0":
     resolution:
@@ -1401,6 +1654,15 @@ packages:
     engines: { node: ">=22.15.0" }
     peerDependencies:
       "@opentelemetry/api": ^1.10.0
+
+  "@opentelemetry/instrumentation@0.223.0":
+    resolution:
+      {
+        integrity: sha512-tttBo88TbwK1zpsH6VeJoxLQopxOjW3cnrP50fsQJRZftkSKDDwjolXXBvow2jy0LKXlNRkDQh0NT6yI/q+BEQ==,
+      }
+    engines: { node: ^18.19.0 || >=20.6.0 }
+    peerDependencies:
+      "@opentelemetry/api": ^1.3.0
 
   "@opentelemetry/instrumentation@0.300.0":
     resolution:
@@ -1973,6 +2235,54 @@ packages:
       rollup:
         optional: true
 
+  "@scalar/client-side-rendering@0.4.12":
+    resolution:
+      {
+        integrity: sha512-FjzUNhDgMlrIqANp3Lj/2XuRoSL8glyueE6Qc62Y1HzNQEEmk2pmdCTAfrN7bU9L49X5qtNAn3KZdL8ng1taBw==,
+      }
+    engines: { node: ">=22" }
+
+  "@scalar/helpers@0.16.4":
+    resolution:
+      {
+        integrity: sha512-9eILWzUcAkHEuYMMvijpSIy69t+Vkq+NudLB/7lgARFTWqXfQpIxW1L3VH7ogKyRie5+E4CNZ3PSvlw6IIfLGw==,
+      }
+    engines: { node: ">=22" }
+
+  "@scalar/nestjs-api-reference@1.2.30":
+    resolution:
+      {
+        integrity: sha512-bRfg7b8cOD3BhNFsQ/TDuFuyteAj40VVZkX3r/Udd3UWr24aQj2fHlZ9YIQhmshkjxSE3sDNOFKL5/X5WlyvrQ==,
+      }
+    engines: { node: ">=22" }
+
+  "@scalar/schemas@0.14.0":
+    resolution:
+      {
+        integrity: sha512-tYNfeIOk/G5o/DiW2Yc2tFlNvE42Ls1aHUOQSSeFugjBgv53p3u3tlu7gA5N4uMaS8mQCumURusc/cb4RmiX2g==,
+      }
+    engines: { node: ">=22" }
+
+  "@scalar/types@0.24.0":
+    resolution:
+      {
+        integrity: sha512-x4O8ddCvh+59zwh9Xc+bG2QACxYARcPDfJBYiUzD/hzSxb6vpcms+WKgMksBfYWCZneO6e5Kt6hZFBoE9D9YCg==,
+      }
+    engines: { node: ">=22" }
+
+  "@scalar/validation@0.6.7":
+    resolution:
+      {
+        integrity: sha512-xvmeYb0LOg9B598oVA/1fs9MvnMdtWjQYG3v2Wgftewizr7tQjsdDYT1TQahlDzqRG+r+ml6zlSkPrFiCE5jHQ==,
+      }
+    engines: { node: ">=20" }
+
+  "@scarf/scarf@1.4.0":
+    resolution:
+      {
+        integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==,
+      }
+
   "@sec-ant/readable-stream@0.4.1":
     resolution:
       {
@@ -2523,6 +2833,29 @@ packages:
       }
     engines: { node: ">=20" }
 
+  abstract-logging@2.0.1:
+    resolution:
+      {
+        integrity: sha512-2BjRTZxTPvheOvGbBslFSYOUkr+SjPtOnrLP33f+VIWLzezQpZcqVg7ja3L4dBXmzzgwT+a029jRx5PCi3JuiA==,
+      }
+
+  ajv-formats@3.0.1:
+    resolution:
+      {
+        integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==,
+      }
+    peerDependencies:
+      ajv: ^8.0.0
+    peerDependenciesMeta:
+      ajv:
+        optional: true
+
+  ajv@8.20.0:
+    resolution:
+      {
+        integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==,
+      }
+
   amp-message@0.1.2:
     resolution:
       {
@@ -2595,6 +2928,12 @@ packages:
       }
     engines: { node: ">=8.0.0" }
 
+  avvio@9.3.1:
+    resolution:
+      {
+        integrity: sha512-QyTKW61/qlba+cUQBm/sT9X8lri4UdomqSDwCnrnj1IvLVDRRiXRkz4CgBRWB+/cmfC7SK5WQc8T1vSdGvaUcQ==,
+      }
+
   b4a@1.9.0:
     resolution:
       {
@@ -2611,6 +2950,13 @@ packages:
       {
         integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==,
       }
+
+  balanced-match@4.0.4:
+    resolution:
+      {
+        integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==,
+      }
+    engines: { node: 18 || 20 || >=22 }
 
   bare-events@2.9.2:
     resolution:
@@ -2655,6 +3001,13 @@ packages:
       {
         integrity: sha512-uZbew1NqdmPDTMJ8ah1y+b+9QEJrfkXFk3RcTQw3X0jW/xRUvFKsg1CfQdSYGdTbXZWExtU3J3ccxtnfw1Fi0g==,
       }
+
+  brace-expansion@5.0.12:
+    resolution:
+      {
+        integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==,
+      }
+    engines: { node: 20 || >=22 }
 
   buffer@5.7.1:
     resolution:
@@ -2784,6 +3137,13 @@ packages:
       }
     engines: { node: ">=12" }
 
+  cookie@2.0.1:
+    resolution:
+      {
+        integrity: sha512-yuToqVvRrj6pfDXREyQAAv8SkAEk/8GS3jQRTiUMm66TVtBYmqQeoEjL2Lmq8Rpo6271vH76InTChTitEAm65w==,
+      }
+    engines: { node: ">=22" }
+
   croner@4.1.97:
     resolution:
       {
@@ -2839,6 +3199,13 @@ packages:
         integrity: sha512-oj7KWToJuuxlPr7VV0vabvxEIiqNMo+q0NueIiL3XhtwC6FVOX7Hr1c0C4eD0bmf7Zr+S/dSf2xvkH3Ad6sU3Q==,
       }
     engines: { node: ">=20" }
+
+  dequal@2.0.3:
+    resolution:
+      {
+        integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==,
+      }
+    engines: { node: ">=6" }
 
   detect-libc@1.0.3:
     resolution:
@@ -3055,6 +3422,12 @@ packages:
         integrity: sha512-BldNY5mwkVu+cQ5Ymn3e6hB9Sx8XHx4ZevWbiUyZbfKxJxYO27Hf0wfzkxIaD5CAJMaGl3YspKELj0ff/7nCMA==,
       }
 
+  es-toolkit@1.52.0:
+    resolution:
+      {
+        integrity: sha512-XTNEJQh1tY1ZJVcf6ayP/2n4ZPyaHlW2FWs7xvw5ddPuhUVjLD3olQVQS7kf58JbAB48iL0uL/jerTrjtV3lDA==,
+      }
+
   escalade@3.2.0:
     resolution:
       {
@@ -3126,6 +3499,18 @@ packages:
         integrity: sha512-WSlnvPXaMdUjFdgxPkovE4e5aslybVod4TNKrEKKyoA8GoHZzbDLlhDXZOvqjtFgjtOHd9TYCstkUcGXy1+SEA==,
       }
 
+  fast-decode-uri-component@1.0.1:
+    resolution:
+      {
+        integrity: sha512-WKgKWg5eUxvRZGwW8FvfbaH7AXSh2cL+3j5fMGzUMCxWBJ3dV3a7Wz8y2f/uQ0e3B6WmodD3oS54jTQ9HVTIIg==,
+      }
+
+  fast-deep-equal@3.1.3:
+    resolution:
+      {
+        integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==,
+      }
+
   fast-fifo@1.3.2:
     resolution:
       {
@@ -3138,10 +3523,52 @@ packages:
         integrity: sha512-vf6IHUX2SBcA+5/+4883dsIjpBTqmfBjmYiWK1savxQmFk4JfBMLa7ynTYOs1Rolp/T1betJxHiGD3g1Mn8lUQ==,
       }
 
+  fast-json-stringify@7.1.2:
+    resolution:
+      {
+        integrity: sha512-qGXObwtgxbn4CZM64EpHj+w31DnQ1XYtwnJL6eaWwLB00O8huNReY40lF3YP72PIUPv9TBYwvOXYvQvMNm1ekw==,
+      }
+
+  fast-querystring@1.1.2:
+    resolution:
+      {
+        integrity: sha512-g6KuKWmFXc0fID8WWH0jit4g0AGBoJhCkJMb1RmbsSEUNvQ+ZC8D6CUZ+GtF8nMzSPXnhiePyyqqipzNNEnHjg==,
+      }
+
   fast-safe-stringify@2.1.1:
     resolution:
       {
         integrity: sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==,
+      }
+
+  fast-uri@3.1.9:
+    resolution:
+      {
+        integrity: sha512-hS/0Wt3Ya043oKXs0sIxrMpKQITXhMLIrVAKKXi4gozGC9v7YRWVnXIZzjNPTO02M9BdxLCWqK1yRXgNziVyJQ==,
+      }
+
+  fast-uri@4.2.3:
+    resolution:
+      {
+        integrity: sha512-I1PXwP5eAhlNlcdpjt9CgB59op2ZvZfxw+BkqGFVIUOgNpCVTcTqp3HhTX7brxj5vsip+nSY4nTvff+eIA76hg==,
+      }
+
+  fastify-plugin@6.0.1:
+    resolution:
+      {
+        integrity: sha512-4wW4RxSmvPXLrh5mgQEiu43qU3bw44N2ss4FTkTkQIbprUhE+/s43QX0j/ttcztdWK7PEkHqVthdc5GdEGDvjA==,
+      }
+
+  fastify@5.12.7:
+    resolution:
+      {
+        integrity: sha512-v4pEPsTRPuqlDIYiQFB+BHjVN4SdHX9u0ABk0ZDUKbbdY1vsNryUd1j4Z+jQEZajvYIVk047Kimva9/AJ79GYw==,
+      }
+
+  fastq@1.20.3:
+    resolution:
+      {
+        integrity: sha512-XKv5nnLs6nLF71NgiKJLIZFLkPyIEuOselLG7ujZnGrRfQK8HpvY+WqKhAJUAdLomwVHErVS4LfxFlPq0/FTAw==,
       }
 
   fdir@6.5.0:
@@ -3181,6 +3608,13 @@ packages:
     resolution:
       {
         integrity: sha512-Pf0dwHrWs1GcIK15ps304fmxp2AOcfNR6vOIMvCPEy6ZztKYxzRQHlOuPVWo2HRjbCLHaRTY+kD8n3RbQ0A/fw==,
+      }
+    engines: { node: ">=20" }
+
+  find-my-way@9.10.0:
+    resolution:
+      {
+        integrity: sha512-eru+uCPQ2g+nLBkf84MHP/KyNNMar0BDy0j+i8Fb72GF9/YHBZ58q7FODUtfVV7XU9nfRUHXSmaM8NmZcIbZ4Q==,
       }
     engines: { node: ">=20" }
 
@@ -3330,6 +3764,13 @@ packages:
         integrity: sha512-MAQUJuIo7Xqk8EVNP+6d3CKq9c80hi4tjIbIAT6lmGW9W6WzlHiu9PS8uSuUYU+Do+j1baiFp3H25XEVxDIG2g==,
       }
 
+  ipaddr.js@2.5.0:
+    resolution:
+      {
+        integrity: sha512-aq+t5NAc+cS6rZQQVWC2x98CPqGtKKTMDd4Gaodv0wShnItdKg/51djkGJ1hqH+Oy0ivDftCbSLCQob8zso01w==,
+      }
+    engines: { node: ">= 10" }
+
   is-binary-path@2.1.0:
     resolution:
       {
@@ -3413,6 +3854,25 @@ packages:
       }
     hasBin: true
 
+  js-yaml@5.4.2:
+    resolution:
+      {
+        integrity: sha512-m+aqu+LwO1O6sIopafj8HUVl5aawITwZQe/yHpMCKjaWBaA/d07B/QdMb3529REftiU+RMMHL3Vlsw3hON7vWg==,
+      }
+    hasBin: true
+
+  json-schema-ref-resolver@3.0.1:
+    resolution:
+      {
+        integrity: sha512-w+HwgljXpVwZ3IidoUR1qPZxSOQ+NRQWuVe6a5pe8XbHsNZE4UAwVPUvzZagn7yBKbJtt6UJnRFYbNTRPZI45Q==,
+      }
+
+  json-schema-traverse@1.0.0:
+    resolution:
+      {
+        integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==,
+      }
+
   json-stringify-safe@5.0.1:
     resolution:
       {
@@ -3431,6 +3891,12 @@ packages:
         integrity: sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==,
       }
     engines: { node: ">=0.10.0" }
+
+  light-my-request@6.8.0:
+    resolution:
+      {
+        integrity: sha512-5Q8PjoSEdtGIB8fikZsTem5vgRo4F2mR6vUKTDW/H1g6MtAt8e3duQbg/QxL5yzg6BZhor2KOUm3hhWMWLTZwg==,
+      }
 
   lightningcss-android-arm64@1.33.0:
     resolution:
@@ -3621,6 +4087,13 @@ packages:
       }
     engines: { node: ^12.20.0 || ^14.13.1 || >=16.0.0 }
 
+  minimatch@10.2.6:
+    resolution:
+      {
+        integrity: sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==,
+      }
+    engines: { node: 18 || 20 || >=22 }
+
   minimatch@9.0.9:
     resolution:
       {
@@ -3652,6 +4125,14 @@ packages:
         integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==,
       }
     engines: { node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1 }
+    hasBin: true
+
+  nanoid@5.1.16:
+    resolution:
+      {
+        integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==,
+      }
+    engines: { node: ^18 || >=20 }
     hasBin: true
 
   nestjs-cls@7.0.1:
@@ -4167,6 +4648,13 @@ packages:
       }
     engines: { node: ">=0.10.0" }
 
+  require-from-string@2.0.2:
+    resolution:
+      {
+        integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==,
+      }
+    engines: { node: ">=0.10.0" }
+
   require-in-the-middle@8.0.1:
     resolution:
       {
@@ -4186,6 +4674,26 @@ packages:
         integrity: sha512-cGk8IbWEAnaCpdAt1BHzJ3Ahz5ewDJa0KseTsE3qIRMJ3C698W8psM7byCeWVpd/Ha7FUYzuRVzXoKoM6nRUbA==,
       }
     engines: { node: ">=20" }
+
+  ret@0.5.1:
+    resolution:
+      {
+        integrity: sha512-Z/nyvABwcRnRD2mMP7Kz6G1dFZZqX1mNErOnxF42OCQKE07b9k9hK9SQxHL3LFEZUdzQaLM4dId1E/E6Vm4WhA==,
+      }
+    engines: { node: ">=10" }
+
+  reusify@1.1.0:
+    resolution:
+      {
+        integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==,
+      }
+    engines: { iojs: ">=1.0.0", node: ">=0.10.0" }
+
+  rfdc@1.4.1:
+    resolution:
+      {
+        integrity: sha512-q1b3N5QkRUWUl7iyylaaj3kOpIT0N2i9MqIEQXP73GVsN9cw3fdx8X63cEmWhJGi2PPCF23Ijp7ktmd39rawIA==,
+      }
 
   rolldown@1.2.15:
     resolution:
@@ -4212,6 +4720,13 @@ packages:
       {
         integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==,
       }
+
+  safe-regex2@5.1.2:
+    resolution:
+      {
+        integrity: sha512-tAtCGFPPP02VroDVzp4daGi6bC7jWG+41D47GKf18FeH/ubvKQHT9VmhAkvtjNOmJwqtApzWeUpEhkyEYULvmw==,
+      }
+    hasBin: true
 
   safe-stable-stringify@2.5.0:
     resolution:
@@ -4254,6 +4769,12 @@ packages:
       }
     engines: { node: ">=10" }
     hasBin: true
+
+  set-cookie-parser@3.2.1:
+    resolution:
+      {
+        integrity: sha512-Npd1Pt+4zb3BrSZDPd2qFwRpS6b1EUEasRrO8xS0zMJi0fApXXK5YuzP0minyJnxwnFHoVoJwA55q0A0cu63gQ==,
+      }
 
   shebang-command@2.0.0:
     resolution:
@@ -4397,12 +4918,25 @@ packages:
       }
     engines: { node: ">=8" }
 
+  swagger-ui-dist@5.33.0:
+    resolution:
+      {
+        integrity: sha512-wpdK+m6BU5yj6pmUdMskZVTSWYG4DLglAx3sIhylloY37i8O37IrH+YEpqdXNfpaTGxILRBFzUqLF2jKqbfI7A==,
+      }
+
   system-architecture@1.0.0:
     resolution:
       {
         integrity: sha512-0OJWD12D7XX3KUg1DYkMaTTjSTo2k/mhIYI3HlBlceXSMcJhW/1qO735fPKS5prcyjvn57Ub151vvASYXpQrEw==,
       }
     engines: { node: ">=18" }
+
+  tagged-tag@1.0.0:
+    resolution:
+      {
+        integrity: sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng==,
+      }
+    engines: { node: ">=20" }
 
   tar-stream@3.1.7:
     resolution:
@@ -4456,6 +4990,13 @@ packages:
         integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==,
       }
     engines: { node: ">=12.0.0" }
+
+  toad-cache@3.7.4:
+    resolution:
+      {
+        integrity: sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg==,
+      }
+    engines: { node: ">=20" }
 
   token-types@6.1.2:
     resolution:
@@ -4515,6 +5056,13 @@ packages:
         integrity: sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA==,
       }
     engines: { node: ">=16" }
+
+  type-fest@5.10.0:
+    resolution:
+      {
+        integrity: sha512-NoSdpq/WEiAg5sjmBkmV/hfxv6HJH4NqPNrqjtSO5CwRmpsDfaf4begxW34KdJykH/l1yHtwBWQkCRdoXO8mPA==,
+      }
+    engines: { node: ">=20" }
 
   typescript@7.0.2:
     resolution:
@@ -4886,6 +5434,59 @@ snapshots:
 
   "@bufbuild/protobuf@2.16.0": {}
 
+  "@fastify/ajv-compiler@4.0.7":
+    dependencies:
+      ajv: 8.20.0
+      ajv-formats: 3.0.1
+      fast-uri: 4.2.3
+
+  "@fastify/cors@11.3.1":
+    dependencies:
+      fastify-plugin: 6.0.1
+      toad-cache: 3.7.4
+
+  "@fastify/deepmerge@3.2.2": {}
+
+  "@fastify/error@4.2.1": {}
+
+  "@fastify/fast-json-stringify-compiler@5.1.1":
+    dependencies:
+      fast-json-stringify: 7.1.2
+
+  "@fastify/formbody@9.0.1":
+    dependencies:
+      fast-querystring: 1.1.2
+      fastify-plugin: 6.0.1
+
+  "@fastify/forwarded@3.1.2": {}
+
+  "@fastify/merge-json-schemas@0.2.2":
+    dependencies:
+      dequal: 2.0.3
+
+  "@fastify/middie@9.3.5":
+    dependencies:
+      "@fastify/error": 4.2.1
+      fastify-plugin: 6.0.1
+      find-my-way: 9.10.0
+      path-to-regexp: 8.4.2
+      reusify: 1.1.0
+
+  "@fastify/otel@0.21.3(@opentelemetry/api@1.9.1)(supports-color@7.2.0)":
+    dependencies:
+      "@opentelemetry/api": 1.9.1
+      "@opentelemetry/core": 2.12.0(@opentelemetry/api@1.9.1)
+      "@opentelemetry/instrumentation": 0.223.0(@opentelemetry/api@1.9.1)(supports-color@7.2.0)
+      "@opentelemetry/semantic-conventions": 1.43.0
+      minimatch: 10.2.6
+    transitivePeerDependencies:
+      - supports-color
+
+  "@fastify/proxy-addr@5.1.2":
+    dependencies:
+      "@fastify/forwarded": 3.1.2
+      ipaddr.js: 2.5.0
+
   "@grpc/grpc-js@1.14.6":
     dependencies:
       "@grpc/proto-loader": 0.8.1
@@ -4928,6 +5529,8 @@ snapshots:
   "@keyv/serialize@1.1.1": {}
 
   "@lukeed/csprng@1.1.0": {}
+
+  "@microsoft/tsdoc@0.17.0": {}
 
   "@napi-rs/nice-android-arm-eabi@1.1.1":
     optional: true
@@ -5041,6 +5644,11 @@ snapshots:
     optionalDependencies:
       "@nestjs/microservices": 12.2.0(@grpc/grpc-js@1.14.6)(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
 
+  "@nestjs/mapped-types@12.0.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(reflect-metadata@0.2.2)":
+    dependencies:
+      "@nestjs/common": 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      reflect-metadata: 0.2.2
+
   "@nestjs/microservices@12.2.0(@grpc/grpc-js@1.14.6)(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)":
     dependencies:
       "@nestjs/common": 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
@@ -5052,6 +5660,35 @@ snapshots:
     optionalDependencies:
       "@grpc/grpc-js": 1.14.6
 
+  "@nestjs/platform-fastify@12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)":
+    dependencies:
+      "@fastify/cors": 11.3.1
+      "@fastify/formbody": 9.0.1
+      "@fastify/middie": 9.3.5
+      "@nestjs/common": 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      "@nestjs/core": 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      fast-querystring: 1.1.2
+      fastify: 5.12.7
+      find-my-way: 9.10.0
+      light-my-request: 6.8.0
+      path-to-regexp: 8.4.2
+      tslib: 2.8.1
+
+  "@nestjs/swagger@12.0.2(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(typescript@7.0.2)":
+    dependencies:
+      "@microsoft/tsdoc": 0.17.0
+      "@nestjs/common": 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      "@nestjs/core": 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      "@nestjs/mapped-types": 12.0.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(reflect-metadata@0.2.2)
+      "@standard-schema/spec": 1.1.0
+      es-toolkit: 1.52.0
+      js-yaml: 5.4.2
+      path-to-regexp: 8.4.2
+      reflect-metadata: 0.2.2
+      swagger-ui-dist: 5.33.0
+    optionalDependencies:
+      typescript: 7.0.2
+
   "@nestjs/testing@12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(@nestjs/microservices@12.2.0)":
     dependencies:
       "@nestjs/common": 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
@@ -5060,7 +5697,19 @@ snapshots:
     optionalDependencies:
       "@nestjs/microservices": 12.2.0(@grpc/grpc-js@1.14.6)(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
 
+  "@nestjs/throttler@6.7.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)":
+    dependencies:
+      "@nestjs/common": 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
+      "@nestjs/core": 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/microservices@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      reflect-metadata: 0.2.2
+
+  "@opentelemetry/api-logs@0.223.0":
+    dependencies:
+      "@opentelemetry/api": 1.10.0
+
   "@opentelemetry/api@1.10.0": {}
+
+  "@opentelemetry/api@1.9.1": {}
 
   "@opentelemetry/configuration@0.300.0(@opentelemetry/api@1.10.0)":
     dependencies:
@@ -5071,6 +5720,11 @@ snapshots:
   "@opentelemetry/context-async-hooks@3.0.0(@opentelemetry/api@1.10.0)":
     dependencies:
       "@opentelemetry/api": 1.10.0
+
+  "@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1)":
+    dependencies:
+      "@opentelemetry/api": 1.9.1
+      "@opentelemetry/semantic-conventions": 1.43.0
 
   "@opentelemetry/core@3.0.0(@opentelemetry/api@1.10.0)":
     dependencies:
@@ -5194,6 +5848,15 @@ snapshots:
       "@opentelemetry/core": 3.0.0(@opentelemetry/api@1.10.0)
       "@opentelemetry/instrumentation": 0.300.0(@opentelemetry/api@1.10.0)(supports-color@7.2.0)
       "@opentelemetry/semantic-conventions": 1.43.0
+    transitivePeerDependencies:
+      - supports-color
+
+  "@opentelemetry/instrumentation@0.223.0(@opentelemetry/api@1.9.1)(supports-color@7.2.0)":
+    dependencies:
+      "@opentelemetry/api": 1.9.1
+      "@opentelemetry/api-logs": 0.223.0
+      import-in-the-middle: 3.5.2
+      require-in-the-middle: 8.0.1(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -5464,6 +6127,35 @@ snapshots:
       "@types/estree": 1.0.9
       estree-walker: 2.0.2
       picomatch: 4.0.7
+
+  "@scalar/client-side-rendering@0.4.12":
+    dependencies:
+      "@scalar/helpers": 0.16.4
+      "@scalar/schemas": 0.14.0
+      "@scalar/types": 0.24.0
+      "@scalar/validation": 0.6.7
+
+  "@scalar/helpers@0.16.4": {}
+
+  "@scalar/nestjs-api-reference@1.2.30":
+    dependencies:
+      "@scalar/client-side-rendering": 0.4.12
+
+  "@scalar/schemas@0.14.0":
+    dependencies:
+      "@scalar/helpers": 0.16.4
+      "@scalar/validation": 0.6.7
+
+  "@scalar/types@0.24.0":
+    dependencies:
+      "@scalar/helpers": 0.16.4
+      nanoid: 5.1.16
+      type-fest: 5.10.0
+      zod: 4.6.7
+
+  "@scalar/validation@0.6.7": {}
+
+  "@scarf/scarf@1.4.0": {}
 
   "@sec-ant/readable-stream@0.4.1": {}
 
@@ -5772,6 +6464,19 @@ snapshots:
     dependencies:
       system-architecture: 1.0.0
 
+  abstract-logging@2.0.1: {}
+
+  ajv-formats@3.0.1:
+    dependencies:
+      ajv: 8.20.0
+
+  ajv@8.20.0:
+    dependencies:
+      fast-deep-equal: 3.1.3
+      fast-uri: 3.1.9
+      json-schema-traverse: 1.0.0
+      require-from-string: 2.0.2
+
   amp-message@0.1.2:
     dependencies:
       amp: 0.3.1
@@ -5803,9 +6508,16 @@ snapshots:
 
   atomic-sleep@1.0.0: {}
 
+  avvio@9.3.1:
+    dependencies:
+      "@fastify/error": 4.2.1
+      fastq: 1.20.3
+
   b4a@1.9.0: {}
 
   balanced-match@1.0.2: {}
+
+  balanced-match@4.0.4: {}
 
   bare-events@2.9.2: {}
 
@@ -5827,6 +6539,10 @@ snapshots:
   brace-expansion@2.1.7:
     dependencies:
       balanced-match: 1.0.2
+
+  brace-expansion@5.0.12:
+    dependencies:
+      balanced-match: 4.0.4
 
   buffer@5.7.1:
     dependencies:
@@ -5890,6 +6606,8 @@ snapshots:
 
   convert-hrtime@5.0.0: {}
 
+  cookie@2.0.1: {}
+
   croner@4.1.97: {}
 
   cross-spawn@7.0.6:
@@ -5917,6 +6635,8 @@ snapshots:
   decompress-response@10.0.0:
     dependencies:
       mimic-response: 4.0.0
+
+  dequal@2.0.3: {}
 
   detect-libc@1.0.3: {}
 
@@ -5946,6 +6666,8 @@ snapshots:
   es-module-lexer@2.3.2: {}
 
   es-module-lexer@3.0.4: {}
+
+  es-toolkit@1.52.0: {}
 
   escalade@3.2.0: {}
 
@@ -5994,11 +6716,56 @@ snapshots:
 
   fast-copy@4.2.0: {}
 
+  fast-decode-uri-component@1.0.1: {}
+
+  fast-deep-equal@3.1.3: {}
+
   fast-fifo@1.3.2: {}
 
   fast-json-patch@3.1.1: {}
 
+  fast-json-stringify@7.1.2:
+    dependencies:
+      "@fastify/merge-json-schemas": 0.2.2
+      ajv: 8.20.0
+      ajv-formats: 3.0.1
+      fast-uri: 4.2.3
+      json-schema-ref-resolver: 3.0.1
+      rfdc: 1.4.1
+
+  fast-querystring@1.1.2:
+    dependencies:
+      fast-decode-uri-component: 1.0.1
+
   fast-safe-stringify@2.1.1: {}
+
+  fast-uri@3.1.9: {}
+
+  fast-uri@4.2.3: {}
+
+  fastify-plugin@6.0.1: {}
+
+  fastify@5.12.7:
+    dependencies:
+      "@fastify/ajv-compiler": 4.0.7
+      "@fastify/error": 4.2.1
+      "@fastify/fast-json-stringify-compiler": 5.1.1
+      "@fastify/proxy-addr": 5.1.2
+      abstract-logging: 2.0.1
+      avvio: 9.3.1
+      fast-json-stringify: 7.1.2
+      find-my-way: 9.10.0
+      light-my-request: 6.8.0
+      pino: 10.4.0
+      process-warning: 5.1.1
+      rfdc: 1.4.1
+      secure-json-parse: 4.1.1
+      semver: 7.7.2
+      toad-cache: 3.7.4
+
+  fastq@1.20.3:
+    dependencies:
+      reusify: 1.1.0
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
@@ -6027,6 +6794,12 @@ snapshots:
   filenamify@7.0.3:
     dependencies:
       filename-reserved-regex: 4.1.0
+
+  find-my-way@9.10.0:
+    dependencies:
+      fast-deep-equal: 3.1.3
+      fast-querystring: 1.1.2
+      safe-regex2: 5.1.2
 
   find-versions@6.0.0:
     dependencies:
@@ -6105,6 +6878,8 @@ snapshots:
     dependencies:
       kind-of: 6.0.3
 
+  ipaddr.js@2.5.0: {}
+
   is-binary-path@2.1.0:
     dependencies:
       binary-extensions: 2.3.0
@@ -6135,6 +6910,16 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
+  js-yaml@5.4.2:
+    dependencies:
+      argparse: 2.0.1
+
+  json-schema-ref-resolver@3.0.1:
+    dependencies:
+      dequal: 2.0.3
+
+  json-schema-traverse@1.0.0: {}
+
   json-stringify-safe@5.0.1: {}
 
   keyv@5.6.0:
@@ -6142,6 +6927,13 @@ snapshots:
       "@keyv/serialize": 1.1.1
 
   kind-of@6.0.3: {}
+
+  light-my-request@6.8.0:
+    dependencies:
+      "@fastify/deepmerge": 3.2.2
+      cookie: 2.0.1
+      process-warning: 5.1.1
+      set-cookie-parser: 3.2.1
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -6222,6 +7014,10 @@ snapshots:
 
   mimic-response@4.0.0: {}
 
+  minimatch@10.2.6:
+    dependencies:
+      brace-expansion: 5.0.12
+
   minimatch@9.0.9:
     dependencies:
       brace-expansion: 2.1.7
@@ -6233,6 +7029,8 @@ snapshots:
   ms@2.1.3: {}
 
   nanoid@3.3.20: {}
+
+  nanoid@5.1.16: {}
 
   nestjs-cls@7.0.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2):
     dependencies:
@@ -6503,6 +7301,8 @@ snapshots:
 
   require-directory@2.1.1: {}
 
+  require-from-string@2.0.2: {}
+
   require-in-the-middle@8.0.1(supports-color@7.2.0):
     dependencies:
       debug: 4.4.3(supports-color@7.2.0)
@@ -6515,6 +7315,12 @@ snapshots:
   responselike@4.0.2:
     dependencies:
       lowercase-keys: 3.0.0
+
+  ret@0.5.1: {}
+
+  reusify@1.1.0: {}
+
+  rfdc@1.4.1: {}
 
   rolldown@1.2.15:
     dependencies:
@@ -6545,6 +7351,10 @@ snapshots:
 
   safe-buffer@5.2.1: {}
 
+  safe-regex2@5.1.2:
+    dependencies:
+      ret: 0.5.1
+
   safe-stable-stringify@2.5.0: {}
 
   secure-json-parse@4.1.1: {}
@@ -6560,6 +7370,8 @@ snapshots:
       semver: 7.7.2
 
   semver@7.7.2: {}
+
+  set-cookie-parser@3.2.1: {}
 
   shebang-command@2.0.0:
     dependencies:
@@ -6637,7 +7449,13 @@ snapshots:
     dependencies:
       has-flag: 4.0.0
 
+  swagger-ui-dist@5.33.0:
+    dependencies:
+      "@scarf/scarf": 1.4.0
+
   system-architecture@1.0.0: {}
+
+  tagged-tag@1.0.0: {}
 
   tar-stream@3.1.7:
     dependencies:
@@ -6672,6 +7490,8 @@ snapshots:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
+
+  toad-cache@3.7.4: {}
 
   token-types@6.1.2:
     dependencies:
@@ -6712,6 +7532,10 @@ snapshots:
       json-stringify-safe: 5.0.1
 
   type-fest@4.41.0: {}
+
+  type-fest@5.10.0:
+    dependencies:
+      tagged-tag: 1.0.0
 
   typescript@7.0.2:
     optionalDependencies:

@@ -38,5 +38,5 @@ export function writeRegistry(registry: Registry): void {
   writeFileSync(REGISTRY_PATH, `${JSON.stringify(registry, null, 2)}\n`);
 }
 
-export const DEFAULT_PG_ADMIN_URL = `postgresql://${process.env['USER'] ?? 'postgres'}@localhost:5432/postgres`;
+export const DEFAULT_PG_ADMIN_URL = `postgresql://${process.env.USER ?? 'postgres'}@localhost:5432/postgres`;
 export const TEST_DATABASE = 'ga_test';

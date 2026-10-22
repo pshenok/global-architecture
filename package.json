@@ -22,7 +22,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
     "test": "turbo run test",
     "lint": "biome ci . && turbo run lint",
     "format": "biome check --write .",

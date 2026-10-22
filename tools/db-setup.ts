@@ -6,7 +6,7 @@
 import pg from 'pg';
 import { DEFAULT_PG_ADMIN_URL, readRegistry, TEST_DATABASE } from './lib.ts';
 
-const adminUrl = process.env['PG_ADMIN_URL'] ?? DEFAULT_PG_ADMIN_URL;
+const adminUrl = process.env.PG_ADMIN_URL ?? DEFAULT_PG_ADMIN_URL;
 const client = new pg.Client({ connectionString: adminUrl });
 await client.connect();
 try {

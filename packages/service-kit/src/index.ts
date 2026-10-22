@@ -9,6 +9,7 @@ export {
   InjectConfig,
   parseConfig,
 } from './config/config.ts';
+export { requestIdFromHttp } from './context/http-request-id.ts';
 export {
   currentRequestId,
   REQUEST_ID_KEY,
@@ -34,8 +35,14 @@ export {
   toDependencyError,
 } from './grpc/grpc-clients.module.ts';
 export { GrpcErrorFilter } from './grpc/grpc-error.filter.ts';
+export {
+  checkGrpcHealth,
+  closeHealthClients,
+  type DownstreamHealth,
+} from './grpc/health-client.ts';
 export { type HealthCheck, HealthStatus } from './grpc/health-status.ts';
 export { parseRequest } from './grpc/validation.ts';
+export { type HttpLoggerConfig, httpLoggerParams } from './logging/http-logger-params.ts';
 export { grpcLoggerParams, REDACT_PATHS, rpcLogLevel } from './logging/logger-params.ts';
 export { SystemClock, UuidV7IdGenerator } from './platform/core-providers.ts';
 export { GrpcPlatformModule, type GrpcPlatformOptions } from './platform/grpc-platform.module.ts';

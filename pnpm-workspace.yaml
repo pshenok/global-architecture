@@ -16,6 +16,7 @@ allowBuilds:
   esbuild: true
   protobufjs: false # postinstall only prints a warning
   "@bufbuild/buf": false # optional binary-shim optimisation; CLI works without it
+  "@scarf/scarf": false # install telemetry pulled in by swagger-ui-dist
 
 # Single copies of the gRPC loader stack: Nest resolves @grpc/proto-loader from
 # its own location, and the well-known-type wrappers patch one protobufjs instance.
