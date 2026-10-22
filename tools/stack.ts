@@ -8,7 +8,6 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { checkGrpcHealth, closeHealthClients } from '@ga/service-kit';
 import { Agent, request } from 'undici';
 import { ensureEnvFiles } from './env-files.ts';
 import { databaseUrl, ROOT, readRegistry } from './lib.ts';
@@ -30,6 +29,16 @@ function migrateAll(): void {
 }
 
 async function waitUntilReady(): Promise<boolean> {
+  // Imported here, not at the top: on a fresh clone the kit is only built by the `up` step.
+  const { checkGrpcHealth, closeHealthClients } = await import('@ga/service-kit');
+  try {
+    return await poll(checkGrpcHealth);
+  } finally {
+    closeHealthClients();
+  }
+}
+
+async function poll(checkGrpcHealth: (url: string) => Promise<string>): Promise<boolean> {
   const { gateway, services } = readRegistry();
   const base = `https://localhost:${gateway.httpsPort}`;
   const dispatcher = new Agent({
@@ -87,7 +96,6 @@ switch (command) {
     migrateAll();
     pm2('startOrReload', 'ecosystem.config.cjs', '--update-env');
     const ready = await waitUntilReady();
-    closeHealthClients();
     process.exit(ready ? 0 : 1);
     break;
   }
