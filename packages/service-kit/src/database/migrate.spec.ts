@@ -8,7 +8,7 @@ import { runMigrations } from './migrate.ts';
 
 /** Real Postgres: concurrent migrators apply a migration exactly once. */
 describe('runMigrations', () => {
-  const baseUrl = process.env['TEST_DATABASE_URL'] ?? DEFAULT_TEST_DATABASE_URL;
+  const baseUrl = process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_DATABASE_URL;
   const schema = `t_migrate_${process.pid}`;
   const admin = new pg.Pool({ connectionString: baseUrl, max: 1 });
   let folder: string;

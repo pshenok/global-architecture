@@ -19,6 +19,7 @@ export interface InjectResponse {
   readonly statusCode: number;
   readonly headers: Record<string, string | string[] | number | undefined>;
   readonly body: string;
+  // biome-ignore lint/suspicious/noExplicitAny: response bodies are asserted structurally in tests
   json(): any;
 }
 
