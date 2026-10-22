@@ -1,0 +1,9 @@
+{
+  "name": "ga-platform",
+  "version": "0.1.0",
+  "description": "Engineering skills for the global-architecture platform: architecture rules, new services from the template, gRPC contracts, domain logic, Postgres/Drizzle, service-to-service calls, gateway endpoints, testing, local stack, code review and platform maintenance.",
+  "author": { "name": "pshenok" },
+  "homepage": "https://github.com/pshenok/global-architecture",
+  "repository": "https://github.com/pshenok/global-architecture",
+  "keywords": ["nestjs", "grpc", "microservices", "clean-architecture", "drizzle", "postgres"]
+}

@@ -174,6 +174,15 @@ describe('gateway (REST -> gRPC)', () => {
     expect(response.headers['x-request-id']).toBe('req-abc-123');
     expect(response.headers['x-content-type-options']).toBe('nosniff');
     expect(response.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(response.headers['content-security-policy']).toContain("script-src 'self';");
+  });
+
+  it('relaxes the CSP for the /docs page only', async () => {
+    const docs = await inject({ method: 'GET', url: '/docs' });
+    expect(docs.statusCode).toBe(200);
+    expect(docs.headers['content-security-policy']).toContain('https://cdn.jsdelivr.net');
+    const api = await inject({ method: 'GET', url: '/v1/nope' });
+    expect(api.headers['content-security-policy']).not.toContain('cdn.jsdelivr.net');
   });
 
   it('returns problem+json for unknown routes', async () => {
@@ -200,6 +209,19 @@ describe('gateway (REST -> gRPC)', () => {
       format: 'email',
     });
     expect(document.components.schemas).toHaveProperty('ProblemDetails');
+  });
+});
+
+describe('gateway config', () => {
+  const env = { USER_SERVICE_URL: 'a:1', HOUSE_SERVICE_URL: 'b:1', BOOKING_SERVICE_URL: 'c:1' };
+
+  it('disables the docs by default in production only', () => {
+    expect(parseConfig(ConfigSchema, { ...env, NODE_ENV: 'production' }).DOCS_ENABLED).toBe(false);
+    expect(parseConfig(ConfigSchema, { ...env, NODE_ENV: 'development' }).DOCS_ENABLED).toBe(true);
+    expect(
+      parseConfig(ConfigSchema, { ...env, NODE_ENV: 'production', DOCS_ENABLED: 'true' })
+        .DOCS_ENABLED,
+    ).toBe(true);
   });
 });
 

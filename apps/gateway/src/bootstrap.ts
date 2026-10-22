@@ -37,22 +37,8 @@ export function createAdapter(config: Config): AbstractHttpAdapter {
 /** Everything that turns a Nest app into the gateway. Shared by main.ts and the tests. */
 export function configureGateway(app: NestFastifyApplication, config: Config): void {
   app.useLogger(app.get(Logger));
-  app.useSecurityHeaders(
-    config.DOCS_ENABLED
-      ? {
-          // Relaxed only for the /docs UI (Scalar loads from jsDelivr). The API serves JSON only.
-          contentSecurityPolicy: {
-            useDefaults: true,
-            directives: {
-              'script-src': ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
-              'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-              'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
-              'connect-src': ["'self'"],
-            },
-          },
-        }
-      : {},
-  );
+  // Strict Helmet-style defaults for every response; /docs relaxes its own CSP (see setupOpenApi).
+  app.useSecurityHeaders();
   const origins = config.CORS_ORIGINS.split(',')
     .map((o) => o.trim())
     .filter(Boolean);

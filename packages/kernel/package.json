@@ -4,6 +4,9 @@
   "private": true,
   "description": "Shared kernel: framework-free domain primitives (errors, ports, pagination). The only package the domain layer may import.",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "@ga/source": "./src/index.ts",

@@ -1,0 +1,17 @@
+{
+  "name": "global-architecture",
+  "owner": {
+    "name": "pshenok"
+  },
+  "metadata": {
+    "description": "Skills and tooling for building services on the global-architecture platform.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "ga-platform",
+      "source": "./plugins/ga-platform",
+      "description": "Platform skills: architecture, new services, contracts, domain logic, database, service communication, gateway, testing, local stack, review, maintenance."
+    }
+  ]
+}

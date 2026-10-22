@@ -4,6 +4,9 @@
   "private": true,
   "description": "Microservice chassis: config, logging, request context, gRPC server/client bootstrap, error mapping, health, reflection, database (Drizzle + pg), unit of work, migrations and test helpers.",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "@ga/source": "./src/index.ts",

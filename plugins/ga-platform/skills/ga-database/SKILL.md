@@ -1,0 +1,136 @@
+---
+
+name: ga-database
+description: Postgres and Drizzle ORM (1.0 RC, core query builder) in global-architecture services - schema.ts as the source of truth, drizzle-kit migrations (generate, custom SQL, never push), advisory-locked migration runs, constraints that enforce invariants, translateDbError, DbContext/UnitOfWork transactions, keyset pagination queries, money/date/timestamp column types, database-per-service rules and zero-downtime schema changes. Use it for any table, column, index, constraint, migration, query, repository or transaction work, and whenever a race condition or data-integrity rule is involved.
+---
+
+# Database
+
+Each service owns one Postgres database (`ga_<noun>`); nothing else reads or writes it.
+Drizzle's TypeScript schema is the single source of truth; SQL migrations are generated
+from it, reviewed in the PR, and applied as a release step.
+
+## Files
+
+```
+src/infrastructure/persistence/schema.ts                  tables, constraints, indexes
+src/infrastructure/persistence/drizzle-<noun>.repository.ts  adapter of the domain port
+src/migrate.ts                                             release entrypoint (advisory lock)
+drizzle/<timestamp>_<name>/migration.sql + snapshot.json   generated, committed
+drizzle.config.ts
+```
+
+## Column conventions
+
+| Data                                  | Column                                                                           | Notes                                            |
+| ------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| id                                    | `uuid('id').primaryKey()`                                                        | value from `IdGenerator` (UUIDv7); no DB default |
+| reference to another service's entity | `uuid('owner_id').notNull()` + index                                             | no foreign key across services                   |
+| text                                  | `text(...)`                                                                      | lengths are enforced in the domain               |
+| money                                 | `bigint('x_minor', { mode: 'number' })` + `char('currency_code', { length: 3 })` | integer minor units                              |
+| timestamp                             | `timestamp('created_at', { withTimezone: true, precision: 3 })`                  | ms precision round-trips with JS Date            |
+| calendar date                         | `date('check_in', { mode: 'string' })`                                           | 'YYYY-MM-DD' strings, no time zone bugs          |
+| enum-like status                      | `text('status', { enum: [...] })` + `check(...)`                                 | adding a value is a cheap migration              |
+
+Name constraints explicitly (`unique('users_email_key')`, `check('bookings_dates_check', ...)`):
+the names are how `translateDbError` maps violations to domain errors.
+
+## Invariants belong in constraints
+
+A check-then-insert in code is a race: two requests both see "free" and both insert.
+Let Postgres decide atomically and translate the violation:
+
+```ts
+try {
+  await this.db.tx.insert(users).values(row);
+} catch (error) {
+  throw translateDbError(error, { users_email_key: () => userEmailTaken(row.email) });
+}
+```
+
+`translateDbError` also maps serialization failures/deadlocks to `ConcurrencyError` and
+statement timeouts to `DependencyUnavailableError`; anything unmapped stays an internal
+error. booking-service shows the strongest form: an exclusion constraint
+(`EXCLUDE USING gist (house_id WITH =, daterange(check_in, check_out, '[)') WITH &&)
+WHERE (status = 'CONFIRMED')`) makes double booking impossible under any concurrency.
+
+## Repositories
+
+```ts
+@Injectable()
+export class DrizzleHouseRepository extends HouseRepository {
+  constructor(private readonly db: DbContext) {
+    super();
+  } // value import of DbContext!
+
+  async findById(id: string, options: { forUpdate?: boolean } = {}) {
+    const query = this.db.tx.select().from(houses).where(eq(houses.id, id));
+    const rows = options.forUpdate ? await query.for('update') : await query;
+    return rows[0] ? toDomain(rows[0]) : null;
+  }
+
+  async list(filter: HouseFilter, { limit, after }: PageRequest) {
+    const rows = await this.db.tx
+      .select()
+      .from(houses)
+      .where(
+        and(
+          after ? lt(houses.id, after) : undefined,
+          filter.ownerId ? eq(houses.ownerId, filter.ownerId) : undefined,
+        ),
+      )
+      .orderBy(desc(houses.id))
+      .limit(limit + 1); // one extra row tells toPage() there is a next page
+    return toPage(rows.map(toDomain), limit);
+  }
+}
+```
+
+- `this.db.tx` is the current transaction inside `UnitOfWork.run()`, otherwise the pool.
+- Map rows to aggregates with `X.restore(...)` and back with `toState()`; the repository is
+  the only place that knows both shapes.
+- Use the core query builder (`select/insert/update/delete`), not the relational query
+  API: the core builder is the stable part of Drizzle 1.0 RC.
+- Keyset pagination works because UUIDv7 ids sort by creation time; add an index for
+  every filter column.
+- Return `boolean` from deletes (`.returning({ id })`), let the use case raise `NotFound`.
+
+## Migrations
+
+```bash
+pnpm --filter @ga/<svc> db:generate --name add_house_rating   # diff schema.ts -> SQL
+pnpm --filter @ga/<svc> db:generate --custom --name no_overlap # empty file for hand SQL
+pnpm --filter @ga/<svc> build && pnpm --filter @ga/<svc> db:migrate
+pnpm db:migrate                                                  # all services
+```
+
+- Read the generated SQL before committing. On a rename, drizzle-kit (non-interactive)
+  exits with code 2 and prints the `--hints` JSON to pass, so it never guesses a
+  drop-and-add.
+- Use a custom migration for what drizzle-kit cannot express: exclusion constraints,
+  extensions (`create extension if not exists ... with schema public`), data backfills,
+  triggers. Declare needed extensions in `services.json` (`"extensions": [...]`).
+- Never edit or delete a migration that may have run anywhere; add a new one.
+- Never use `drizzle-kit push` against shared databases.
+- `runMigrations` (in `src/migrate.ts`) takes a Postgres advisory lock, so N replicas
+  starting at once apply each migration exactly once. Run it as a release step (a job
+  before rollout), not from `main.ts`.
+- All pending migrations run in one transaction, so `CREATE INDEX CONCURRENTLY` must be a
+  separate, later release step.
+
+Changing a live schema without downtime (expand -> migrate -> contract):
+`references/zero-downtime.md`.
+
+## Configuration and pooling
+
+`DATABASE_URL`, `DB_POOL_MAX` (default 10) and `DB_STATEMENT_TIMEOUT_MS` (default 5000)
+are validated by the kit. Budget connections: replicas x `DB_POOL_MAX` per service must
+stay below the server's `max_connections`; beyond that, put PgBouncer in front and keep
+migrations on a direct connection. A `select 1` health check flips the service to
+NOT_SERVING when the database is unreachable.
+
+## Tests
+
+Integration tests get a private schema with all migrations applied:
+`createTestDatabase({ migrationsFolder })` from `@ga/service-kit/testing` (see `ga-testing`).
+Never point tests at a service's real database.

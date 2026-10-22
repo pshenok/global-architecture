@@ -5,6 +5,11 @@
  * `kind` to a gRPC status code, and the gateway maps that status to HTTP plus
  * RFC 9457 problem details. Never throw transport exceptions from domain or
  * application code; throw one of these instead.
+ *
+ * `message`, `reason` and `metadata` are CLIENT-FACING: the gateway returns them to
+ * API callers (as detail, code and metadata). Write messages for API users and put
+ * only identifiers the caller already knows into metadata: never secrets, internal
+ * hostnames, SQL, stack traces or other users' personal data.
  */
 export type DomainErrorKind =
   | 'INVALID_ARGUMENT'
@@ -29,7 +34,7 @@ export abstract class DomainError extends Error {
   abstract readonly kind: DomainErrorKind;
   /** Machine-readable UPPER_SNAKE_CASE reason, e.g. `USER_EMAIL_TAKEN` (AIP-193 ErrorInfo.reason). */
   readonly reason: string;
-  /** Machine-readable context with string values only, e.g. `{ userId }`. Never put secrets here. */
+  /** Machine-readable, client-facing context with string values only, e.g. `{ userId }`. */
   readonly metadata: Readonly<Record<string, string>>;
 
   constructor(

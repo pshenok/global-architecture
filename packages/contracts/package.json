@@ -4,6 +4,11 @@
   "private": true,
   "description": "gRPC contracts: one buf module with every service's .proto, generated TypeScript (ts-proto, NestJS flavour) and the proto runtime helpers shared by services and the gateway.",
   "type": "module",
+  "files": [
+    "dist",
+    "proto",
+    "descriptors.binpb"
+  ],
   "exports": {
     "./runtime": {
       "@ga/source": "./src/runtime/index.ts",

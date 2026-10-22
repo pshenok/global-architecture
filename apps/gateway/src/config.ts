@@ -2,7 +2,7 @@ import { grpcTarget } from '@ga/service-kit';
 import { z } from 'zod';
 
 /** Environment of the gateway, validated at boot. */
-export const ConfigSchema = z.object({
+const BaseConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   LOG_PRETTY: z.stringbool().default(false),
@@ -19,11 +19,16 @@ export const ConfigSchema = z.object({
   BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1_048_576),
   /** Trust X-Forwarded-* (only behind a known proxy). */
   TRUST_PROXY: z.stringbool().default(false),
-  /** Serve /docs (Scalar) and /openapi.json. */
-  DOCS_ENABLED: z.stringbool().default(true),
+  /** Serve /docs (Scalar) and /openapi.json. Default: on, except when NODE_ENV=production. */
+  DOCS_ENABLED: z.stringbool().optional(),
   USER_SERVICE_URL: grpcTarget(),
   HOUSE_SERVICE_URL: grpcTarget(),
   BOOKING_SERVICE_URL: grpcTarget(),
 });
+
+export const ConfigSchema = BaseConfigSchema.transform((config) => ({
+  ...config,
+  DOCS_ENABLED: config.DOCS_ENABLED ?? config.NODE_ENV !== 'production',
+}));
 
 export type Config = z.output<typeof ConfigSchema>;
