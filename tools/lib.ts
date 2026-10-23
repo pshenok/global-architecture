@@ -27,6 +27,8 @@ export interface ServiceEntry {
 export interface Registry {
   $comment: string;
   gateway: { name: string; dir: string; httpsPort: number };
+  /** Local OIDC provider of the stack (tools/dev-idp.ts). */
+  devIdp: { port: number };
   services: ServiceEntry[];
 }
 
@@ -45,3 +47,14 @@ export function databaseUrl(database: string): string {
 
 export const DEFAULT_PG_ADMIN_URL = `postgresql://${process.env.USER ?? 'postgres'}@localhost:5432/postgres`;
 export const TEST_DATABASE = 'ga_test';
+
+/** Local secrets and certificates (git-ignored). */
+export const CERTS_DIR = `${ROOT}.certs`;
+/** Public keys of every workload (WORKLOAD_KEYS_FILE). */
+export const WORKLOAD_KEYS_PATH = `${CERTS_DIR}/workload-keys.json`;
+/** Private key of one workload (its WORKLOAD_KEY_FILE). */
+export const workloadKeyPath = (name: string) => `${CERTS_DIR}/workloads/${name}.jwk.json`;
+/** Every workload with an identity: the gateway plus the registered services. */
+export function workloadNames(registry: Registry = readRegistry()): string[] {
+  return [registry.gateway.name, ...registry.services.map((service) => service.name)];
+}

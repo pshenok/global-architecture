@@ -1,4 +1,12 @@
-import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } from '@ga/kernel';
+import {
+  Clock,
+  IdGenerator,
+  type Page,
+  type PageRequest,
+  toPage,
+  UnitOfWork,
+  type UserActor,
+} from '@ga/kernel';
 import { UserDirectory } from '../src/application/ports/user-directory.ts';
 import { type HouseFilter, HouseRepository } from '../src/domain/house.repository.ts';
 import { House, type HouseState } from '../src/domain/house.ts';
@@ -43,8 +51,8 @@ export class FakeUserDirectory extends UserDirectory {
     super();
   }
 
-  async exists(userId: string): Promise<boolean> {
-    return this.known.has(userId);
+  async stillExists(actor: UserActor): Promise<boolean> {
+    return this.known.has(actor.userId);
   }
 }
 
@@ -82,12 +90,18 @@ export class InMemoryHouseRepository extends HouseRepository {
 
 export const OWNER_ID = '01900000-0000-7000-8000-0000000000aa';
 
+/** Use-case input of CreateHouse (the owner is the acting user). */
 export const houseInput = (overrides: Record<string, unknown> = {}) => ({
-  ownerId: OWNER_ID,
   title: 'Sea view loft',
   description: 'Two rooms by the sea',
   address: { line1: '1 Beach St', city: 'Odesa', countryCode: 'UA' },
   nightlyPrice: { currencyCode: 'USD', amountMinor: 12_000 },
   maxGuests: 4,
   ...overrides,
+});
+
+/** gRPC CreateHouseRequest; owner_id is deprecated and ignored (the caller is the owner). */
+export const houseRequest = (overrides: Record<string, unknown> = {}) => ({
+  ownerId: '',
+  ...houseInput(overrides),
 });

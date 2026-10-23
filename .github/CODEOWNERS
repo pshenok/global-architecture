@@ -1,0 +1,37 @@
+# Security-sensitive paths (ADR-0004): changes need the platform owner's review.
+# Guardrail code, the only gateway files that may touch the raw HTTP server, and
+# everything that decides whether and how the guardrails run.
+/.github/CODEOWNERS @pshenok
+/.github/workflows/ @pshenok
+/security/ @pshenok
+/packages/service-kit/src/ @pshenok
+/packages/kernel/src/actor.ts @pshenok
+/packages/kernel/src/testing.ts @pshenok
+/packages/kernel/src/index.ts @pshenok
+/apps/gateway/src/auth/ @pshenok
+/apps/gateway/src/bootstrap.ts @pshenok
+/apps/gateway/src/main.ts @pshenok
+/apps/gateway/src/http/openapi.ts @pshenok
+/apps/gateway/test/harness.ts @pshenok
+/tools/check-access.ts @pshenok
+/tools/lib.ts @pshenok
+/tools/verify-template.ts @pshenok
+/package.json @pshenok
+/pnpm-workspace.yaml @pshenok
+/turbo.json @pshenok
+/vitest.shared.ts @pshenok
+/.swcrc @pshenok
+/tsconfig.json @pshenok
+/tsconfig.base.json @pshenok
+/apps/*/package.json @pshenok
+/apps/*/tsconfig.json @pshenok
+/apps/*/vitest.config.ts @pshenok
+/packages/*/package.json @pshenok
+/packages/*/tsconfig.json @pshenok
+/packages/*/vitest.config.ts @pshenok
+/templates/service/package.json @pshenok
+/templates/service/tsconfig.json @pshenok
+/templates/service/vitest.config.ts @pshenok
+**/biome.json @pshenok
+**/biome.jsonc @pshenok
+**/.oxlintrc.json @pshenok

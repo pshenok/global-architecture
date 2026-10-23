@@ -1,6 +1,7 @@
-import { PreconditionFailedError } from '@ga/kernel';
+import { ANONYMOUS, PreconditionFailedError } from '@ga/kernel';
+import { adminActor, userActor } from '@ga/kernel/testing';
 import { describe, expect, it } from 'vitest';
-import { GUEST_ID, HOUSE_ID, TERMS } from '../../test/fakes.ts';
+import { GUEST_ID, HOST_ID, HOUSE_ID, STRANGER_ID, TERMS } from '../../test/fakes.ts';
 import { Booking } from './booking.ts';
 
 const now = new Date('2026-06-01T12:00:00.000Z');
@@ -39,5 +40,15 @@ describe('Booking', () => {
       updatedAt: later,
     });
     expect(() => booking.cancel(later)).toThrow(PreconditionFailedError);
+  });
+
+  it('is visible to its guest, the host and admins only', () => {
+    const booking = Booking.create(input, TERMS, now);
+    expect(booking.toState().hostId).toBe(HOST_ID);
+    for (const actor of [userActor(GUEST_ID), userActor(HOST_ID), adminActor(STRANGER_ID)]) {
+      expect(booking.isVisibleTo(actor)).toBe(true);
+    }
+    expect(booking.isVisibleTo(userActor(STRANGER_ID))).toBe(false);
+    expect(booking.isVisibleTo(ANONYMOUS)).toBe(false);
   });
 });

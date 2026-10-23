@@ -1,4 +1,5 @@
 import type { UserServiceClient } from '@ga/contracts/ga/user/v1/user';
+import type { UserActor } from '@ga/kernel';
 import { grpcStatusOf, toDependencyError } from '@ga/service-kit';
 import { status } from '@grpc/grpc-js';
 import { Inject, Injectable } from '@nestjs/common';
@@ -13,9 +14,9 @@ export class GrpcUserDirectory extends UserDirectory {
     super();
   }
 
-  async exists(userId: string): Promise<boolean> {
+  async stillExists(actor: UserActor): Promise<boolean> {
     try {
-      await firstValueFrom(this.users.getUser({ id: userId }));
+      await firstValueFrom(this.users.getUser({ id: actor.userId }));
       return true;
     } catch (error) {
       if (grpcStatusOf(error) === status.NOT_FOUND) return false;

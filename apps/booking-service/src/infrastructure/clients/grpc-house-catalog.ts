@@ -18,7 +18,11 @@ export class GrpcHouseCatalog extends HouseCatalog {
     try {
       const { house } = await firstValueFrom(this.houses.getHouse({ id: houseId }));
       if (!house?.nightlyPrice) return null;
-      return { maxGuests: house.maxGuests, nightlyPrice: { ...house.nightlyPrice } };
+      return {
+        maxGuests: house.maxGuests,
+        nightlyPrice: { ...house.nightlyPrice },
+        ownerId: house.ownerId,
+      };
     } catch (error) {
       if (grpcStatusOf(error) === status.NOT_FOUND) return null;
       throw toDependencyError(error, 'house-service');

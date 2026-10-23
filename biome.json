@@ -9,7 +9,7 @@
     "includes": [
       "**",
       "!pnpm-lock.yaml",
-      "!**/src/gen",
+      "!packages/contracts/src/gen",
       "!**/dist",
       "!**/coverage",
       "!**/.turbo",
@@ -58,7 +58,8 @@
         "noUnusedVariables": "error"
       },
       "suspicious": {
-        "noImportCycles": "error"
+        "noImportCycles": "error",
+        "noExplicitAny": "error"
       },
       "complexity": {
         "noStaticOnlyClass": "off"

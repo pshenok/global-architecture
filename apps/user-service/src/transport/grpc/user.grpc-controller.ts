@@ -7,13 +7,16 @@ import {
   type GetUserResponse,
   type ListUsersRequest,
   type ListUsersResponse,
+  type RegisterUserRequest,
+  type RegisterUserResponse,
+  type ResolveIdentityResponse,
   type UpdateUserRequest,
   type UpdateUserResponse,
   type UserServiceController,
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
-import { parseRequest } from '@ga/service-kit';
+import { Access, currentIdentity, currentUser, parseRequest } from '@ga/service-kit';
 import { Controller } from '@nestjs/common';
 import { UserService } from '../../application/user.service.ts';
 import { toUserMessage } from './user.mapper.ts';
@@ -22,6 +25,7 @@ import {
   DeleteUserRequestSchema,
   GetUserRequestSchema,
   ListUsersRequestSchema,
+  RegisterUserRequestSchema,
   UpdateUserRequestSchema,
 } from './user.requests.ts';
 
@@ -35,20 +39,37 @@ import {
 export class UserGrpcController implements UserServiceController {
   constructor(private readonly users: UserService) {}
 
+  @Access.identity()
+  async registerUser(request: RegisterUserRequest): Promise<RegisterUserResponse> {
+    const input = parseRequest(RegisterUserRequestSchema, request);
+    return { user: toUserMessage(await this.users.register(currentIdentity(), input)) };
+  }
+
+  @Access.identity()
+  async resolveIdentity(): Promise<ResolveIdentityResponse> {
+    const { userId, roles } = await this.users.resolve(currentIdentity());
+    return { userId, roles: [...roles] };
+  }
+
+  /** Deprecated: users register themselves (RegisterUser). */
+  @Access.admin()
   async createUser(request: CreateUserRequest): Promise<CreateUserResponse> {
     const input = parseRequest(CreateUserRequestSchema, request);
-    return { user: toUserMessage(await this.users.create(input)) };
+    return { user: toUserMessage(await this.users.create(currentUser(), input)) };
   }
 
+  /** house-service and booking-service look up the acting user's own account. */
+  @Access.user({ via: ['house-service', 'booking-service'] })
   async getUser(request: GetUserRequest): Promise<GetUserResponse> {
     const { id } = parseRequest(GetUserRequestSchema, request);
-    return { user: toUserMessage(await this.users.get(id)) };
+    return { user: toUserMessage(await this.users.get(currentUser(), id)) };
   }
 
+  @Access.admin()
   async listUsers(request: ListUsersRequest): Promise<ListUsersResponse> {
     const { pageSize, pageToken } = parseRequest(ListUsersRequestSchema, request);
     const fingerprint = filterFingerprint({});
-    const page = await this.users.list({
+    const page = await this.users.list(currentUser(), {
       limit: resolvePageSize(pageSize),
       after: decodePageToken(pageToken, fingerprint),
     });
@@ -58,14 +79,16 @@ export class UserGrpcController implements UserServiceController {
     };
   }
 
+  @Access.user()
   async updateUser(request: UpdateUserRequest): Promise<UpdateUserResponse> {
     const { id, ...changes } = parseRequest(UpdateUserRequestSchema, request);
-    return { user: toUserMessage(await this.users.update(id, changes)) };
+    return { user: toUserMessage(await this.users.update(currentUser(), id, changes)) };
   }
 
+  @Access.user()
   async deleteUser(request: DeleteUserRequest): Promise<DeleteUserResponse> {
     const { id } = parseRequest(DeleteUserRequestSchema, request);
-    await this.users.delete(id);
+    await this.users.delete(currentUser(), id);
     return {};
   }
 }

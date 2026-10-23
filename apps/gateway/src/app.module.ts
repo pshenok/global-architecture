@@ -1,9 +1,11 @@
-import { CONFIG, ConfigModule, httpLoggerParams } from '@ga/service-kit';
+import { CONFIG, ConfigModule, httpLoggerParams, WorkloadIdentityModule } from '@ga/service-kit';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
+import { AuthGuard } from './auth/auth.guard.ts';
+import { AuthModule } from './auth/auth.module.ts';
 import { BookingsController } from './bookings/bookings.controller.ts';
 import { DownstreamClientsModule } from './clients.ts';
 import { type Config, ConfigSchema } from './config.ts';
@@ -14,6 +16,8 @@ import { UsersController } from './users/users.controller.ts';
 @Module({
   imports: [
     ConfigModule.forRoot(ConfigSchema),
+    // The gateway's own key: signs caller assertions to the services (ADR-0004).
+    WorkloadIdentityModule.forRoot({ name: 'gateway' }),
     LoggerModule.forRootAsync({
       inject: [CONFIG],
       useFactory: (config: Config) => httpLoggerParams('gateway', config),
@@ -35,8 +39,13 @@ import { UsersController } from './users/users.controller.ts';
       }),
     }),
     DownstreamClientsModule,
+    AuthModule,
   ],
   controllers: [HealthController, UsersController, HousesController, BookingsController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  // Order matters: rate limiting runs before any token cryptography.
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AppModule {}

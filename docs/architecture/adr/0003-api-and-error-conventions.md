@@ -38,6 +38,16 @@ message. Domain error messages and metadata are client-facing by contract.
 | (deadline)                 | DEADLINE_EXCEEDED   | 504  |
 | (unexpected)               | INTERNAL            | 500  |
 
+**Authentication and authorization (ADR-0004)**: the gateway answers 401 with
+`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID` or `AUTH_TOKEN_EXPIRED` and a
+`WWW-Authenticate: Bearer` header (RFC 6750), 403 with `USER_NOT_REGISTERED`,
+`EMAIL_NOT_VERIFIED`, `ADMIN_ROLE_REQUIRED` or a resource reason such as
+`HOUSE_PERMISSION_DENIED`, and 503 with `IDENTITY_PROVIDER_UNAVAILABLE`. A resource the
+caller may not see is a 404 with the same reason as a missing one. Between gateway and
+services, `UNAUTHENTICATED` and the platform reasons of `PERMISSION_DENIED`
+(`CALLER_NOT_ALLOWED`, `ACCESS_NOT_DECLARED`, `PRINCIPAL_NOT_REGISTERED`,
+`IDENTITY_PRINCIPAL_REQUIRED`) are server faults: the gateway reports them as 500.
+
 **REST (public)**: versioned paths (`/v1`), plural resources, camelCase JSON, ISO-8601
 times, `{ items, nextPageToken }` lists, 201 + `Location` on create, 204 on delete,
 custom actions as `POST /v1/<resources>/{id}/<verb>`. Every error is RFC 9457

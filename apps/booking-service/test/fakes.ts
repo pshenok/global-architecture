@@ -1,15 +1,27 @@
-import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } from '@ga/kernel';
+import {
+  Clock,
+  IdGenerator,
+  type Page,
+  type PageRequest,
+  toPage,
+  UnitOfWork,
+  type UserActor,
+} from '@ga/kernel';
 import { HouseCatalog } from '../src/application/ports/house-catalog.ts';
 import { UserDirectory } from '../src/application/ports/user-directory.ts';
 import { datesUnavailable } from '../src/domain/booking.errors.ts';
 import { type BookingFilter, BookingRepository } from '../src/domain/booking.repository.ts';
 import { Booking, type BookingState, type HouseTerms } from '../src/domain/booking.ts';
+import type { BookingScope } from '../src/domain/booking-scope.ts';
 
 export const GUEST_ID = '01900000-0000-7000-8000-0000000000a1';
+export const HOST_ID = '01900000-0000-7000-8000-0000000000c1';
+export const STRANGER_ID = '01900000-0000-7000-8000-0000000000d1';
 export const HOUSE_ID = '01900000-0000-7000-8000-0000000000b1';
 export const TERMS: HouseTerms = {
   maxGuests: 4,
   nightlyPrice: { currencyCode: 'USD', amountMinor: 10_000 },
+  ownerId: HOST_ID,
 };
 
 /** "YYYY-MM-DD" n days after `from` (UTC). */
@@ -48,8 +60,8 @@ export class FakeUserDirectory extends UserDirectory {
     super();
   }
 
-  async exists(userId: string): Promise<boolean> {
-    return this.known.has(userId);
+  async stillExists(actor: UserActor): Promise<boolean> {
+    return this.known.has(actor.userId);
   }
 }
 
@@ -72,10 +84,15 @@ export class InMemoryBookingRepository extends BookingRepository {
     return state ? Booking.restore(state) : null;
   }
 
-  async list(filter: BookingFilter, { limit, after }: PageRequest): Promise<Page<Booking>> {
+  async list(
+    scope: BookingScope,
+    filter: BookingFilter,
+    { limit, after }: PageRequest,
+  ): Promise<Page<Booking>> {
     const rows = [...this.rows.values()]
+      .filter((s) => scope.kind !== 'guest' || s.guestId === scope.userId)
+      .filter((s) => scope.kind !== 'host' || s.hostId === scope.userId)
       .filter((s) => after === null || s.id < after)
-      .filter((s) => !filter.guestId || s.guestId === filter.guestId)
       .filter((s) => !filter.houseId || s.houseId === filter.houseId)
       .sort((a, b) => (a.id < b.id ? 1 : -1))
       .slice(0, limit + 1)

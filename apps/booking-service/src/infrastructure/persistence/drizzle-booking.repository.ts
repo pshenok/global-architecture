@@ -5,6 +5,7 @@ import { and, desc, eq, lt } from 'drizzle-orm';
 import { datesUnavailable } from '../../domain/booking.errors.ts';
 import { type BookingFilter, BookingRepository } from '../../domain/booking.repository.ts';
 import { Booking } from '../../domain/booking.ts';
+import type { BookingScope } from '../../domain/booking-scope.ts';
 import { type BookingRow, bookings, NO_OVERLAP_CONSTRAINT } from './schema.ts';
 
 const toDomain = (row: BookingRow): Booking =>
@@ -12,6 +13,7 @@ const toDomain = (row: BookingRow): Booking =>
     id: row.id,
     houseId: row.houseId,
     guestId: row.guestId,
+    hostId: row.hostId,
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     guests: row.guests,
@@ -44,14 +46,19 @@ export class DrizzleBookingRepository extends BookingRepository {
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async list(filter: BookingFilter, { limit, after }: PageRequest): Promise<Page<Booking>> {
+  async list(
+    scope: BookingScope,
+    filter: BookingFilter,
+    { limit, after }: PageRequest,
+  ): Promise<Page<Booking>> {
     const rows = await this.db.tx
       .select()
       .from(bookings)
       .where(
         and(
+          scope.kind === 'guest' ? eq(bookings.guestId, scope.userId) : undefined,
+          scope.kind === 'host' ? eq(bookings.hostId, scope.userId) : undefined,
           after ? lt(bookings.id, after) : undefined,
-          filter.guestId ? eq(bookings.guestId, filter.guestId) : undefined,
           filter.houseId ? eq(bookings.houseId, filter.houseId) : undefined,
         ),
       )

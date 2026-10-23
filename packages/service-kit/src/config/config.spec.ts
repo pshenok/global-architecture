@@ -10,19 +10,25 @@ describe('parseConfig', () => {
       GRPC_PORT: '50051',
       DATABASE_URL: 'postgresql://ga:ga@localhost:5432/ga_user',
       LOG_PRETTY: 'true',
+      WORKLOAD_KEY_FILE: '/keys/user-service.jwk.json',
+      WORKLOAD_KEYS_FILE: '/keys/workload-keys.json',
+      PRINCIPAL_ISSUERS: 'gateway, partner-edge',
     });
     expect(config).toMatchObject({
       GRPC_PORT: 50051,
       GRPC_HOST: '127.0.0.1',
       LOG_PRETTY: true,
       DB_POOL_MAX: 10,
+      WORKLOAD_KEYS_RELOAD_S: 60,
+      PRINCIPAL_ISSUERS: ['gateway', 'partner-edge'],
     });
   });
 
   it('reports every invalid variable at once', () => {
-    expect(() => parseConfig(schema, { GRPC_PORT: 'abc', DATABASE_URL: 'mysql://x' })).toThrow(
-      /GRPC_PORT[\s\S]*DATABASE_URL/,
-    );
+    const problems = () => parseConfig(schema, { GRPC_PORT: 'abc', DATABASE_URL: 'mysql://x' });
+    for (const variable of ['GRPC_PORT', 'DATABASE_URL', 'WORKLOAD_KEY_FILE']) {
+      expect(problems).toThrow(variable);
+    }
   });
 });
 

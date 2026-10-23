@@ -1,6 +1,7 @@
-import { ValidationError } from '@ga/kernel';
+import { ANONYMOUS, PermissionDeniedError, ValidationError } from '@ga/kernel';
+import { adminActor, userActor } from '@ga/kernel/testing';
 import { describe, expect, it } from 'vitest';
-import { houseInput } from '../../test/fakes.ts';
+import { houseInput, OWNER_ID } from '../../test/fakes.ts';
 import { House } from './house.ts';
 
 const now = new Date('2026-01-01T00:00:00.000Z');
@@ -11,6 +12,7 @@ describe('House', () => {
     const house = House.create(
       {
         id: 'h1',
+        ownerId: OWNER_ID,
         ...houseInput({ address: { line1: ' 1 Beach St ', city: ' Odesa ', countryCode: 'ua' } }),
       },
       now,
@@ -28,7 +30,7 @@ describe('House', () => {
     [{ address: { line1: 'x', city: 'y', countryCode: 'UKR' } }, 'address.countryCode'],
   ])('rejects %o on field %s', (overrides, field) => {
     try {
-      House.create({ id: 'h1', ...houseInput(overrides) }, now);
+      House.create({ id: 'h1', ownerId: OWNER_ID, ...houseInput(overrides) }, now);
       expect.unreachable();
     } catch (error) {
       expect(error).toBeInstanceOf(ValidationError);
@@ -37,10 +39,19 @@ describe('House', () => {
   });
 
   it('updates only what changed', () => {
-    const house = House.create({ id: 'h1', ...houseInput() }, now);
+    const house = House.create({ id: 'h1', ownerId: OWNER_ID, ...houseInput() }, now);
     house.update({ maxGuests: 4 }, later);
     expect(house.updatedAt).toEqual(now);
     house.update({ maxGuests: 6, title: 'Bigger loft' }, later);
     expect(house.toState()).toMatchObject({ maxGuests: 6, title: 'Bigger loft', updatedAt: later });
+  });
+
+  it('may be managed by its owner and by admins only', () => {
+    const house = House.create({ id: 'h1', ownerId: OWNER_ID, ...houseInput() }, now);
+    expect(() => house.assertManageableBy(userActor(OWNER_ID))).not.toThrow();
+    expect(() => house.assertManageableBy(adminActor('someone-else'))).not.toThrow();
+    for (const stranger of [userActor('someone-else'), ANONYMOUS]) {
+      expect(() => house.assertManageableBy(stranger)).toThrow(PermissionDeniedError);
+    }
   });
 });

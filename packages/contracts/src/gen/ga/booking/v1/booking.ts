@@ -21,6 +21,18 @@ export enum BookingStatus {
   BOOKING_STATUS_CANCELLED = "BOOKING_STATUS_CANCELLED",
 }
 
+/** BookingParty selects which of the caller's bookings a list returns. */
+export enum BookingParty {
+  /** BOOKING_PARTY_UNSPECIFIED - Same as BOOKING_PARTY_GUEST. */
+  BOOKING_PARTY_UNSPECIFIED = "BOOKING_PARTY_UNSPECIFIED",
+  /** BOOKING_PARTY_GUEST - Bookings where the caller is the guest. */
+  BOOKING_PARTY_GUEST = "BOOKING_PARTY_GUEST",
+  /** BOOKING_PARTY_HOST - Bookings of houses the caller owns. */
+  BOOKING_PARTY_HOST = "BOOKING_PARTY_HOST",
+  /** BOOKING_PARTY_ANY - Every booking; admins only. */
+  BOOKING_PARTY_ANY = "BOOKING_PARTY_ANY",
+}
+
 /** Booking is a reservation of a house for [check_in, check_out). */
 export interface Booking {
   /** Server-generated UUIDv7. */
@@ -41,11 +53,23 @@ export interface Booking {
     | Date
     | null;
   /** Set when status is BOOKING_STATUS_CANCELLED. */
-  cancelTime?: Date | null;
+  cancelTime?:
+    | Date
+    | null;
+  /**
+   * Id of the ga.user.v1.User who owns the house, snapshotted at booking time
+   * (house owners never change, see ga.house.v1.House.owner_id).
+   */
+  hostId: string;
 }
 
 export interface CreateBookingRequest {
   houseId: string;
+  /**
+   * Deprecated and ignored: the guest is the calling user (ADR-0004). To be reserved.
+   *
+   * @deprecated
+   */
   guestId: string;
   checkIn: string;
   checkOut: string;
@@ -69,8 +93,18 @@ export interface ListBookingsRequest {
   /** 1..100, defaults to 20 when 0. */
   pageSize: number;
   pageToken: string;
+  /**
+   * Deprecated and ignored: party scopes the list to the caller (ADR-0004). To be reserved.
+   *
+   * @deprecated
+   */
   guestId?: string | null | undefined;
-  houseId?: string | null | undefined;
+  houseId?:
+    | string
+    | null
+    | undefined;
+  /** Whose bookings to list; the caller's own as guest by default. */
+  party: BookingParty;
 }
 
 export interface ListBookingsResponse {
@@ -93,31 +127,37 @@ export const GA_BOOKING_V1_PACKAGE_NAME = "ga.booking.v1";
 
 export interface BookingServiceClient {
   /**
-   * CreateBooking reserves a house for a date range.
-   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest or house missing,
+   * CreateBooking reserves a house for a date range; the calling user is the guest.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest account or house missing,
    * too many guests), ALREADY_EXISTS (dates overlap an active booking),
-   * UNAVAILABLE (a dependency is unreachable).
+   * UNAVAILABLE (a dependency is unreachable), UNAUTHENTICATED, PERMISSION_DENIED.
    */
 
   createBooking(request: CreateBookingRequest, metadata?: Metadata): Observable<CreateBookingResponse>;
 
   /**
-   * GetBooking returns one booking.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * GetBooking returns one booking to its guest, its host or an admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND (also for bookings the caller may not see),
+   * UNAUTHENTICATED.
    */
 
   getBooking(request: GetBookingRequest, metadata?: Metadata): Observable<GetBookingResponse>;
 
   /**
-   * ListBookings pages through bookings, newest first, with optional filters.
-   * Errors: INVALID_ARGUMENT.
+   * ListBookings pages through the caller's bookings (see party), newest first.
+   * Access: user (BOOKING_PARTY_ANY: admins).
+   * Errors: INVALID_ARGUMENT, PERMISSION_DENIED (ADMIN_ROLE_REQUIRED), UNAUTHENTICATED.
    */
 
   listBookings(request: ListBookingsRequest, metadata?: Metadata): Observable<ListBookingsResponse>;
 
   /**
-   * CancelBooking cancels a confirmed booking and frees its dates.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND, FAILED_PRECONDITION (already cancelled).
+   * CancelBooking cancels a confirmed booking and frees its dates. Guest, host or admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND (also for bookings the caller may not see),
+   * FAILED_PRECONDITION (already cancelled), UNAUTHENTICATED.
    */
 
   cancelBooking(request: CancelBookingRequest, metadata?: Metadata): Observable<CancelBookingResponse>;
@@ -127,10 +167,11 @@ export interface BookingServiceClient {
 
 export interface BookingServiceController {
   /**
-   * CreateBooking reserves a house for a date range.
-   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest or house missing,
+   * CreateBooking reserves a house for a date range; the calling user is the guest.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest account or house missing,
    * too many guests), ALREADY_EXISTS (dates overlap an active booking),
-   * UNAVAILABLE (a dependency is unreachable).
+   * UNAVAILABLE (a dependency is unreachable), UNAUTHENTICATED, PERMISSION_DENIED.
    */
 
   createBooking(
@@ -139,8 +180,10 @@ export interface BookingServiceController {
   ): Promise<CreateBookingResponse> | Observable<CreateBookingResponse> | CreateBookingResponse;
 
   /**
-   * GetBooking returns one booking.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * GetBooking returns one booking to its guest, its host or an admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND (also for bookings the caller may not see),
+   * UNAUTHENTICATED.
    */
 
   getBooking(
@@ -149,8 +192,9 @@ export interface BookingServiceController {
   ): Promise<GetBookingResponse> | Observable<GetBookingResponse> | GetBookingResponse;
 
   /**
-   * ListBookings pages through bookings, newest first, with optional filters.
-   * Errors: INVALID_ARGUMENT.
+   * ListBookings pages through the caller's bookings (see party), newest first.
+   * Access: user (BOOKING_PARTY_ANY: admins).
+   * Errors: INVALID_ARGUMENT, PERMISSION_DENIED (ADMIN_ROLE_REQUIRED), UNAUTHENTICATED.
    */
 
   listBookings(
@@ -159,8 +203,10 @@ export interface BookingServiceController {
   ): Promise<ListBookingsResponse> | Observable<ListBookingsResponse> | ListBookingsResponse;
 
   /**
-   * CancelBooking cancels a confirmed booking and frees its dates.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND, FAILED_PRECONDITION (already cancelled).
+   * CancelBooking cancels a confirmed booking and frees its dates. Guest, host or admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND (also for bookings the caller may not see),
+   * FAILED_PRECONDITION (already cancelled), UNAUTHENTICATED.
    */
 
   cancelBooking(

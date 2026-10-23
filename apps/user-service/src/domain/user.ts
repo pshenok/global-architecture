@@ -1,16 +1,18 @@
-import { ValidationError } from '@ga/kernel';
+import { type Actor, isAdmin, ROLES, type Role, ValidationError } from '@ga/kernel';
 
 /** Persisted state of a User. */
 export interface UserState {
   readonly id: string;
-  readonly email: string;
+  /** Null when the identity provider shared no email. */
+  readonly email: string | null;
   readonly fullName: string;
+  readonly roles: readonly Role[];
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
 
+/** What a user may change; the email belongs to the identity provider. */
 export interface UserChanges {
-  readonly email?: string | undefined;
   readonly fullName?: string | undefined;
 }
 
@@ -43,11 +45,16 @@ function normalizeFullName(fullName: string): string {
 export class User {
   private constructor(private state: UserState) {}
 
-  static create(input: { id: string; email: string; fullName: string }, now: Date): User {
+  /**
+   * A new user. `email` is what the identity provider vouched for (null when it shared
+   * none); it is never taken from what a client typed.
+   */
+  static create(input: { id: string; email: string | null; fullName: string }, now: Date): User {
     return new User({
       id: input.id,
-      email: normalizeEmail(input.email),
+      email: input.email === null ? null : normalizeEmail(input.email),
       fullName: normalizeFullName(input.fullName),
+      roles: [],
       createdAt: now,
       updatedAt: now,
     });
@@ -61,8 +68,12 @@ export class User {
     return this.state.id;
   }
 
-  get email(): string {
+  get email(): string | null {
     return this.state.email;
+  }
+
+  get roles(): readonly Role[] {
+    return this.state.roles;
   }
 
   get fullName(): string {
@@ -79,14 +90,45 @@ export class User {
 
   /** Applies the given changes; fields left undefined stay as they are. */
   update(changes: UserChanges, now: Date): void {
-    const email = changes.email === undefined ? this.state.email : normalizeEmail(changes.email);
     const fullName =
       changes.fullName === undefined ? this.state.fullName : normalizeFullName(changes.fullName);
-    if (email === this.state.email && fullName === this.state.fullName) return;
-    this.state = { ...this.state, email, fullName, updatedAt: now };
+    if (fullName === this.state.fullName) return;
+    this.state = { ...this.state, fullName, updatedAt: now };
+  }
+
+  /** A user's account is visible to the user and to admins only. */
+  isVisibleTo(actor: Actor): boolean {
+    return (actor.kind === 'user' && actor.userId === this.state.id) || isAdmin(actor);
+  }
+
+  /** Grants a platform role; granting a role the user has is a no-op. */
+  grantRole(role: string, now: Date): void {
+    const known = knownRole(role);
+    if (this.state.roles.includes(known)) return;
+    this.state = { ...this.state, roles: [...this.state.roles, known], updatedAt: now };
+  }
+
+  /** Revokes a platform role; revoking a role the user does not have is a no-op. */
+  revokeRole(role: string, now: Date): void {
+    const known = knownRole(role);
+    if (!this.state.roles.includes(known)) return;
+    this.state = {
+      ...this.state,
+      roles: this.state.roles.filter((held) => held !== known),
+      updatedAt: now,
+    };
   }
 
   toState(): UserState {
-    return { ...this.state };
+    return { ...this.state, roles: [...this.state.roles] };
   }
+}
+
+function knownRole(role: string): Role {
+  if (!(ROLES as readonly string[]).includes(role)) {
+    throw new ValidationError(`unknown role ${role}`, [
+      { field: 'role', description: `must be one of ${ROLES.join(', ')}` },
+    ]);
+  }
+  return role as Role;
 }

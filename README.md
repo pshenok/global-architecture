@@ -8,9 +8,12 @@ encode the rules.
 It replaces the `nest-clean-grpc` boilerplate (its audit: `docs/audit/nest-clean-grpc-audit.md`).
 
 ```
-            HTTPS (HTTP/2 + HTTP/1.1), REST, problem+json
-client ───────────────────────────────▶ gateway :8443
-                                          │ gRPC (deadlines, retries, x-request-id)
+ OIDC provider (locally: dev-idp :8090)
+        │ access token
+        ▼    HTTPS (HTTP/2 + HTTP/1.1), REST + Bearer token, problem+json
+client ───────────────────────────────▶ gateway :8443  (verifies the token, maps it to a user)
+                                          │ gRPC over TLS: signed caller + principal per hop,
+                                          │ deadlines, retries, x-request-id
               ┌───────────────────────────┼──────────────────────────┐
               ▼                           ▼                          ▼
       user-service :50051       house-service :50052       booking-service :50053
@@ -29,36 +32,43 @@ pnpm 12 itself).
 
 ```bash
 pnpm install
-pnpm stack:up        # build, .env files, TLS cert, databases, migrations, PM2, wait until every service is SERVING
+pnpm stack:up        # build, .env files, TLS certs, workload keys, databases, migrations, PM2 (incl. dev IdP), wait until ready
 pnpm test:e2e        # end-to-end checks over HTTPS
 open https://localhost:8443/docs
 pnpm stack:down
 ```
 
 ```bash
+TOKEN=$(pnpm -s dev:token ann --email ann@example.com)   # a login at the local dev IdP
 curl -s --cacert .certs/dev-cert.pem https://localhost:8443/v1/users \
-  -H 'content-type: application/json' -d '{"email":"ann@example.com","fullName":"Ann"}'
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"fullName":"Ann"}'
+curl -s --cacert .certs/dev-cert.pem https://localhost:8443/v1/users/me -H "authorization: Bearer $TOKEN"
 ```
+
+Every route except the health probes and the house catalogue needs a token, and every
+login registers once (`POST /v1/users`). See ADR-0004 for who may do what.
 
 ## What is inside
 
-| Path                                                              |                                                                                                                  |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `apps/user-service`, `apps/house-service`, `apps/booking-service` | example domain services (users, listings, reservations)                                                          |
-| `apps/gateway`                                                    | public REST API -> gRPC, OpenAPI at `/openapi.json`, docs at `/docs`                                             |
-| `packages/kernel`                                                 | domain primitives: errors, ports, money, pagination                                                              |
-| `packages/contracts`                                              | all `.proto` contracts (buf), generated TypeScript, proto runtime                                                |
-| `packages/service-kit`                                            | chassis: config, logging, gRPC server/clients, health, reflection, errors, DB, migrations, test helpers, tracing |
-| `templates/service`                                               | the service template used by `pnpm new:service`                                                                  |
-| `plugins/ga-platform`                                             | Claude Code plugin with the platform skills (also linked into `.claude/skills`)                                  |
-| `docs/architecture`                                               | overview and architecture decision records                                                                       |
-| `tools`, `tests/e2e`                                              | generator, template check, db setup, local stack, end-to-end suite                                               |
+| Path                                                              |                                                                                                                                     |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/user-service`, `apps/house-service`, `apps/booking-service` | example domain services (users, listings, reservations)                                                                             |
+| `apps/gateway`                                                    | public REST API -> gRPC, OpenAPI at `/openapi.json`, docs at `/docs`                                                                |
+| `packages/kernel`                                                 | domain primitives: errors, actors, ports, money, pagination                                                                         |
+| `packages/contracts`                                              | all `.proto` contracts (buf), generated TypeScript, proto runtime                                                                   |
+| `packages/service-kit`                                            | chassis: config, logging, gRPC server/clients + TLS, workload identity and access checks, health, errors, DB, test helpers, tracing |
+| `templates/service`                                               | the service template used by `pnpm new:service`                                                                                     |
+| `plugins/ga-platform`                                             | Claude Code plugin with the platform skills (also linked into `.claude/skills`)                                                     |
+| `docs/architecture`                                               | overview and architecture decision records                                                                                          |
+| `security/`                                                       | allowlist of endpoints reachable without a signed-in user (checked by `pnpm lint`)                                                  |
+| `tools`, `tests/e2e`                                              | generator, template check, db setup, local stack, dev IdP, keys, end-to-end suite                                                   |
 
 ## Stack
 
 Node 26, pnpm 12 + Turborepo, TypeScript 7 (type checking) + SWC (emit), NestJS 12,
 gRPC (`@grpc/grpc-js`, buf, ts-proto), Fastify 5 (gateway), Zod 4, Drizzle ORM 1.0 RC
-(exact pin) + node-postgres, pino, OpenTelemetry, Vitest 5, Biome + oxlint, PM2 for the local stack.
+(exact pin) + node-postgres, jose (OIDC and workload tokens), pino, OpenTelemetry, Vitest 5,
+Biome + oxlint, PM2 for the local stack.
 Why each was chosen: `docs/architecture/adr/0001-platform-stack.md`.
 
 ## Everyday commands
@@ -71,6 +81,10 @@ pnpm template:verify               # prove the template still generates a green 
 pnpm --filter @ga/contracts codegen
 pnpm --filter @ga/booking-service test
 pnpm stack:status | pnpm stack:logs
+pnpm dev:token <sub> --email <email>                       # token from the local dev IdP
+pnpm grpc:call <service> <Method> '<json>' --as <userId>   # call a service as the platform does
+pnpm users:grant-role <userId> admin                       # platform roles (users:revoke-role to remove)
+pnpm keys [--rotate|--prune <workload>]                    # local workload keys
 ```
 
 ## Working with Claude Code
@@ -90,7 +104,7 @@ Verified: every package's tests, the template check, the PM2 stack with the end-
 suite, a fresh-clone start, and the user-service container image (distroless, non-root).
 CI (`.github/workflows/ci.yml`) runs the same gate on every push and PR. Not built yet,
 by design of this first iteration:
-- authentication and authorization (proposal: ADR-0004), so do not expose the gateway;
-- asynchronous events / outbox (proposal: ADR-0005);
+- asynchronous events / outbox (proposal: ADR-0005), so deleting a user or a house does
+  not clean up what references it;
 - idempotency keys for create RPCs;
 - image publishing and deployment infrastructure.

@@ -5,10 +5,35 @@
 const registry = require('./services.json');
 
 const DB_URL = (database) => `postgresql://ga:ga@localhost:5432/${database}`;
+const CERTS = `${__dirname}/.certs`;
 
-/** Every service address, so any app can reach any service it declares in its config. */
+/** Workload identity (tools/dev-keys.ts): each app signs with its own key, trusts the map. */
+const workloadKeys = (name) => ({
+  WORKLOAD_KEY_FILE: `${CERTS}/workloads/${name}.jwk.json`,
+  WORKLOAD_KEYS_FILE: `${CERTS}/workload-keys.json`,
+});
+
+/** The local OIDC provider (tools/dev-idp.ts) the gateway trusts; dev only. */
+const devIdp = `http://127.0.0.1:${registry.devIdp.port}`;
+const AUTH_ISSUERS = JSON.stringify([
+  {
+    issuer: devIdp,
+    audience: 'ga-api',
+    jwksUri: `${devIdp}/jwks.json`,
+    userinfoUri: `${devIdp}/userinfo`,
+  },
+]);
+
+/** gRPC TLS between workloads (tools/dev-certs.ts): services serve it, everyone verifies it. */
+const grpcServerTls = {
+  GRPC_TLS_CERT_FILE: `${CERTS}/grpc-server.pem`,
+  GRPC_TLS_KEY_FILE: `${CERTS}/grpc-server-key.pem`,
+  GRPC_TLS_CA_FILE: `${CERTS}/grpc-ca.pem`,
+};
+
+/** Every service address (a host name: TLS certificates name hosts, not IPs). */
 const serviceUrls = Object.fromEntries(
-  registry.services.map((s) => [s.urlEnv, `127.0.0.1:${s.grpcPort}`]),
+  registry.services.map((s) => [s.urlEnv, `localhost:${s.grpcPort}`]),
 );
 
 const common = {
@@ -45,6 +70,8 @@ module.exports = {
         GRPC_PORT: String(service.grpcPort),
         DATABASE_URL: DB_URL(service.database),
         OTEL_SERVICE_NAME: service.name,
+        ...grpcServerTls,
+        ...workloadKeys(service.name),
         ...serviceUrls,
       },
     })),
@@ -59,11 +86,24 @@ module.exports = {
         GATEWAY_HOST: '127.0.0.1',
         GATEWAY_PORT: String(registry.gateway.httpsPort),
         TLS_ENABLED: 'true',
-        TLS_CERT_FILE: `${__dirname}/.certs/dev-cert.pem`,
-        TLS_KEY_FILE: `${__dirname}/.certs/dev-key.pem`,
+        TLS_CERT_FILE: `${CERTS}/dev-cert.pem`,
+        TLS_KEY_FILE: `${CERTS}/dev-key.pem`,
+        GRPC_TLS_CA_FILE: grpcServerTls.GRPC_TLS_CA_FILE,
+        ...workloadKeys(registry.gateway.name),
+        AUTH_ISSUERS,
+        // Rotation tests rotate the dev IdP's key and use the new one right away.
+        AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S: '1',
         OTEL_SERVICE_NAME: 'gateway',
         ...serviceUrls,
       },
+    },
+    {
+      ...common,
+      name: 'dev-idp',
+      cwd: __dirname,
+      script: 'tools/dev-idp.ts',
+      node_args: ['--enable-source-maps'],
+      env: { NODE_ENV: 'development' },
     },
   ],
 };

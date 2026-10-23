@@ -13,18 +13,23 @@
 
 ```mermaid
 flowchart LR
-  client([Client / frontend]) -- "HTTPS REST\nproblem+json" --> gw[gateway\nNestJS + Fastify]
-  gw -- gRPC --> us[user-service]
-  gw -- gRPC --> hs[house-service]
-  gw -- gRPC --> bs[booking-service]
-  hs -- "gRPC: owner exists?" --> us
-  bs -- "gRPC: guest exists?" --> us
-  bs -- "gRPC: house terms" --> hs
+  idp([OIDC provider\nlocally: dev-idp]) -. "access token" .-> client([Client / frontend])
+  client -- "HTTPS REST + Bearer token\nproblem+json" --> gw[gateway\nNestJS + Fastify]
+  gw -. "JWKS (background)" .-> idp
+  gw -- "gRPC/TLS: ResolveIdentity" --> us[user-service]
+  gw -- "gRPC/TLS" --> hs[house-service]
+  gw -- "gRPC/TLS" --> bs[booking-service]
+  hs -- "gRPC/TLS: owner's account exists?" --> us
+  bs -- "gRPC/TLS: guest's account exists?" --> us
+  bs -- "gRPC/TLS: house terms + owner" --> hs
   us --- udb[(ga_user)]
   hs --- hdb[(ga_house)]
   bs --- bdb[(ga_booking)]
 ```
 
+Every gRPC call carries two signed tokens (ADR-0004): `x-ga-caller`, signed by the
+calling workload for this callee, and `x-ga-principal`, the end user as the gateway
+verified it. Services check both against `@Access` on each method.
 - **Gateway**: the only public entrypoint; owns the REST contract, validation, OpenAPI,
   error presentation, rate limits and security headers. No business logic, no database.
 - **Domain services**: own one capability and one database each; expose gRPC only;
@@ -64,13 +69,20 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 
 ## Request lifecycle (create a booking)
 
-1. Gateway (Fastify, HTTP/2 + TLS) assigns or accepts `x-request-id`, rate-limits,
-   validates the body with Zod, calls `BookingService.CreateBooking` with a 5 s deadline.
-2. booking-service validates the request (Zod), the use case validates the stay locally,
-   then asks user-service and house-service in parallel (2 s deadlines, request id
-   propagated, retry only when a request never reached a handler).
-3. The aggregate prices the stay; the repository inserts it. Postgres' exclusion
-   constraint rejects an overlapping confirmed booking atomically.
+1. Gateway (Fastify, HTTP/2 + TLS) assigns or accepts `x-request-id` and rate-limits.
+   `AuthGuard` verifies the bearer token against the provider's cached keys, maps the
+   login to its user (`ResolveIdentity`, cached) and signs a principal for this request.
+   The body is validated with Zod; the gateway calls `BookingService.CreateBooking` with
+   a 5 s deadline, a caller assertion for booking-service and the principal.
+2. booking-service's `GrpcAuthGuard` checks the caller (the gateway) and the principal
+   against `@Access.user()`. The request is validated (Zod) and the use case gets the
+   user as its first argument: the guest is the caller, never a request field. It
+   validates the stay locally, then asks user-service and house-service in parallel
+   (2 s deadlines; each call signs its own caller assertion and forwards the principal;
+   retry only when a request never reached a handler).
+3. The aggregate prices the stay and records the house owner as host; the repository
+   inserts it. Postgres' exclusion constraint rejects an overlapping confirmed booking
+   atomically.
 4. A violation becomes `ConflictError(BOOKING_DATES_UNAVAILABLE)` -> gRPC
    `ALREADY_EXISTS` + `google.rpc.ErrorInfo` -> HTTP 409 problem+json with `code`.
 5. Every hop logs one JSON line with the same `requestId`; with OTLP configured, one trace
@@ -81,6 +93,8 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 | Concern    | Convention                                                                  | Where                                                                         |
 | ---------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | Errors     | `DomainError` kinds -> gRPC status + ErrorInfo/BadRequest -> RFC 9457       | ADR-0003, `@ga/kernel`, kit `GrpcErrorFilter`, gateway `ProblemDetailsFilter` |
+| Identity   | OIDC at the gateway; signed caller + principal per hop; `@Access` per RPC   | ADR-0004, kit `auth/`, gateway `auth/`, `security/public-endpoints.json`      |
+| Transport  | gRPC over TLS off loopback; host-name targets                               | kit `grpc/tls.ts`, `pnpm certs`                                               |
 | Ids        | UUIDv7 from `IdGenerator`                                                   | `@ga/kernel`, kit                                                             |
 | Pagination | keyset on id, opaque filter-bound tokens, max 100                           | `@ga/kernel`                                                                  |
 | Money      | integer minor units + ISO currency                                          | `@ga/kernel` `Money`, `ga.common.v1.Money`                                    |
@@ -101,8 +115,11 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 - **Contract governance**: every proto change is linted and checked for breaking changes
   against `main`; versions are explicit (`v1`, `v2`).
 - **Build cost**: Turborepo caches by content; only affected packages rebuild and retest.
-- **Ownership**: add a `CODEOWNERS` entry per `apps/<service>` and per proto directory when
-  teams form.
+- **Ownership**: `CODEOWNERS` already guards the security paths; add an entry per
+  `apps/<service>` and per proto directory when teams form.
+- **Secure by default**: a generated service authenticates every call, declares access per
+  method, scopes its lists and ships the five access tests; making anything public is a
+  reviewed allowlist change.
 - **Skills as the spec**: the `ga-platform` plugin is the executable specification;
   update it in the same PR as the convention it documents.
 
@@ -111,5 +128,5 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 - ADR-0001 Platform stack
 - ADR-0002 Service boundaries and communication
 - ADR-0003 API and error conventions
-- ADR-0004 Identity and authorization (proposed)
+- ADR-0004 Identity and authorization
 - ADR-0005 Asynchronous events (proposed)

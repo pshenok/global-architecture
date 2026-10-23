@@ -16,6 +16,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 import { firstValueFrom } from 'rxjs';
 import type { z } from 'zod';
+import { Public } from '../auth/decorators.ts';
 import { HOUSE_SERVICE } from '../clients.ts';
 import { ProblemDetails } from '../http/problem-details.ts';
 import { IdParam, nextToken, PageQuery } from '../http/schemas.ts';
@@ -42,18 +43,23 @@ export class HousesController {
   constructor(@Inject(HOUSE_SERVICE) private readonly houses: HouseServiceClient) {}
 
   @Post()
-  @ApiOperation({ summary: 'List a house for an existing owner' })
+  @ApiOperation({ summary: 'List a house; the signed-in user becomes its owner' })
   @ApiResponse({ status: 201, standardSchema: HouseView })
   async create(
     @Body({ schema: CreateHouseBody }) body: z.output<typeof CreateHouseBody>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const view = toHouseView((await firstValueFrom(this.houses.createHouse(body))).house);
+    // owner_id is deprecated: house-service takes the owner from the forwarded principal.
+    const view = toHouseView(
+      // oxlint-disable-next-line typescript/no-deprecated -- the generated type requires it until the field is reserved
+      (await firstValueFrom(this.houses.createHouse({ ...body, ownerId: '' }))).house,
+    );
     void reply.header('location', `/v1/houses/${view.id}`);
     return view;
   }
 
   @Get()
+  @Public('world-readable catalogue')
   @ApiOperation({ summary: 'List houses, newest first, optionally by owner or city' })
   @ApiResponse({ status: 200, standardSchema: HousePage })
   async list(@Query({ schema: ListHousesQuery }) query: z.output<typeof ListHousesQuery>) {
@@ -62,6 +68,7 @@ export class HousesController {
   }
 
   @Get(':id')
+  @Public('world-readable catalogue')
   @ApiOperation({ summary: 'Get a house' })
   @ApiResponse({ status: 200, standardSchema: HouseView })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
@@ -70,7 +77,7 @@ export class HousesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Change a house (only the fields that are sent)' })
+  @ApiOperation({ summary: 'Change your house (only the fields that are sent)' })
   @ApiResponse({ status: 200, standardSchema: HouseView })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
   async update(
@@ -89,7 +96,7 @@ export class HousesController {
 
   @Delete(':id')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Delete a house' })
+  @ApiOperation({ summary: 'Delete your house' })
   @ApiResponse({ status: 204 })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
   async remove(@Param('id', { schema: IdParam }) id: string): Promise<void> {

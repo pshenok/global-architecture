@@ -1,5 +1,6 @@
 import type { UserServiceClient } from '@ga/contracts/ga/user/v1/user';
 import { DependencyUnavailableError } from '@ga/kernel';
+import { userActor } from '@ga/kernel/testing';
 import { Metadata, status } from '@grpc/grpc-js';
 import { of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
@@ -18,16 +19,18 @@ function directory(getUser: ReturnType<typeof vi.fn>): GrpcUserDirectory {
   return new GrpcUserDirectory({ getUser } as unknown as UserServiceClient);
 }
 
+const actor = userActor('u1');
+
 describe('GrpcUserDirectory', () => {
-  it('reports an existing user', async () => {
+  it('reports that the acting user still exists', async () => {
     await expect(
-      directory(vi.fn().mockReturnValue(of({ user: { id: 'u1' } }))).exists('u1'),
+      directory(vi.fn().mockReturnValue(of({ user: { id: 'u1' } }))).stillExists(actor),
     ).resolves.toBe(true);
   });
 
   it('maps NOT_FOUND to false', async () => {
     const getUser = vi.fn().mockReturnValue(throwError(() => serviceError(status.NOT_FOUND)));
-    await expect(directory(getUser).exists('u1')).resolves.toBe(false);
+    await expect(directory(getUser).stillExists(actor)).resolves.toBe(false);
   });
 
   it.each([status.UNAVAILABLE, status.DEADLINE_EXCEEDED])(
@@ -35,7 +38,7 @@ describe('GrpcUserDirectory', () => {
     async (code) => {
       const getUser = vi.fn().mockReturnValue(throwError(() => serviceError(code)));
       const error = await directory(getUser)
-        .exists('u1')
+        .stillExists(actor)
         .catch((e: unknown) => e);
       expect(error).toBeInstanceOf(DependencyUnavailableError);
       expect((error as DependencyUnavailableError).reason).toBe('USER_SERVICE_UNAVAILABLE');
@@ -45,6 +48,6 @@ describe('GrpcUserDirectory', () => {
   it('lets unexpected statuses surface unchanged (they become INTERNAL)', async () => {
     const original = serviceError(status.INVALID_ARGUMENT);
     const getUser = vi.fn().mockReturnValue(throwError(() => original));
-    await expect(directory(getUser).exists('u1')).rejects.toBe(original);
+    await expect(directory(getUser).stillExists(actor)).rejects.toBe(original);
   });
 });

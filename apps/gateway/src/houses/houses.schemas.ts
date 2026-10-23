@@ -23,9 +23,9 @@ const Price = z
   })
   .meta({ id: 'NightlyPrice' });
 
+/** The owner is the signed-in user; it is never taken from the body. */
 export const CreateHouseBody = z
   .object({
-    ownerId: z.uuid(),
     title: z.string().trim().min(1).max(200),
     description: z.string().max(5000).default(''),
     address: Address,

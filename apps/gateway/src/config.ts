@@ -1,5 +1,6 @@
-import { grpcTarget } from '@ga/service-kit';
+import { grpcTarget, workloadIdentityConfigSchema } from '@ga/service-kit';
 import { z } from 'zod';
+import { authConfigSchema, checkIssuerUrls } from './auth/auth.config.ts';
 
 /** Environment of the gateway, validated at boot. */
 const BaseConfigSchema = z.object({
@@ -21,14 +22,27 @@ const BaseConfigSchema = z.object({
   TRUST_PROXY: z.stringbool().default(false),
   /** Serve /docs (Scalar) and /openapi.json. Default: on, except when NODE_ENV=production. */
   DOCS_ENABLED: z.stringbool().optional(),
+  /** CA bundle of the services' gRPC certificates; required when they are not on loopback. */
+  GRPC_TLS_CA_FILE: z.string().min(1).optional(),
   USER_SERVICE_URL: grpcTarget(),
   HOUSE_SERVICE_URL: grpcTarget(),
   BOOKING_SERVICE_URL: grpcTarget(),
+  ...workloadIdentityConfigSchema.shape,
+  ...authConfigSchema.shape,
 });
 
-export const ConfigSchema = BaseConfigSchema.transform((config) => ({
-  ...config,
-  DOCS_ENABLED: config.DOCS_ENABLED ?? config.NODE_ENV !== 'production',
-}));
+export const ConfigSchema = BaseConfigSchema.transform((config, ctx) => {
+  checkIssuerUrls(config.AUTH_ISSUERS, config.NODE_ENV === 'production', (message) =>
+    ctx.addIssue({ code: 'custom', message, path: ['AUTH_ISSUERS'] }),
+  );
+  if (config.AUTH_JWKS_MAX_STALE_S < 2 * config.AUTH_JWKS_REFRESH_S) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'must be at least twice AUTH_JWKS_REFRESH_S, or keys expire between refreshes',
+      path: ['AUTH_JWKS_MAX_STALE_S'],
+    });
+  }
+  return { ...config, DOCS_ENABLED: config.DOCS_ENABLED ?? config.NODE_ENV !== 'production' };
+});
 
 export type Config = z.output<typeof ConfigSchema>;

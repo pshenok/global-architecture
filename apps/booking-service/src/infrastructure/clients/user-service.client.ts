@@ -7,6 +7,7 @@ export const USER_SERVICE = Symbol('USER_SERVICE');
 export const UserServiceClientModule = GrpcClientsModule.register([
   {
     token: USER_SERVICE,
+    target: 'user-service',
     service: 'ga.user.v1.UserService',
     protoFiles: ['ga/user/v1/user.proto'],
     url: (config) => String(config.USER_SERVICE_URL),

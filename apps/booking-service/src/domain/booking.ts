@@ -1,4 +1,4 @@
-import { type Money, multiplyMoney, ValidationError } from '@ga/kernel';
+import { type Actor, isAdmin, type Money, multiplyMoney, ValidationError } from '@ga/kernel';
 import { bookingAlreadyCancelled, tooManyGuests } from './booking.errors.ts';
 import { nightsOf } from './stay.ts';
 
@@ -8,6 +8,8 @@ export type BookingStatus = 'CONFIRMED' | 'CANCELLED';
 export interface HouseTerms {
   readonly maxGuests: number;
   readonly nightlyPrice: Money;
+  /** The house owner; houses never change owner, so the booking keeps it as its host. */
+  readonly ownerId: string;
 }
 
 /** Persisted state of a Booking. */
@@ -15,6 +17,8 @@ export interface BookingState {
   readonly id: string;
   readonly houseId: string;
   readonly guestId: string;
+  /** Owner of the house at booking time (snapshot; owners never change). */
+  readonly hostId: string;
   /** Inclusive calendar date, "YYYY-MM-DD". */
   readonly checkIn: string;
   /** Exclusive calendar date, "YYYY-MM-DD". */
@@ -59,6 +63,7 @@ export class Booking {
       id: input.id,
       houseId: input.houseId,
       guestId: input.guestId,
+      hostId: house.ownerId,
       checkIn: input.checkIn,
       checkOut: input.checkOut,
       guests: input.guests,
@@ -80,6 +85,18 @@ export class Booking {
 
   get status(): BookingStatus {
     return this.state.status;
+  }
+
+  /**
+   * The guest, the host and admins may see (and cancel) a booking. Anyone else must
+   * not even learn that it exists: callers answer them NOT_FOUND.
+   */
+  isVisibleTo(actor: Actor): boolean {
+    if (isAdmin(actor)) return true;
+    return (
+      actor.kind === 'user' &&
+      (actor.userId === this.state.guestId || actor.userId === this.state.hostId)
+    );
   }
 
   /** Frees the dates. Cancelling twice is a precondition failure, not a no-op. */

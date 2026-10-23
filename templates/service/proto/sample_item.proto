@@ -4,22 +4,31 @@ package ga.sample_item.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// SampleItemService owns sample items.
+// SampleItemService owns sample items. Every item belongs to the user who
+// created it; only that user (or an admin) can see or change it.
 service SampleItemService {
-  // CreateSampleItem creates a sample item.
-  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (name taken).
+  // CreateSampleItem creates a sample item owned by the calling user.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (the caller already has that name),
+  // UNAUTHENTICATED, PERMISSION_DENIED.
   rpc CreateSampleItem(CreateSampleItemRequest) returns (CreateSampleItemResponse);
-  // GetSampleItem returns one sample item.
-  // Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND.
+  // GetSampleItem returns one of the caller's sample items.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND (also for other users'
+  // items), UNAUTHENTICATED.
   rpc GetSampleItem(GetSampleItemRequest) returns (GetSampleItemResponse);
-  // ListSampleItems pages through sample items, newest first.
-  // Errors: INVALID_ARGUMENT (bad page_size or page_token).
+  // ListSampleItems pages through the caller's sample items (all, for admins),
+  // newest first.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT (bad page_size or page_token), UNAUTHENTICATED.
   rpc ListSampleItems(ListSampleItemsRequest) returns (ListSampleItemsResponse);
   // UpdateSampleItem changes only the fields that are set.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (name taken).
+  // Access: user (owner or admin).
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (name taken), UNAUTHENTICATED.
   rpc UpdateSampleItem(UpdateSampleItemRequest) returns (UpdateSampleItemResponse);
   // DeleteSampleItem removes a sample item.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  // Access: user (owner or admin).
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
   rpc DeleteSampleItem(DeleteSampleItemRequest) returns (DeleteSampleItemResponse);
 }
 
@@ -27,12 +36,14 @@ service SampleItemService {
 message SampleItem {
   // Server-generated UUIDv7.
   string id = 1;
-  // Unique, 1..200 characters.
+  // Unique per owner, 1..200 characters.
   string name = 2;
   // Up to 2000 characters.
   string description = 3;
   google.protobuf.Timestamp create_time = 4;
   google.protobuf.Timestamp update_time = 5;
+  // Id of the ga.user.v1.User who created it.
+  string owner_id = 6;
 }
 
 message CreateSampleItemRequest {

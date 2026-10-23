@@ -1,6 +1,7 @@
 import { isDomainError } from '@ga/kernel';
 import type { ExecutionContext } from '@nestjs/common';
 import type { Params } from 'nestjs-pino';
+import { principalFrom } from '../auth/principal-context.ts';
 import type { GrpcServiceConfig } from '../config/config.ts';
 import { requestIdFromRpc } from '../context/request-context.ts';
 
@@ -12,7 +13,20 @@ export const REDACT_PATHS = [
   '*.password',
   '*.token',
   '*.secret',
+  '*["x-ga-principal"]',
+  '*["x-ga-caller"]',
 ];
+
+/** Adds who called (workload, and user when there is one) to the per-RPC log line. */
+function withCaller(context: ExecutionContext, value: object): object {
+  const call = principalFrom(context);
+  if (!call) return value;
+  return {
+    ...value,
+    caller: call.caller,
+    ...(call.actor.kind === 'user' ? { userId: call.actor.userId } : {}),
+  };
+}
 
 const CLIENT_ERROR_KINDS = new Set([
   'INVALID_ARGUMENT',
@@ -49,6 +63,9 @@ export function grpcLoggerParams(serviceName: string, config: GrpcServiceConfig)
       genReqId: requestIdFromRpc,
       customAttributeKeys: { reqId: 'requestId' },
       customLogLevel: rpcLogLevel,
+      // Runs when the RPC ends, after the auth guard (customProps would run before it).
+      customSuccessObject: (context, _result, value) => withCaller(context, value),
+      customErrorObject: (context, _error, value) => withCaller(context, value),
       quietRpcLogger: true,
     },
   };

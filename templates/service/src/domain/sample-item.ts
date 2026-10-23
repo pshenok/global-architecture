@@ -1,8 +1,10 @@
-import { ValidationError } from '@ga/kernel';
+import { type Actor, isAdmin, ValidationError } from '@ga/kernel';
 
 /** Persisted state of a SampleItem. */
 export interface SampleItemState {
   readonly id: string;
+  /** The user who created it (user-service id). */
+  readonly ownerId: string;
   readonly name: string;
   readonly description: string;
   readonly createdAt: Date;
@@ -52,9 +54,13 @@ function normalizeDescription(description: string): string {
 export class SampleItem {
   private constructor(private state: SampleItemState) {}
 
-  static create(input: { id: string; name: string; description: string }, now: Date): SampleItem {
+  static create(
+    input: { id: string; ownerId: string; name: string; description: string },
+    now: Date,
+  ): SampleItem {
     return new SampleItem({
       id: input.id,
+      ownerId: input.ownerId,
       name: normalizeName(input.name),
       description: normalizeDescription(input.description),
       createdAt: now,
@@ -68,6 +74,18 @@ export class SampleItem {
 
   get id(): string {
     return this.state.id;
+  }
+
+  get ownerId(): string {
+    return this.state.ownerId;
+  }
+
+  /**
+   * Only its owner (and admins) may see or change an item. Callers answer anyone else
+   * NOT_FOUND, so strangers cannot even learn that it exists.
+   */
+  isVisibleTo(actor: Actor): boolean {
+    return (actor.kind === 'user' && actor.userId === this.state.ownerId) || isAdmin(actor);
   }
 
   get name(): string {

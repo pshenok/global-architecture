@@ -1,3 +1,32 @@
+export { Access, type AccessPolicy } from './auth/access.ts';
+export {
+  type WorkloadIdentityConfig,
+  workloadIdentityConfigSchema,
+  workloadName,
+} from './auth/config.ts';
+export { PLATFORM_AUTH_FAULTS } from './auth/grpc-auth.guard.ts';
+export {
+  currentActor,
+  currentCaller,
+  currentIdentity,
+  currentPrincipalToken,
+  currentUser,
+  enterPrincipal,
+  type IssuedPrincipal,
+  principalFrom,
+  type VerifiedCall,
+} from './auth/principal-context.ts';
+export {
+  CALLER_METADATA_KEY,
+  PRINCIPAL_MAX_TTL_S,
+  PRINCIPAL_METADATA_KEY,
+  type PrincipalClaims,
+  TokenError,
+} from './auth/tokens.ts';
+export {
+  WorkloadIdentity,
+  WorkloadIdentityModule,
+} from './auth/workload-identity.ts';
 export {
   CONFIG,
   ConfigModule,
@@ -39,8 +68,16 @@ export {
   checkGrpcHealth,
   closeHealthClients,
   type DownstreamHealth,
+  type HealthCheckOptions,
 } from './grpc/health-client.ts';
 export { type HealthCheck, HealthStatus } from './grpc/health-status.ts';
+export {
+  channelCredentials,
+  type GrpcTlsConfig,
+  grpcTlsConfigSchema,
+  isLoopbackHost,
+  serverCredentials,
+} from './grpc/tls.ts';
 export { parseRequest } from './grpc/validation.ts';
 export { type HttpLoggerConfig, httpLoggerParams } from './logging/http-logger-params.ts';
 export { grpcLoggerParams, REDACT_PATHS, rpcLogLevel } from './logging/logger-params.ts';

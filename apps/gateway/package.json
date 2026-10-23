@@ -29,6 +29,7 @@
     "@nestjs/throttler": "catalog:",
     "@scalar/nestjs-api-reference": "catalog:",
     "fastify": "catalog:",
+    "jose": "catalog:",
     "nestjs-cls": "catalog:",
     "nestjs-pino": "catalog:",
     "pino-http": "catalog:",

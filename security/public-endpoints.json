@@ -1,0 +1,45 @@
+{
+  "$comment": "Every endpoint that does not need a signed-in user (ADR-0004): public (anyone), unregistered and identity (a login without a user), service (other workloads only). `where` is file#Class.method, or file#Class for a decorator on the class. tools/check-access.ts (pnpm lint) compares this list with the source; startTestService and createTestGateway compare it with the policies the guards enforce, recorded at boot. Changes are reviewed by the code owners of security/.",
+  "endpoints": [
+    {
+      "where": "apps/gateway/src/health/health.controller.ts#HealthController",
+      "access": "public",
+      "reason": "liveness and readiness probes"
+    },
+    {
+      "where": "apps/gateway/src/houses/houses.controller.ts#HousesController.get",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/gateway/src/houses/houses.controller.ts#HousesController.list",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/gateway/src/users/users.controller.ts#UsersController.register",
+      "access": "unregistered",
+      "reason": "registration"
+    },
+    {
+      "where": "apps/house-service/src/transport/grpc/house.grpc-controller.ts#HouseGrpcController.getHouse",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/house-service/src/transport/grpc/house.grpc-controller.ts#HouseGrpcController.listHouses",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/user-service/src/transport/grpc/user.grpc-controller.ts#UserGrpcController.registerUser",
+      "access": "identity",
+      "reason": "login without a user"
+    },
+    {
+      "where": "apps/user-service/src/transport/grpc/user.grpc-controller.ts#UserGrpcController.resolveIdentity",
+      "access": "identity",
+      "reason": "login without a user"
+    }
+  ]
+}

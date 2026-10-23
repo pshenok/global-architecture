@@ -1,4 +1,7 @@
-import type { UserServiceClient } from '@ga/contracts/ga/user/v1/user';
+import type { RegisterUserResponse, UserServiceClient } from '@ga/contracts/ga/user/v1/user';
+import { isAdmin } from '@ga/kernel';
+import { currentIdentity, currentUser, grpcStatusOf } from '@ga/service-kit';
+import { status } from '@grpc/grpc-js';
 import {
   Body,
   Controller,
@@ -16,10 +19,31 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 import { firstValueFrom } from 'rxjs';
 import type { z } from 'zod';
+import { AllowUnregistered } from '../auth/decorators.ts';
+import { IdentityResolver } from '../auth/identity-resolver.ts';
 import { USER_SERVICE } from '../clients.ts';
 import { ProblemDetails } from '../http/problem-details.ts';
-import { IdParam, nextToken, PageQuery } from '../http/schemas.ts';
-import { CreateUserBody, toUserView, UpdateUserBody, UserPage, UserView } from './users.schemas.ts';
+import { nextToken, PageQuery } from '../http/schemas.ts';
+import {
+  RegisterUserBody,
+  toUserView,
+  UpdateUserBody,
+  UserIdParam,
+  UserPage,
+  UserView,
+} from './users.schemas.ts';
+
+/** `me` -> the signed-in user's id. */
+const userId = (id: string) => (id === 'me' ? currentUser().userId : id);
+
+/** Failures after which a call may still have taken effect on the server. */
+const OUTCOME_UNKNOWN = new Set<number>([
+  status.DEADLINE_EXCEEDED,
+  status.CANCELLED,
+  status.UNAVAILABLE,
+  status.UNKNOWN,
+  status.INTERNAL,
+]);
 
 @ApiTags('users')
 @ApiResponse({ status: 400, description: 'Invalid input', standardSchema: ProblemDetails })
@@ -30,28 +54,47 @@ import { CreateUserBody, toUserView, UpdateUserBody, UserPage, UserView } from '
 })
 @Controller('v1/users')
 export class UsersController {
-  constructor(@Inject(USER_SERVICE) private readonly users: UserServiceClient) {}
+  constructor(
+    @Inject(USER_SERVICE) private readonly users: UserServiceClient,
+    private readonly identities: IdentityResolver,
+  ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Register a user' })
+  @AllowUnregistered()
+  @ApiOperation({
+    summary: 'Register the signed-in login as a new user',
+    description: 'The email comes from the identity provider (per its email policy).',
+  })
   @ApiResponse({ status: 201, standardSchema: UserView })
   @ApiResponse({
-    status: 409,
-    description: 'Email already registered (USER_EMAIL_TAKEN)',
+    status: 403,
+    description: 'The identity provider has not verified an email (EMAIL_NOT_VERIFIED)',
     standardSchema: ProblemDetails,
   })
-  async create(
-    @Body({ schema: CreateUserBody }) body: z.output<typeof CreateUserBody>,
+  @ApiResponse({
+    status: 409,
+    description: 'Already registered (USER_ALREADY_REGISTERED) or email taken (USER_EMAIL_TAKEN)',
+    standardSchema: ProblemDetails,
+  })
+  async register(
+    @Body({ schema: RegisterUserBody }) body: z.output<typeof RegisterUserBody>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const { user } = await firstValueFrom(this.users.createUser(body));
-    const view = toUserView(user);
+    const { issuer, subject } = currentIdentity();
+    let registered: RegisterUserResponse;
+    try {
+      registered = await firstValueFrom(this.users.registerUser(body));
+    } finally {
+      // Also on failure: USER_ALREADY_REGISTERED means a cached "not registered" is wrong.
+      this.identities.forget({ issuer, subject });
+    }
+    const view = toUserView(registered.user);
     void reply.header('location', `/v1/users/${view.id}`);
     return view;
   }
 
   @Get()
-  @ApiOperation({ summary: 'List users, newest first' })
+  @ApiOperation({ summary: 'List users, newest first (admins only)' })
   @ApiResponse({ status: 200, standardSchema: UserPage })
   async list(@Query({ schema: PageQuery }) query: z.output<typeof PageQuery>) {
     const page = await firstValueFrom(this.users.listUsers(query));
@@ -59,31 +102,48 @@ export class UsersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a user' })
+  @ApiOperation({ summary: 'Get a user: yourself (`me`), or anyone if you are an admin' })
   @ApiResponse({ status: 200, standardSchema: UserView })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
-  async get(@Param('id', { schema: IdParam }) id: string) {
-    return toUserView((await firstValueFrom(this.users.getUser({ id }))).user);
+  async get(@Param('id', { schema: UserIdParam }) id: string) {
+    return toUserView((await firstValueFrom(this.users.getUser({ id: userId(id) }))).user);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Change a user (only the fields that are sent)' })
   @ApiResponse({ status: 200, standardSchema: UserView })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
-  @ApiResponse({ status: 409, standardSchema: ProblemDetails })
   async update(
-    @Param('id', { schema: IdParam }) id: string,
+    @Param('id', { schema: UserIdParam }) id: string,
     @Body({ schema: UpdateUserBody }) body: z.output<typeof UpdateUserBody>,
   ) {
-    return toUserView((await firstValueFrom(this.users.updateUser({ id, ...body }))).user);
+    return toUserView(
+      (await firstValueFrom(this.users.updateUser({ id: userId(id), ...body }))).user,
+    );
   }
 
   @Delete(':id')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Delete a user' })
+  @ApiOperation({ summary: 'Delete a user and its logins' })
   @ApiResponse({ status: 204 })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
-  async remove(@Param('id', { schema: IdParam }) id: string): Promise<void> {
-    await firstValueFrom(this.users.deleteUser({ id }));
+  async remove(@Param('id', { schema: UserIdParam }) id: string): Promise<void> {
+    const target = userId(id);
+    const actor = currentUser();
+    try {
+      await firstValueFrom(this.users.deleteUser({ id: target }));
+    } catch (error) {
+      // A delete that may have committed before the failure (a deadline, a dropped
+      // connection, or a retry that then found the user gone) still clears the cache, but
+      // only if this caller may delete the user: a refused delete leaves others alone.
+      const code = grpcStatusOf(error);
+      const mayHaveDeleted =
+        code !== undefined && (OUTCOME_UNKNOWN.has(code) || code === status.NOT_FOUND);
+      if (mayHaveDeleted && (target === actor.userId || isAdmin(actor))) {
+        this.identities.forgetUser(target);
+      }
+      throw error;
+    }
+    this.identities.forgetUser(target);
   }
 }

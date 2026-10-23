@@ -7,21 +7,28 @@ import "google/protobuf/timestamp.proto";
 
 // HouseService owns rentable houses (listings).
 service HouseService {
-  // CreateHouse lists a new house for an existing owner.
-  // Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (owner does not exist),
-  // UNAVAILABLE (user-service unreachable).
+  // CreateHouse lists a new house owned by the calling user.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (the owner's account is gone),
+  // UNAVAILABLE (user-service unreachable), UNAUTHENTICATED, PERMISSION_DENIED.
   rpc CreateHouse(CreateHouseRequest) returns (CreateHouseResponse);
   // GetHouse returns one house.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  // Access: public (world-readable catalogue).
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED (no caller assertion).
   rpc GetHouse(GetHouseRequest) returns (GetHouseResponse);
   // ListHouses pages through houses, newest first, with optional filters.
-  // Errors: INVALID_ARGUMENT.
+  // Access: public (world-readable catalogue).
+  // Errors: INVALID_ARGUMENT, UNAUTHENTICATED (no caller assertion).
   rpc ListHouses(ListHousesRequest) returns (ListHousesResponse);
-  // UpdateHouse changes only the fields that are set.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  // UpdateHouse changes only the fields that are set. Owner or admin only.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED (HOUSE_PERMISSION_DENIED),
+  // UNAUTHENTICATED.
   rpc UpdateHouse(UpdateHouseRequest) returns (UpdateHouseResponse);
-  // DeleteHouse removes a house.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  // DeleteHouse removes a house. Owner or admin only.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED (HOUSE_PERMISSION_DENIED),
+  // UNAUTHENTICATED.
   rpc DeleteHouse(DeleteHouseRequest) returns (DeleteHouseResponse);
 }
 
@@ -29,7 +36,9 @@ service HouseService {
 message House {
   // Server-generated UUIDv7.
   string id = 1;
-  // Id of the owning ga.user.v1.User.
+  // Id of the owning ga.user.v1.User. Never changes: other services snapshot it
+  // (booking-service stores it as the booking's host). A future ownership transfer
+  // must publish an event that updates those snapshots (ADR-0002, ADR-0005).
   string owner_id = 2;
   string title = 3;
   string description = 4;
@@ -49,7 +58,8 @@ message Address {
 }
 
 message CreateHouseRequest {
-  string owner_id = 1;
+  // Deprecated and ignored: the owner is the calling user (ADR-0004). To be reserved.
+  string owner_id = 1 [deprecated = true];
   // 1..200 characters.
   string title = 2;
   // Up to 5000 characters.
