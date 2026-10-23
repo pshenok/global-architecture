@@ -60,12 +60,31 @@ function activeCls(): ClsService | undefined {
   }
 }
 
+/** A principal this edge signed; only `WorkloadIdentity.issuePrincipal` makes one. */
+export interface IssuedPrincipal {
+  readonly token: string;
+  readonly actor: UserActor | IdentityActor;
+}
+
+const issuedPrincipals = new WeakSet<IssuedPrincipal>();
+
+/** For WorkloadIdentity.issuePrincipal only; not exported from the package. */
+export function issuedPrincipal(token: string, actor: UserActor | IdentityActor): IssuedPrincipal {
+  const principal = Object.freeze({ token, actor });
+  issuedPrincipals.add(principal);
+  return principal;
+}
+
 /**
  * For edges (the gateway): makes `principal` the current request's actor and the
- * principal forwarded on every outbound call. `principal` comes from
- * `WorkloadIdentity.issuePrincipal`, which only edge workloads may call.
+ * principal forwarded on every outbound call. Takes only what
+ * `WorkloadIdentity.issuePrincipal` returned (edge workloads only), so it cannot be
+ * used to put a hand-made actor into a request.
  */
-export function enterPrincipal(principal: { readonly token: string; readonly actor: Actor }): void {
+export function enterPrincipal(principal: IssuedPrincipal): void {
+  if (!issuedPrincipals.has(principal)) {
+    throw new Error('enterPrincipal takes only a principal from WorkloadIdentity.issuePrincipal');
+  }
   const cls = activeCls();
   if (!cls) throw new Error('enterPrincipal needs an active request context (CLS)');
   cls.set(CLS_ACTOR, principal.actor);

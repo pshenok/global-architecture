@@ -3,6 +3,7 @@ import { calculateJwkThumbprint, decodeProtectedHeader, exportJWK, generateKeyPa
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestWorkloadKeys, type TestWorkloadKeys } from '../testing/workload-keys.ts';
 import type { WorkloadIdentityConfig } from './config.ts';
+import { enterPrincipal, type IssuedPrincipal } from './principal-context.ts';
 import { WorkloadIdentity } from './workload-identity.ts';
 import { MAX_KEYS_PER_WORKLOAD, parseWorkloadKeyMap } from './workload-keys.ts';
 
@@ -75,6 +76,14 @@ describe('WorkloadIdentity', () => {
       ),
     ).rejects.toThrow(/PRINCIPAL_ISSUERS/);
     house.onApplicationShutdown();
+  });
+
+  it('enters only principals the identity issued, never a hand-made actor', () => {
+    const forged = {
+      token: 'x.y.z',
+      actor: { kind: 'user', userId: '01900000-0000-7000-8000-000000000001', roles: ['admin'] },
+    } as unknown as IssuedPrincipal;
+    expect(() => enterPrincipal(forged)).toThrow(/issuePrincipal/);
   });
 
   it('refuses to boot when its own public key is not published', async () => {

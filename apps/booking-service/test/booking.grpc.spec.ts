@@ -9,7 +9,7 @@ import {
   type TestService,
 } from '@ga/service-kit/testing';
 import { Metadata, status } from '@grpc/grpc-js';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
 import { HouseCatalog } from '../src/application/ports/house-catalog.ts';
 import { UserDirectory } from '../src/application/ports/user-directory.ts';
@@ -191,16 +191,47 @@ describe('BookingService over gRPC', () => {
       }
     });
 
-    it('lets the host cancel, and exactly one of a guest and a host racing to cancel wins', async () => {
+    it('lets the host cancel', async () => {
       const { booking } = await book(10, 13);
+      const host = await service.as(HOST_ID);
+      const cancelled = await client.cancelBooking({ id: booking?.id as string }, host);
+      expect(cancelled.booking).toMatchObject({ status: 'BOOKING_STATUS_CANCELLED' });
+    });
+
+    it('lets exactly one of many concurrent cancels win (guest and host)', async () => {
+      const { booking } = await book(14, 16);
       const id = booking?.id as string;
-      const results = await Promise.allSettled([
-        client.cancelBooking({ id }, asGuest),
-        client.cancelBooking({ id }, await service.as(HOST_ID)),
-      ]);
-      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-      const loser = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-      expect(loser?.reason).toMatchObject({ code: status.FAILED_PRECONDITION });
+      const host = await service.as(HOST_ID);
+      // Hold the row until every cancel is waiting on it, so their transactions really
+      // overlap; without the row lock in the use case, several of them would succeed.
+      const blocker = await db.pool.connect();
+      try {
+        await blocker.query('begin');
+        await blocker.query(`select 1 from "${db.schema}".bookings where id = $1 for update`, [id]);
+        const calls = Array.from({ length: 6 }, (_, i) =>
+          client.cancelBooking({ id }, i % 2 ? host : asGuest),
+        );
+        await vi.waitFor(
+          async () => {
+            const { rows } = await db.pool.query<{ waiting: number }>(
+              `select count(*)::int as waiting from pg_stat_activity
+                where datname = current_database() and wait_event_type = 'Lock'
+                  and query ilike '%"bookings"%'`,
+            );
+            expect(rows[0]?.waiting).toBe(6);
+          },
+          { timeout: 5_000, interval: 20 },
+        );
+        await blocker.query('commit');
+        const results = await Promise.allSettled(calls);
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        for (const loser of results.filter((r) => r.status === 'rejected')) {
+          expect(loser.reason).toMatchObject({ code: status.FAILED_PRECONDITION });
+        }
+      } finally {
+        await blocker.query('rollback').catch(() => undefined);
+        blocker.release();
+      }
     });
 
     it("lists only the caller's bookings, as guest or as host", async () => {

@@ -1,4 +1,12 @@
-import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } from '@ga/kernel';
+import {
+  Clock,
+  IdGenerator,
+  type Page,
+  type PageRequest,
+  toPage,
+  UnitOfWork,
+  type UserActor,
+} from '@ga/kernel';
 import { HouseCatalog } from '../src/application/ports/house-catalog.ts';
 import { UserDirectory } from '../src/application/ports/user-directory.ts';
 import { datesUnavailable } from '../src/domain/booking.errors.ts';
@@ -52,8 +60,8 @@ export class FakeUserDirectory extends UserDirectory {
     super();
   }
 
-  async exists(userId: string): Promise<boolean> {
-    return this.known.has(userId);
+  async stillExists(actor: UserActor): Promise<boolean> {
+    return this.known.has(actor.userId);
   }
 }
 

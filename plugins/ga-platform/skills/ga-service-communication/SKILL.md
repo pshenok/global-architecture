@@ -17,10 +17,15 @@ and the callee's `@Access` declaration that lets it in.
 
    ```ts
    export abstract class UserDirectory {
-     /** Throws DependencyUnavailableError when user-service cannot be reached. */
-     abstract exists(userId: string): Promise<boolean>;
+     /** Whether the acting user still exists. Throws DependencyUnavailableError when down. */
+     abstract stillExists(actor: UserActor): Promise<boolean>;
    }
    ```
+
+   Phrase the port by what the callee lets you ask. user-service answers `GetUser` as the
+   forwarded user, so it can only tell whether that user still exists: the port takes the
+   actor, not any id. To learn about other users you would need another RPC (for example
+   `@Access.service([...])`), never a looser reading of an existing one.
 2. **Config** in `src/config.ts`: `USER_SERVICE_URL: grpcTarget()`, plus
    `USER_SERVICE_URL=localhost:50051` in `.env` and `.env.example`. Use a host name, not
    `127.0.0.1`: with TLS, the client refuses IP addresses (`cannot verify TLS for ...`).
@@ -65,9 +70,9 @@ and the callee's `@Access` declaration that lets it in.
    @Injectable()
    export class GrpcUserDirectory extends UserDirectory {
      constructor(@Inject(USER_SERVICE) private readonly users: UserServiceClient) { super(); }
-     async exists(userId: string): Promise<boolean> {
+     async stillExists(actor: UserActor): Promise<boolean> {
        try {
-         await firstValueFrom(this.users.getUser({ id: userId }));
+         await firstValueFrom(this.users.getUser({ id: actor.userId }));
          return true;
        } catch (error) {
          if (grpcStatusOf(error) === status.NOT_FOUND) return false;

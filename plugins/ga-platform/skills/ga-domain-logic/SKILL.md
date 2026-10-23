@@ -175,7 +175,7 @@ export class BookingService {
 ## Ports
 
 A port is an abstract class named after what the domain needs, not after the provider:
-`UserDirectory.exists(id)`, `HouseCatalog.findTerms(id)`, not `UserServiceClient`.
+`UserDirectory.stillExists(actor)`, `HouseCatalog.findTerms(id)`, not `UserServiceClient`.
 Keep the port's return types in domain terms (`HouseTerms`), which makes the adapter an
 anti-corruption layer and keeps another service's contract out of your domain.
 Bind it in `app.module.ts`: `{ provide: HouseCatalog, useClass: GrpcHouseCatalog }`.

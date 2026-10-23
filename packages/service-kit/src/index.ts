@@ -12,6 +12,7 @@ export {
   currentPrincipalToken,
   currentUser,
   enterPrincipal,
+  type IssuedPrincipal,
   principalFrom,
   type VerifiedCall,
 } from './auth/principal-context.ts';

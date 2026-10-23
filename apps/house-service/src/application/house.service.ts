@@ -41,7 +41,7 @@ export class HouseService {
       { id: this.ids.newId(), ownerId: actor.userId, ...input },
       this.clock.now(),
     );
-    if (!(await this.users.exists(actor.userId))) throw ownerNotFound(actor.userId);
+    if (!(await this.users.stillExists(actor))) throw ownerNotFound(actor.userId);
     await this.houses.insert(house);
     return house;
   }

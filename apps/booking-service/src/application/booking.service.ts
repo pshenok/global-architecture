@@ -45,7 +45,7 @@ export class BookingService {
     const now = this.clock.now();
     nightsOf(input.checkIn, input.checkOut, now);
     const [guestExists, terms] = await Promise.all([
-      this.users.exists(actor.userId),
+      this.users.stillExists(actor),
       this.houses.findTerms(input.houseId),
     ]);
     if (!guestExists) throw guestNotFound(actor.userId);

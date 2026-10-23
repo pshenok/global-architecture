@@ -156,7 +156,12 @@ for (const call of [
 ## Test what production will break on
 
 - **Concurrency** for every invariant: fire N identical requests with `Promise.allSettled`
-  and assert exactly one winner (see user-service email race, booking overlap).
+  and assert exactly one winner (see user-service email race, booking overlap). Sign the
+  metadata before starting the calls. A constraint-backed invariant races on its own; for
+  a row lock (`forUpdate`), calls arrive milliseconds apart and the first one commits
+  before the next starts, so hold the row from the test (`select ... for update` on
+  `db.pool`) until every call waits on it, then commit (see the booking cancel race).
+  Check that the test fails with the lock removed.
 - **Error contract**: assert status code and `reason` for every documented error of an RPC.
 - **Access**: the five cases above, every role or owner rule, and every `via` entry.
 - **Pagination**: page through, check order, last page token empty, token reused with a
