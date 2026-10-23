@@ -3,11 +3,13 @@
  * test database. Idempotent. Needs a superuser connection:
  *   PG_ADMIN_URL (default postgresql://$USER@localhost:5432/postgres)
  *
- *   pnpm db:setup --reset ga_booking [...] --yes
- *     drops and recreates the named databases first (dev data only). It drops only a
- *     database that db:setup itself created (it carries a comment marker), never one
- *     created any other way, e.g. by infrastructure behind a localhost tunnel or proxy;
- *     refused when NODE_ENV is production.
+ *   pnpm db:setup --reset ga_booking [...] --yes [--adopt]
+ *     drops and recreates the named databases first (dev data only). Refused in
+ *     production and for a Postgres that is not local (loopback or a Unix socket). It
+ *     drops only a database db:setup created: one with its comment marker, or, with
+ *     --adopt, one an older db:setup made before the marker existed (no comment, owned by
+ *     `ga`). A database created any other way is never dropped. The marker cannot tell a
+ *     shared server behind a localhost tunnel from your own: never reset through one.
  */
 import pg from 'pg';
 import { ensureEnvFiles } from './env-files.ts';
@@ -21,6 +23,28 @@ for (const file of ensureEnvFiles()) console.log(`created ${file} from .env.exam
 const adminUrl = process.env.PG_ADMIN_URL ?? DEFAULT_PG_ADMIN_URL;
 const args = process.argv.slice(2);
 const toReset = args.includes('--reset') ? args.filter((arg) => !arg.startsWith('--')) : [];
+const adopt = args.includes('--adopt');
+
+/** The server PG_ADMIN_URL reaches, as node-postgres resolves it (URL, ?host=, PGHOST). */
+function serverHost(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(
+      'PG_ADMIN_URL is not a URL (for a Unix socket: postgresql:///postgres?host=/path)',
+    );
+  }
+  return (
+    parsed.searchParams.get('host') ||
+    parsed.hostname.replace(/^\[(.*)\]$/, '$1') ||
+    process.env.PGHOST ||
+    'localhost'
+  );
+}
+const isLocal = (host: string) =>
+  host.startsWith('/') || host === 'localhost' || host === '::1' || /^127\./.test(host);
+
 if (toReset.length > 0) {
   const known = new Set([...readRegistry().services.map((s) => s.database), TEST_DATABASE]);
   if (process.env.NODE_ENV === 'production') throw new Error('--reset is refused in production');
@@ -28,22 +52,34 @@ if (toReset.length > 0) {
   for (const name of toReset) {
     if (!known.has(name)) throw new Error(`--reset: ${name} is not a database of this repository`);
   }
+  const host = serverHost(adminUrl);
+  if (!isLocal(host)) {
+    throw new Error(`--reset only drops databases on a local Postgres, not on ${host}`);
+  }
 }
 
 const client = new pg.Client({ connectionString: adminUrl });
 await client.connect();
 try {
   // Check every database before dropping any of them.
-  const { rows: existing } = await client.query<{ name: string; marker: string | null }>(
-    "select datname as name, shobj_description(oid, 'pg_database') as marker from pg_database where datname = any($1)",
+  const { rows: existing } = await client.query<{
+    name: string;
+    marker: string | null;
+    owner: string;
+  }>(
+    "select datname as name, shobj_description(oid, 'pg_database') as marker, pg_get_userbyid(datdba) as owner from pg_database where datname = any($1)",
     [toReset],
   );
-  for (const { name, marker } of existing) {
-    if (marker !== LOCAL_MARKER) {
-      throw new Error(
-        `--reset: ${name} was not created by pnpm db:setup (no local-stack marker); drop it by hand if it really is disposable`,
-      );
-    }
+  for (const { name, marker, owner } of existing) {
+    if (marker === LOCAL_MARKER) continue;
+    // What db:setup made before it wrote the marker: owned by ga, no comment.
+    const older = marker === null && owner === 'ga';
+    if (older && adopt) continue;
+    throw new Error(
+      older
+        ? `--reset: ${name} has no local-stack marker; if it is your own local database from an older pnpm db:setup, add --adopt`
+        : `--reset: ${name} was not created by pnpm db:setup; drop it by hand if it really is disposable`,
+    );
   }
   for (const { name } of existing) {
     await client.query(`drop database "${name}" with (force)`);
@@ -64,7 +100,18 @@ try {
       await client.query(`comment on database "${name}" is '${LOCAL_MARKER}'`);
       console.log(`created database ${name}`);
     } else {
-      console.log(`database ${name} exists`);
+      const { rows } = await client.query<{ marker: string | null; owner: string }>(
+        "select shobj_description(oid, 'pg_database') as marker, pg_get_userbyid(datdba) as owner from pg_database where datname = $1",
+        [name],
+      );
+      const [{ marker, owner } = { marker: null, owner: '' }] = rows;
+      const note =
+        marker === LOCAL_MARKER
+          ? ''
+          : marker === null && owner === 'ga'
+            ? ' (made by an older db:setup: --reset needs --adopt once)'
+            : ' (not made by db:setup: --reset refuses it)';
+      console.log(`database ${name} exists${note}`);
     }
   }
 } finally {

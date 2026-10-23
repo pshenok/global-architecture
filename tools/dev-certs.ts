@@ -8,11 +8,21 @@
  *
  * Existing certificates are kept unless they expire within 30 days or (gRPC) fail a
  * TLS handshake check; works with OpenSSL 3+ and the LibreSSL that ships with macOS.
+ * Everything it writes is readable by this user only (.certs/ 0700, files 0600): LibreSSL
+ * would otherwise write private keys, the CA's included, world-readable.
  *   pnpm certs [--force]
  */
 import { execFileSync } from 'node:child_process';
 import { randomBytes, X509Certificate } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +32,14 @@ import { ROOT } from './lib.ts';
 const dir = join(ROOT, '.certs');
 const force = process.argv.includes('--force');
 const RENEW_BEFORE_MS = 30 * 24 * 60 * 60 * 1_000;
+// Inherited by openssl and mkcert, so no key is ever world-readable, not even briefly.
+process.umask(0o077);
 mkdirSync(dir, { recursive: true });
+chmodSync(dir, 0o700);
+/** Tightens keys written before this script set its umask (e.g. by LibreSSL). */
+const ownerOnly = (...files: string[]) => {
+  for (const file of files) if (existsSync(file)) chmodSync(file, 0o600);
+};
 
 const has = (command: string) => {
   try {
@@ -81,6 +98,7 @@ function httpsCertificate(): void {
   const cert = join(dir, 'dev-cert.pem');
   const key = join(dir, 'dev-key.pem');
   if (existsSync(cert) && existsSync(key) && !force) {
+    ownerOnly(key);
     if (!expiresSoon(cert)) {
       console.log(`certificate exists: ${cert} (use --force to regenerate)`);
       return;
@@ -125,6 +143,7 @@ async function grpcCertificates(): Promise<void> {
   const cert = join(dir, 'grpc-server.pem');
   const key = join(dir, 'grpc-server-key.pem');
   if ([caCert, caKey, cert, key].every((file) => existsSync(file)) && !force) {
+    ownerOnly(caKey, key);
     const expiring = [caCert, cert].find(expiresSoon);
     const problem = expiring
       ? `${expiring} expires within 30 days`

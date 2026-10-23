@@ -35,10 +35,13 @@ service from `services.json`, `ga_test`, and any declared extensions. The stack,
 migrations and the tests always connect as `ga:ga@localhost:5432`, so a Postgres
 elsewhere (another host or port, Docker on 5433) needs a port forward to
 `localhost:5432`; changing `PG_ADMIN_URL` alone splits the setup across two servers.
-`pnpm db:setup --reset ga_booking --yes` drops and recreates the named local databases
-(dev data only): it drops only databases that `db:setup` created (they carry a comment
-marker), so a tunnel to a shared server cannot lose real data, and it refuses production.
-Run `pnpm stack:up` afterwards to migrate them.
+`pnpm db:setup --reset ga_booking --yes` drops and recreates the named databases (dev data
+only), then run `pnpm stack:up` to migrate them. It refuses production and a Postgres
+that is not local (loopback or a Unix socket), and drops only databases `db:setup`
+created: they carry a comment marker. Databases from an older `db:setup` (before the
+marker) need `--adopt` once: `pnpm db:setup --reset ga_booking --yes --adopt`. A database
+created any other way is never dropped. The marker cannot tell a shared server behind a
+localhost port forward from your own, so never run `--reset` through one.
 
 ## Signing in
 
@@ -181,6 +184,6 @@ same image as a release job.
 | `refusing to serve plaintext gRPC on <host>`                                                       | `GRPC_HOST` is not loopback: set `GRPC_TLS_CERT_FILE` and `GRPC_TLS_KEY_FILE`                                                                                               |
 | `refusing to call <target> over plaintext gRPC`                                                    | a non-loopback target needs `GRPC_TLS_CA_FILE`                                                                                                                              |
 | `cannot verify TLS for 127.0.0.1:<port> ... IP address`                                            | with TLS, targets are host names: `*_SERVICE_URL=localhost:<port>`                                                                                                          |
-| migration fails: `bookings has rows from before ADR-0004`                                          | dev data from before `host_id`: `pnpm db:setup --reset ga_booking --yes`, then `pnpm stack:up`                                                                              |
+| migration fails: `bookings has rows from before ADR-0004`                                          | dev data from before `host_id`: `pnpm db:setup --reset ga_booking --yes --adopt` (`--adopt`: that database predates the reset marker), then `pnpm stack:up`               |
 | `Nest can't resolve dependencies of X (?, ...)`                                                    | a constructor class was imported with `import type`, or a circular import; see `ga-architecture`                                                                            |
 | `does not provide an export named ...` at startup                                                  | a type imported as a value; `pnpm build` runs `check-esm` to catch it                                                                                                       |
