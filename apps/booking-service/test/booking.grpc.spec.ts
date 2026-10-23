@@ -205,18 +205,24 @@ describe('BookingService over gRPC', () => {
       // Hold the row until every cancel is waiting on it, so their transactions really
       // overlap; without the row lock in the use case, several of them would succeed.
       const blocker = await db.pool.connect();
+      let calls: Promise<unknown>[] = [];
       try {
         await blocker.query('begin');
         await blocker.query(`select 1 from "${db.schema}".bookings where id = $1 for update`, [id]);
-        const calls = Array.from({ length: 6 }, (_, i) =>
+        const xid = (
+          await blocker.query<{ xid: string }>('select pg_current_xact_id()::xid::text as xid')
+        ).rows[0]?.xid;
+        calls = Array.from({ length: 6 }, (_, i) =>
           client.cancelBooking({ id }, i % 2 ? host : asGuest),
         );
+        // Waiters on this test's row only (other test runs may share the database): the
+        // first queues on the blocker's transaction, the rest on the row's tuple lock.
         await vi.waitFor(
           async () => {
             const { rows } = await db.pool.query<{ waiting: number }>(
-              `select count(*)::int as waiting from pg_stat_activity
-                where datname = current_database() and wait_event_type = 'Lock'
-                  and query ilike '%"bookings"%'`,
+              `select count(distinct pid)::int as waiting from pg_locks
+                where not granted and (relation = $1::regclass or transactionid = $2::xid)`,
+              [`"${db.schema}".bookings`, xid],
             );
             expect(rows[0]?.waiting).toBe(6);
           },
@@ -231,6 +237,7 @@ describe('BookingService over gRPC', () => {
       } finally {
         await blocker.query('rollback').catch(() => undefined);
         blocker.release();
+        await Promise.allSettled(calls);
       }
     });
 
