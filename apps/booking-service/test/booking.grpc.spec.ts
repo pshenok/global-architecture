@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import type { BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
+import { BookingParty, type BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
 import {
   createTestDatabase,
   type GrpcTestClient,
@@ -118,9 +118,15 @@ describe('BookingService over gRPC', () => {
   it('filters by guest and house', async () => {
     await client.createBooking(request(10, 11));
     await client.createBooking(request(11, 12));
-    const mine = await client.listBookings({ pageSize: 10, pageToken: '', guestId: GUEST_ID });
+    const mine = await client.listBookings({
+      pageSize: 10,
+      pageToken: '',
+      guestId: GUEST_ID,
+      party: BookingParty.BOOKING_PARTY_UNSPECIFIED,
+    });
     expect(mine.bookings).toHaveLength(2);
     const none = await client.listBookings({
+      party: BookingParty.BOOKING_PARTY_UNSPECIFIED,
       pageSize: 10,
       pageToken: '',
       houseId: '01900000-0000-7000-8000-0000000000ff',

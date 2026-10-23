@@ -7,13 +7,16 @@ import {
   type GetUserResponse,
   type ListUsersRequest,
   type ListUsersResponse,
+  type RegisterUserRequest,
+  type RegisterUserResponse,
+  type ResolveIdentityResponse,
   type UpdateUserRequest,
   type UpdateUserResponse,
   type UserServiceController,
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
-import { Access, parseRequest } from '@ga/service-kit';
+import { Access, currentIdentity, parseRequest } from '@ga/service-kit';
 import { Controller } from '@nestjs/common';
 import { UserService } from '../../application/user.service.ts';
 import { toUserMessage } from './user.mapper.ts';
@@ -22,6 +25,7 @@ import {
   DeleteUserRequestSchema,
   GetUserRequestSchema,
   ListUsersRequestSchema,
+  RegisterUserRequestSchema,
   UpdateUserRequestSchema,
 } from './user.requests.ts';
 
@@ -34,6 +38,18 @@ import {
 @UserServiceControllerMethods()
 export class UserGrpcController implements UserServiceController {
   constructor(private readonly users: UserService) {}
+
+  @Access.identity()
+  async registerUser(request: RegisterUserRequest): Promise<RegisterUserResponse> {
+    const input = parseRequest(RegisterUserRequestSchema, request);
+    return { user: toUserMessage(await this.users.register(currentIdentity(), input)) };
+  }
+
+  @Access.identity()
+  async resolveIdentity(): Promise<ResolveIdentityResponse> {
+    const { userId, roles } = await this.users.resolve(currentIdentity());
+    return { userId, roles: [...roles] };
+  }
 
   @Access.public('transitional: ADR-0004 rollout')
   async createUser(request: CreateUserRequest): Promise<CreateUserResponse> {

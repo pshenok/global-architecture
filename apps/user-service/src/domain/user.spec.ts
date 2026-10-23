@@ -1,4 +1,5 @@
-import { ValidationError } from '@ga/kernel';
+import { ANONYMOUS, ValidationError } from '@ga/kernel';
+import { adminActor, userActor } from '@ga/kernel/testing';
 import { describe, expect, it } from 'vitest';
 import { User } from './user.ts';
 
@@ -12,9 +13,30 @@ describe('User', () => {
       id: 'u1',
       email: 'ann@example.com',
       fullName: 'Ann Lee',
+      roles: [],
       createdAt: now,
       updatedAt: now,
     });
+  });
+
+  it('allows a user without an email (the identity provider shared none)', () => {
+    expect(User.create({ id: 'u1', email: null, fullName: 'Ann' }, now).email).toBeNull();
+  });
+
+  it('grants known roles once and refuses unknown ones', () => {
+    const user = User.create({ id: 'u1', email: null, fullName: 'Ann' }, now);
+    user.grantRole('admin', later);
+    user.grantRole('admin', later);
+    expect(user.toState()).toMatchObject({ roles: ['admin'], updatedAt: later });
+    expect(() => user.grantRole('root', later)).toThrow(ValidationError);
+  });
+
+  it('is visible to the user and to admins only', () => {
+    const user = User.create({ id: 'u1', email: null, fullName: 'Ann' }, now);
+    expect(user.isVisibleTo(userActor('u1'))).toBe(true);
+    expect(user.isVisibleTo(adminActor('u9'))).toBe(true);
+    expect(user.isVisibleTo(userActor('u2'))).toBe(false);
+    expect(user.isVisibleTo(ANONYMOUS)).toBe(false);
   });
 
   it('rejects malformed emails and empty names', () => {

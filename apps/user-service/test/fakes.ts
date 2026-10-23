@@ -1,6 +1,6 @@
 import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } from '@ga/kernel';
-import { userEmailTaken } from '../src/domain/user.errors.ts';
-import { UserRepository } from '../src/domain/user.repository.ts';
+import { userAlreadyRegistered, userEmailTaken } from '../src/domain/user.errors.ts';
+import { type Identity, UserRepository } from '../src/domain/user.repository.ts';
 import { User } from '../src/domain/user.ts';
 
 /**
@@ -43,9 +43,13 @@ export class PassThroughUnitOfWork extends UnitOfWork {
   }
 }
 
-/** In-memory adapter with the same contract as the Drizzle one (unique email, newest first). */
+/**
+ * In-memory adapter with the same contract as the Drizzle one: unique non-null email,
+ * newest first, one user per identity, identities removed with their user.
+ */
 export class InMemoryUserRepository extends UserRepository {
   readonly rows = new Map<string, ReturnType<User['toState']>>();
+  readonly identities = new Map<string, string>();
 
   async findById(id: string): Promise<User | null> {
     const state = this.rows.get(id);
@@ -72,12 +76,27 @@ export class InMemoryUserRepository extends UserRepository {
   }
 
   async delete(id: string): Promise<boolean> {
+    for (const [key, userId] of this.identities) if (userId === id) this.identities.delete(key);
     return this.rows.delete(id);
   }
 
+  async findByIdentity(identity: Identity): Promise<User | null> {
+    const userId = this.identities.get(identityKey(identity));
+    return userId ? this.findById(userId) : null;
+  }
+
+  async linkIdentity(userId: string, identity: Identity): Promise<void> {
+    const key = identityKey(identity);
+    if (this.identities.has(key)) throw userAlreadyRegistered();
+    this.identities.set(key, userId);
+  }
+
   private assertEmailFree(user: User): void {
+    if (user.email === null) return;
     for (const state of this.rows.values()) {
       if (state.email === user.email && state.id !== user.id) throw userEmailTaken(user.email);
     }
   }
 }
+
+const identityKey = ({ issuer, subject }: Identity) => `${issuer}\n${subject}`;

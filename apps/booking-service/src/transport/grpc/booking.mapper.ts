@@ -13,6 +13,7 @@ export function toBookingMessage(booking: Booking): BookingMessage {
     id: state.id,
     houseId: state.houseId,
     guestId: state.guestId,
+    hostId: '',
     checkIn: state.checkIn,
     checkOut: state.checkOut,
     guests: state.guests,

@@ -11,7 +11,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const dist = resolve(process.argv[2] ?? 'dist');
-const skip = /(^|\/)(main|migrate)\.js$/; // entrypoints start servers; they are linked via their imports
+// Entrypoints run on import (servers, migrations, src/cli/ scripts); their imports are checked.
+const skip = /(^|\/)(main|migrate)\.js$|(^|\/)cli\//;
 const modules = (await readdir(dist, { recursive: true })).filter(
   (file) => file.endsWith('.js') && !skip.test(file),
 );

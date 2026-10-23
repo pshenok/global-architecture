@@ -1,4 +1,4 @@
-import type { BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
+import { BookingParty, type BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
@@ -53,7 +53,9 @@ export class BookingsController {
   @ApiOperation({ summary: 'List bookings, newest first, optionally by guest or house' })
   @ApiResponse({ status: 200, standardSchema: BookingPage })
   async list(@Query({ schema: ListBookingsQuery }) query: z.output<typeof ListBookingsQuery>) {
-    const page = await firstValueFrom(this.bookings.listBookings(query));
+    const page = await firstValueFrom(
+      this.bookings.listBookings({ ...query, party: BookingParty.BOOKING_PARTY_UNSPECIFIED }),
+    );
     return {
       items: page.bookings.map(toBookingView),
       nextPageToken: nextToken(page.nextPageToken),

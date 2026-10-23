@@ -164,7 +164,7 @@ export class GrpcClientsModule {
                   ],
                 },
               },
-            }) as unknown as ClientGrpc;
+            });
           },
         },
         {

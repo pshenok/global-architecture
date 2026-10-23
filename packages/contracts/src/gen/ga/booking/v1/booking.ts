@@ -21,6 +21,18 @@ export enum BookingStatus {
   BOOKING_STATUS_CANCELLED = "BOOKING_STATUS_CANCELLED",
 }
 
+/** BookingParty selects which of the caller's bookings a list returns. */
+export enum BookingParty {
+  /** BOOKING_PARTY_UNSPECIFIED - Same as BOOKING_PARTY_GUEST. */
+  BOOKING_PARTY_UNSPECIFIED = "BOOKING_PARTY_UNSPECIFIED",
+  /** BOOKING_PARTY_GUEST - Bookings where the caller is the guest. */
+  BOOKING_PARTY_GUEST = "BOOKING_PARTY_GUEST",
+  /** BOOKING_PARTY_HOST - Bookings of houses the caller owns. */
+  BOOKING_PARTY_HOST = "BOOKING_PARTY_HOST",
+  /** BOOKING_PARTY_ANY - Every booking; admins only. */
+  BOOKING_PARTY_ANY = "BOOKING_PARTY_ANY",
+}
+
 /** Booking is a reservation of a house for [check_in, check_out). */
 export interface Booking {
   /** Server-generated UUIDv7. */
@@ -41,7 +53,14 @@ export interface Booking {
     | Date
     | null;
   /** Set when status is BOOKING_STATUS_CANCELLED. */
-  cancelTime?: Date | null;
+  cancelTime?:
+    | Date
+    | null;
+  /**
+   * Id of the ga.user.v1.User who owns the house, snapshotted at booking time
+   * (house owners never change, see ga.house.v1.House.owner_id).
+   */
+  hostId: string;
 }
 
 export interface CreateBookingRequest {
@@ -70,7 +89,12 @@ export interface ListBookingsRequest {
   pageSize: number;
   pageToken: string;
   guestId?: string | null | undefined;
-  houseId?: string | null | undefined;
+  houseId?:
+    | string
+    | null
+    | undefined;
+  /** Whose bookings to list; the caller's own as guest by default. */
+  party: BookingParty;
 }
 
 export interface ListBookingsResponse {

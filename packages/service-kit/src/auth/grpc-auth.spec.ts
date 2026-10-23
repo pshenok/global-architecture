@@ -44,6 +44,7 @@ const echo = (id: string) => {
       fullName: who,
       createTime: new Date(),
       updateTime: new Date(),
+      roles: [],
     },
   };
 };
@@ -71,6 +72,16 @@ class InnerController implements UserServiceController {
   @Access.identity()
   createUser() {
     return echo('created');
+  }
+
+  @Access.public('kit test')
+  registerUser() {
+    return echo('registered');
+  }
+
+  @Access.public('kit test')
+  resolveIdentity() {
+    return { userId: '', roles: [] };
   }
 
   @Access.service(['house-service'])

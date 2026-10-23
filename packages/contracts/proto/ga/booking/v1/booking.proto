@@ -49,6 +49,21 @@ message Booking {
   google.protobuf.Timestamp update_time = 10;
   // Set when status is BOOKING_STATUS_CANCELLED.
   google.protobuf.Timestamp cancel_time = 11;
+  // Id of the ga.user.v1.User who owns the house, snapshotted at booking time
+  // (house owners never change, see ga.house.v1.House.owner_id).
+  string host_id = 12;
+}
+
+// BookingParty selects which of the caller's bookings a list returns.
+enum BookingParty {
+  // Same as BOOKING_PARTY_GUEST.
+  BOOKING_PARTY_UNSPECIFIED = 0;
+  // Bookings where the caller is the guest.
+  BOOKING_PARTY_GUEST = 1;
+  // Bookings of houses the caller owns.
+  BOOKING_PARTY_HOST = 2;
+  // Every booking; admins only.
+  BOOKING_PARTY_ANY = 3;
 }
 
 message CreateBookingRequest {
@@ -78,6 +93,8 @@ message ListBookingsRequest {
   string page_token = 2;
   optional string guest_id = 3;
   optional string house_id = 4;
+  // Whose bookings to list; the caller's own as guest by default.
+  BookingParty party = 5;
 }
 
 message ListBookingsResponse {

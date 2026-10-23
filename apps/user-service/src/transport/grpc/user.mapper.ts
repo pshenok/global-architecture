@@ -5,9 +5,10 @@ import type { User } from '../../domain/user.ts';
 export function toUserMessage(user: User): UserMessage {
   return {
     id: user.id,
-    email: user.email,
+    email: user.email ?? '',
     fullName: user.fullName,
     createTime: user.createdAt,
     updateTime: user.updatedAt,
+    roles: [...user.roles],
   };
 }

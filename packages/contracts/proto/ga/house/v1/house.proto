@@ -29,7 +29,9 @@ service HouseService {
 message House {
   // Server-generated UUIDv7.
   string id = 1;
-  // Id of the owning ga.user.v1.User.
+  // Id of the owning ga.user.v1.User. Never changes: other services snapshot it
+  // (booking-service stores it as the booking's host). A future ownership transfer
+  // must publish an event that updates those snapshots (ADR-0002, ADR-0005).
   string owner_id = 2;
   string title = 3;
   string description = 4;

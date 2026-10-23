@@ -51,6 +51,7 @@ class FakeUserController implements UserServiceController {
         fullName: currentRequestId() ?? 'no-request-id',
         createTime: new Date('2026-01-02T03:04:05.678Z'),
         updateTime: null,
+        roles: [],
       },
     };
   }
@@ -72,6 +73,16 @@ class FakeUserController implements UserServiceController {
     throw new NotFoundError('USER_NOT_FOUND', `user ${request.id} not found`, {
       userId: request.id,
     });
+  }
+
+  @Access.public('kit test')
+  registerUser() {
+    return { user: null };
+  }
+
+  @Access.public('kit test')
+  resolveIdentity() {
+    return { userId: '', roles: [] };
   }
 
   @Access.public('kit test')

@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError } from '@ga/kernel';
+import { identityActor } from '@ga/kernel/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FixedClock,
@@ -20,6 +21,36 @@ describe('UserService', () => {
       clock,
       new PassThroughUnitOfWork(),
     );
+  });
+
+  const ann = identityActor('https://idp.example', 'ann-sub', 'Ann@Example.com');
+
+  it('registers an identity once and resolves it to its user', async () => {
+    const user = await service.register(ann, { fullName: 'Ann' });
+    expect(user.toState()).toMatchObject({ email: 'ann@example.com', roles: [] });
+    await expect(service.resolve(ann)).resolves.toEqual({ userId: user.id, roles: [] });
+    const again = await service.register(ann, { fullName: 'Ann' }).catch((e: unknown) => e);
+    expect(again).toMatchObject({ reason: 'USER_ALREADY_REGISTERED' });
+  });
+
+  it('keeps identities of different issuers apart, even with the same subject', async () => {
+    const other = identityActor('https://other-idp.example', 'ann-sub', null);
+    const first = await service.register(ann, { fullName: 'Ann' });
+    const second = await service.register(other, { fullName: 'Ann too' });
+    expect(first.id).not.toBe(second.id);
+    await expect(service.resolve(other)).resolves.toMatchObject({ userId: second.id });
+  });
+
+  it('rejects another identity with an email that is taken', async () => {
+    await service.register(ann, { fullName: 'Ann' });
+    const imposter = identityActor('https://idp.example', 'other-sub', 'ann@example.com');
+    await expect(service.register(imposter, { fullName: 'X' })).rejects.toMatchObject({
+      reason: 'USER_EMAIL_TAKEN',
+    });
+  });
+
+  it('reports an unregistered identity as USER_NOT_REGISTERED', async () => {
+    await expect(service.resolve(ann)).rejects.toMatchObject({ reason: 'USER_NOT_REGISTERED' });
   });
 
   it('registers and reads back a user', async () => {

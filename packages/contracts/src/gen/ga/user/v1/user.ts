@@ -17,11 +17,32 @@ export const protobufFileName = "ga/user/v1/user.proto";
 export interface User {
   /** Server-generated UUIDv7. */
   id: string;
-  /** Unique, stored lower-cased. */
+  /** Unique, stored lower-cased. Empty when the identity provider shares no email. */
   email: string;
   fullName: string;
   createTime?: Date | null;
-  updateTime?: Date | null;
+  updateTime?:
+    | Date
+    | null;
+  /** Platform roles, e.g. "admin". Granted inside user-service, never taken from the IdP. */
+  roles: string[];
+}
+
+export interface RegisterUserRequest {
+  /** 1..200 characters. */
+  fullName: string;
+}
+
+export interface RegisterUserResponse {
+  user?: User | null;
+}
+
+export interface ResolveIdentityRequest {
+}
+
+export interface ResolveIdentityResponse {
+  userId: string;
+  roles: string[];
 }
 
 export interface CreateUserRequest {
@@ -75,9 +96,30 @@ export interface DeleteUserResponse {
 export const GA_USER_V1_PACKAGE_NAME = "ga.user.v1";
 
 
-/** UserService owns platform user accounts. */
+/**
+ * UserService owns platform user accounts and the identity-provider logins
+ * (issuer + subject) that belong to them.
+ */
 
 export interface UserServiceClient {
+  /**
+   * RegisterUser creates the user of the calling identity. Issuer, subject and
+   * email come from the caller's identity principal, never from the request.
+   * Access: identity (the gateway, for POST /v1/users).
+   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (USER_ALREADY_REGISTERED,
+   * USER_EMAIL_TAKEN), UNAUTHENTICATED, PERMISSION_DENIED.
+   */
+
+  registerUser(request: RegisterUserRequest, metadata?: Metadata): Observable<RegisterUserResponse>;
+
+  /**
+   * ResolveIdentity returns the user and roles of the calling identity.
+   * Access: identity (the gateway resolves every authenticated request).
+   * Errors: NOT_FOUND (USER_NOT_REGISTERED), UNAUTHENTICATED, PERMISSION_DENIED.
+   */
+
+  resolveIdentity(request: ResolveIdentityRequest, metadata?: Metadata): Observable<ResolveIdentityResponse>;
+
   /**
    * CreateUser registers a new user.
    * Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
@@ -114,9 +156,36 @@ export interface UserServiceClient {
   deleteUser(request: DeleteUserRequest, metadata?: Metadata): Observable<DeleteUserResponse>;
 }
 
-/** UserService owns platform user accounts. */
+/**
+ * UserService owns platform user accounts and the identity-provider logins
+ * (issuer + subject) that belong to them.
+ */
 
 export interface UserServiceController {
+  /**
+   * RegisterUser creates the user of the calling identity. Issuer, subject and
+   * email come from the caller's identity principal, never from the request.
+   * Access: identity (the gateway, for POST /v1/users).
+   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (USER_ALREADY_REGISTERED,
+   * USER_EMAIL_TAKEN), UNAUTHENTICATED, PERMISSION_DENIED.
+   */
+
+  registerUser(
+    request: RegisterUserRequest,
+    metadata?: Metadata,
+  ): Promise<RegisterUserResponse> | Observable<RegisterUserResponse> | RegisterUserResponse;
+
+  /**
+   * ResolveIdentity returns the user and roles of the calling identity.
+   * Access: identity (the gateway resolves every authenticated request).
+   * Errors: NOT_FOUND (USER_NOT_REGISTERED), UNAUTHENTICATED, PERMISSION_DENIED.
+   */
+
+  resolveIdentity(
+    request: ResolveIdentityRequest,
+    metadata?: Metadata,
+  ): Promise<ResolveIdentityResponse> | Observable<ResolveIdentityResponse> | ResolveIdentityResponse;
+
   /**
    * CreateUser registers a new user.
    * Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
@@ -170,7 +239,15 @@ export interface UserServiceController {
 
 export function UserServiceControllerMethods() {
   return function (constructor: Function) {
-    const grpcMethods: string[] = ["createUser", "getUser", "listUsers", "updateUser", "deleteUser"];
+    const grpcMethods: string[] = [
+      "registerUser",
+      "resolveIdentity",
+      "createUser",
+      "getUser",
+      "listUsers",
+      "updateUser",
+      "deleteUser",
+    ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
       GrpcMethod("ga.user.v1.UserService", method)(constructor.prototype[method], method, descriptor);

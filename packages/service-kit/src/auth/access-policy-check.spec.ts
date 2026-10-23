@@ -33,6 +33,16 @@ class ForgetfulController implements UserServiceController {
   }
 
   @Access.public('test')
+  registerUser() {
+    return empty();
+  }
+
+  @Access.public('test')
+  resolveIdentity() {
+    return { userId: '', roles: [] };
+  }
+
+  @Access.public('test')
   listUsers() {
     return { users: [], nextPageToken: '' };
   }
@@ -61,6 +71,14 @@ class ClassLevelController implements UserServiceController {
 
   listUsers() {
     return { users: [], nextPageToken: '' };
+  }
+
+  registerUser() {
+    return empty();
+  }
+
+  resolveIdentity() {
+    return { userId: '', roles: [] };
   }
 
   updateUser() {

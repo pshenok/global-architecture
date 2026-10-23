@@ -34,6 +34,7 @@
     "keys": "node tools/dev-keys.ts",
     "db:setup": "node tools/db-setup.ts",
     "db:migrate": "node tools/stack.ts migrate",
+    "users:grant-role": "pnpm --filter @ga/user-service grant-role",
     "stack:up": "node tools/stack.ts up",
     "stack:down": "node tools/stack.ts down",
     "stack:status": "pm2 status",

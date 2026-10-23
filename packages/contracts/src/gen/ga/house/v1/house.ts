@@ -18,7 +18,11 @@ export const protobufFileName = "ga/house/v1/house.proto";
 export interface House {
   /** Server-generated UUIDv7. */
   id: string;
-  /** Id of the owning ga.user.v1.User. */
+  /**
+   * Id of the owning ga.user.v1.User. Never changes: other services snapshot it
+   * (booking-service stores it as the booking's host). A future ownership transfer
+   * must publish an event that updates those snapshots (ADR-0002, ADR-0005).
+   */
   ownerId: string;
   title: string;
   description: string;

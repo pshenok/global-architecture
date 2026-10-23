@@ -13,6 +13,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
 import { SERVICE } from '../src/service.ts';
 
+const USER_ID = '01900000-0000-7000-8000-000000000001';
+
 describe('UserService over gRPC', () => {
   let db: TestDatabase;
   let service: TestService;
@@ -89,5 +91,103 @@ describe('UserService over gRPC', () => {
     const second = await client.listUsers({ pageSize: 2, pageToken: first.nextPageToken });
     expect(second.users.map((u) => u.fullName)).toEqual(['a']);
     expect(second.nextPageToken).toBe('');
+  });
+
+  describe('registration (identity principals)', () => {
+    const issuer = 'https://idp.example';
+
+    it('registers the calling identity and resolves it to its user', async () => {
+      const { user } = await client.registerUser(
+        { fullName: 'Reg' },
+        await service.asIdentity({ issuer, subject: 's1', email: 'Reg@Example.com' }),
+      );
+      expect(user).toMatchObject({ email: 'reg@example.com', fullName: 'Reg', roles: [] });
+      await expect(
+        client.resolveIdentity({}, await service.asIdentity({ issuer, subject: 's1' })),
+      ).resolves.toEqual({ userId: user?.id, roles: [] });
+    });
+
+    it('registers without an email when the identity provider shares none', async () => {
+      const { user } = await client.registerUser(
+        { fullName: 'No Mail' },
+        await service.asIdentity({ issuer, subject: 's2' }),
+      );
+      expect(user?.email).toBe('');
+    });
+
+    it('keeps two issuers with the same subject apart', async () => {
+      const a = await client.registerUser(
+        { fullName: 'A' },
+        await service.asIdentity({ issuer, subject: 'same' }),
+      );
+      const b = await client.registerUser(
+        { fullName: 'B' },
+        await service.asIdentity({ issuer: 'https://other.example', subject: 'same' }),
+      );
+      expect(a.user?.id).not.toBe(b.user?.id);
+    });
+
+    it('answers an unknown identity with NOT_FOUND USER_NOT_REGISTERED', async () => {
+      const error = await grpcError(
+        client.resolveIdentity({}, await service.asIdentity({ issuer, subject: 'nobody' })),
+      );
+      expect(error.code).toBe(status.NOT_FOUND);
+      expect(error.details?.errorInfo?.reason).toBe('USER_NOT_REGISTERED');
+    });
+
+    it('accepts only identity principals', async () => {
+      for (const call of [
+        client.registerUser({ fullName: 'X' }, await service.as(USER_ID)),
+        client.resolveIdentity({}, await service.as(USER_ID)),
+      ]) {
+        const error = await grpcError(call);
+        expect(error.code).toBe(status.PERMISSION_DENIED);
+        expect(error.details?.errorInfo?.reason).toBe('IDENTITY_PRINCIPAL_REQUIRED');
+      }
+    });
+
+    it.each([
+      ['the same email', () => 'race@example.com'],
+      ['different emails', (n: number) => `race${n}@example.com`],
+    ])(
+      'lets one of five concurrent registrations of an identity win (%s)',
+      async (_name, email) => {
+        const outcomes = await Promise.all(
+          Array.from({ length: 5 }, async (_, n) => {
+            const metadata = await service.asIdentity({
+              issuer,
+              subject: 'racer',
+              email: email(n),
+            });
+            // grpcError throws when the call succeeds: that is the one winner.
+            return grpcError(client.registerUser({ fullName: 'Racer' }, metadata)).catch(
+              () => 'registered' as const,
+            );
+          }),
+        );
+        expect(outcomes.filter((outcome) => outcome === 'registered')).toHaveLength(1);
+        for (const outcome of outcomes.filter((o) => o !== 'registered')) {
+          expect(outcome).toMatchObject({
+            code: status.ALREADY_EXISTS,
+            details: { errorInfo: { reason: 'USER_ALREADY_REGISTERED' } },
+          });
+        }
+      },
+    );
+
+    it('refuses another identity whose email is taken', async () => {
+      await client.registerUser(
+        { fullName: 'Ann' },
+        await service.asIdentity({ issuer, subject: 'ann', email: 'ann@example.com' }),
+      );
+      const error = await grpcError(
+        client.registerUser(
+          { fullName: 'Imposter' },
+          await service.asIdentity({ issuer, subject: 'imposter', email: 'ANN@example.com' }),
+        ),
+      );
+      expect(error.code).toBe(status.ALREADY_EXISTS);
+      expect(error.details?.errorInfo?.reason).toBe('USER_EMAIL_TAKEN');
+    });
   });
 });

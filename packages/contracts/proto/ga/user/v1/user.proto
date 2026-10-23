@@ -4,8 +4,19 @@ package ga.user.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// UserService owns platform user accounts.
+// UserService owns platform user accounts and the identity-provider logins
+// (issuer + subject) that belong to them.
 service UserService {
+  // RegisterUser creates the user of the calling identity. Issuer, subject and
+  // email come from the caller's identity principal, never from the request.
+  // Access: identity (the gateway, for POST /v1/users).
+  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (USER_ALREADY_REGISTERED,
+  // USER_EMAIL_TAKEN), UNAUTHENTICATED, PERMISSION_DENIED.
+  rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
+  // ResolveIdentity returns the user and roles of the calling identity.
+  // Access: identity (the gateway resolves every authenticated request).
+  // Errors: NOT_FOUND (USER_NOT_REGISTERED), UNAUTHENTICATED, PERMISSION_DENIED.
+  rpc ResolveIdentity(ResolveIdentityRequest) returns (ResolveIdentityResponse);
   // CreateUser registers a new user.
   // Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
@@ -27,11 +38,29 @@ service UserService {
 message User {
   // Server-generated UUIDv7.
   string id = 1;
-  // Unique, stored lower-cased.
+  // Unique, stored lower-cased. Empty when the identity provider shares no email.
   string email = 2;
   string full_name = 3;
   google.protobuf.Timestamp create_time = 4;
   google.protobuf.Timestamp update_time = 5;
+  // Platform roles, e.g. "admin". Granted inside user-service, never taken from the IdP.
+  repeated string roles = 6;
+}
+
+message RegisterUserRequest {
+  // 1..200 characters.
+  string full_name = 1;
+}
+
+message RegisterUserResponse {
+  User user = 1;
+}
+
+message ResolveIdentityRequest {}
+
+message ResolveIdentityResponse {
+  string user_id = 1;
+  repeated string roles = 2;
 }
 
 message CreateUserRequest {
