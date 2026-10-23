@@ -543,6 +543,29 @@ describe('identity resolution through user-service', () => {
       expect((await meOn('upper')).json().code).toBe('USER_NOT_REGISTERED');
     });
 
+    it("leaves another user's logins cached when someone else's delete fails", async () => {
+      await loggedIn('victim');
+      users.resolveIdentity.mockReturnValue(
+        of({ userId: '0190bbbb-0000-7000-8000-0000000000b2', roles: [] }),
+      );
+      for (const failure of [
+        grpcError(status.NOT_FOUND, 'no such user', 'USER_NOT_FOUND'),
+        grpcError(status.UNAVAILABLE, 'down'),
+      ]) {
+        users.deleteUser.mockReturnValue(throwError(() => failure));
+        const refused = await cached.inject({
+          method: 'DELETE',
+          url: `/v1/users/${MIXED_ID}`,
+          headers: await cached.bearer('attacker'),
+        });
+        expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+      }
+      users.resolveIdentity.mockClear();
+      users.getUser.mockReturnValue(of({ user: { ...user, id: MIXED_ID } }));
+      expect((await meOn('victim')).statusCode).toBe(200);
+      expect(users.resolveIdentity).not.toHaveBeenCalled();
+    });
+
     it('forgets the user when the delete fails after it may have committed', async () => {
       await loggedIn('deadline');
       users.deleteUser.mockReturnValue(

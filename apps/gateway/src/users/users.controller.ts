@@ -1,5 +1,7 @@
 import type { RegisterUserResponse, UserServiceClient } from '@ga/contracts/ga/user/v1/user';
-import { currentIdentity, currentUser } from '@ga/service-kit';
+import { isAdmin } from '@ga/kernel';
+import { currentIdentity, currentUser, grpcStatusOf } from '@ga/service-kit';
+import { status } from '@grpc/grpc-js';
 import {
   Body,
   Controller,
@@ -33,6 +35,15 @@ import {
 
 /** `me` -> the signed-in user's id. */
 const userId = (id: string) => (id === 'me' ? currentUser().userId : id);
+
+/** Failures after which a call may still have taken effect on the server. */
+const OUTCOME_UNKNOWN = new Set<number>([
+  status.DEADLINE_EXCEEDED,
+  status.CANCELLED,
+  status.UNAVAILABLE,
+  status.UNKNOWN,
+  status.INTERNAL,
+]);
 
 @ApiTags('users')
 @ApiResponse({ status: 400, description: 'Invalid input', standardSchema: ProblemDetails })
@@ -118,11 +129,20 @@ export class UsersController {
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
   async remove(@Param('id', { schema: UserIdParam }) id: string): Promise<void> {
     const target = userId(id);
+    const actor = currentUser();
     try {
       await firstValueFrom(this.users.deleteUser({ id: target }));
-    } finally {
-      // Also when the call fails: the delete may have committed before a deadline.
-      this.identities.forgetUser(target);
+    } catch (error) {
+      // A delete that may have committed before the failure (a deadline, a dropped
+      // connection) still clears the cache, but only if this caller may delete the user:
+      // a refused or impossible delete leaves other users' logins alone.
+      const code = grpcStatusOf(error);
+      const mayHaveDeleted = code !== undefined && OUTCOME_UNKNOWN.has(code);
+      if (mayHaveDeleted && (target === actor.userId || isAdmin(actor))) {
+        this.identities.forgetUser(target);
+      }
+      throw error;
     }
+    this.identities.forgetUser(target);
   }
 }

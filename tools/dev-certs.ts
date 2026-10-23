@@ -40,6 +40,13 @@ chmodSync(dir, 0o700);
 const ownerOnly = (...files: string[]) => {
   for (const file of files) if (existsSync(file)) chmodSync(file, 0o600);
 };
+/**
+ * Removes files about to be regenerated: openssl and mkcert rewrite an existing file in
+ * place and keep its old mode, so only a new file gets the 077 umask.
+ */
+const replacing = (...files: string[]) => {
+  for (const file of files) rmSync(file, { force: true });
+};
 
 const has = (command: string) => {
   try {
@@ -105,6 +112,7 @@ function httpsCertificate(): void {
     }
     console.log(`${cert} expires within 30 days: regenerating it`);
   }
+  replacing(cert, key);
   if (has('mkcert')) {
     execFileSync(
       'mkcert',
@@ -154,6 +162,7 @@ async function grpcCertificates(): Promise<void> {
     }
     console.log(`regenerating the gRPC certificates: ${problem}`);
   }
+  replacing(caCert, caKey, cert, key);
   openssl(
     'req',
     '-x509',

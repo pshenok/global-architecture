@@ -11,6 +11,7 @@
  *     `ga`). A database created any other way is never dropped. The marker cannot tell a
  *     shared server behind a localhost tunnel from your own: never reset through one.
  */
+import { isIPv4 } from 'node:net';
 import pg from 'pg';
 import { ensureEnvFiles } from './env-files.ts';
 import { DEFAULT_PG_ADMIN_URL, readRegistry, TEST_DATABASE } from './lib.ts';
@@ -21,29 +22,23 @@ const LOCAL_MARKER = 'global-architecture local stack (pnpm db:setup)';
 for (const file of ensureEnvFiles()) console.log(`created ${file} from .env.example`);
 
 const adminUrl = process.env.PG_ADMIN_URL ?? DEFAULT_PG_ADMIN_URL;
+if (!URL.canParse(adminUrl)) {
+  throw new Error(
+    'PG_ADMIN_URL is not a URL (for a Unix socket: postgresql:///postgres?host=/path)',
+  );
+}
 const args = process.argv.slice(2);
 const toReset = args.includes('--reset') ? args.filter((arg) => !arg.startsWith('--')) : [];
 const adopt = args.includes('--adopt');
 
-/** The server PG_ADMIN_URL reaches, as node-postgres resolves it (URL, ?host=, PGHOST). */
-function serverHost(url: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(
-      'PG_ADMIN_URL is not a URL (for a Unix socket: postgresql:///postgres?host=/path)',
-    );
-  }
-  return (
-    parsed.searchParams.get('host') ||
-    parsed.hostname.replace(/^\[(.*)\]$/, '$1') ||
-    process.env.PGHOST ||
-    'localhost'
-  );
-}
+/** The server PG_ADMIN_URL reaches, resolved by node-postgres itself (URL, ?host=, PGHOST). */
+const serverHost = (url: string) => new pg.Client({ connectionString: url }).host;
+/** A Unix socket, localhost, ::1 or an IPv4 loopback address (not a name like 127.example). */
 const isLocal = (host: string) =>
-  host.startsWith('/') || host === 'localhost' || host === '::1' || /^127\./.test(host);
+  host.startsWith('/') ||
+  host === 'localhost' ||
+  host === '::1' ||
+  (isIPv4(host) && host.startsWith('127.'));
 
 if (toReset.length > 0) {
   const known = new Set([...readRegistry().services.map((s) => s.database), TEST_DATABASE]);
