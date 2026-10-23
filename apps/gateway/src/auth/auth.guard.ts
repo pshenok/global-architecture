@@ -1,11 +1,10 @@
 import { DependencyUnavailableError, PermissionDeniedError } from '@ga/kernel';
 import { enterPrincipal, InjectConfig, WorkloadIdentity } from '@ga/service-kit';
 import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
 import { AccessTokenVerifier, bearerToken, tokenMissing } from './access-token-verifier.ts';
 import type { AuthConfig } from './auth.config.ts';
-import { AUTH_ROUTE, type AuthRoute } from './decorators.ts';
+import { AuthRoutes } from './auth-routes.ts';
 import { acceptedEmail } from './email-claims.ts';
 import { IdentityResolver } from './identity-resolver.ts';
 
@@ -17,13 +16,14 @@ export const userNotRegistered = () =>
 
 /**
  * Authenticates every HTTP request (ADR-0004). Routes need a registered user unless
- * they are @Public() or @AllowUnregistered(). On success the request gets a principal
- * signed by the gateway, which the gRPC clients forward to the services.
+ * they are @Public() or @AllowUnregistered(), as recorded at boot (AuthRoutes). On
+ * success the request gets a principal signed by the gateway, which the gRPC clients
+ * forward to the services.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
-    private readonly reflector: Reflector,
+    private readonly routes: AuthRoutes,
     private readonly verifier: AccessTokenVerifier,
     private readonly resolver: IdentityResolver,
     private readonly identity: WorkloadIdentity,
@@ -33,10 +33,13 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Fail closed: the gateway serves HTTP only, any other transport is not authenticated.
     if (context.getType() !== 'http') return false;
-    const route = this.reflector.getAllAndOverride<AuthRoute | undefined>(AUTH_ROUTE, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const route = this.routes.routeOf(context.getHandler());
+    if (route === 'unknown') {
+      // A server bug (500), never something a client can fix by signing in.
+      throw new Error(
+        `${context.getClass().name}.${context.getHandler().name} was not a route when the gateway started`,
+      );
+    }
     if (route?.mode === 'public' && route.ignoreToken) return true;
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const token = bearerToken(request.headers.authorization);

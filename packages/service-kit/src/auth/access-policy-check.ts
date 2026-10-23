@@ -33,16 +33,18 @@ function opening(policy: AccessPolicy): Omit<OpenEndpoint, 'member'> | undefined
 }
 
 /**
- * Boot-time check: every gRPC handler declares an @Access policy, and none is put on a
- * class. Runs in every service and every startTestService, so a forgotten policy fails
- * the first test instead of reaching production. It also records the methods open
- * without a user (`open`), which startTestService compares with
- * security/public-endpoints.json.
+ * Boot-time check and record: every gRPC handler declares an @Access policy, and none is
+ * put on a class. Runs in every service and every startTestService, so a forgotten policy
+ * fails the first test instead of reaching production. The policies read here are the
+ * ones GrpcAuthGuard enforces (`policyOf`), and `open` lists the methods open without a
+ * user, which startTestService compares with security/public-endpoints.json: what the
+ * tests check is what runs, and metadata changed after boot changes nothing.
  */
 @Injectable()
 export class AccessPolicyCheck implements OnModuleInit {
   private readonly logger = new Logger('AccessPolicy');
   private found: readonly OpenEndpoint[] = [];
+  private readonly policies = new Map<object, AccessPolicy>();
 
   constructor(
     private readonly discovery: DiscoveryService,
@@ -52,6 +54,11 @@ export class AccessPolicyCheck implements OnModuleInit {
   /** Methods callable without a signed-in user, read from their metadata at boot. */
   get open(): readonly OpenEndpoint[] {
     return this.found;
+  }
+
+  /** The policy a handler had at boot; undefined for anything that was not a handler then. */
+  policyOf(handler: object): AccessPolicy | undefined {
+    return this.policies.get(handler);
   }
 
   onModuleInit(): void {
@@ -73,7 +80,8 @@ export class AccessPolicyCheck implements OnModuleInit {
         const member = `${metatype.name}.${name}`;
         const opened = policy && opening(policy);
         if (!policy) undeclared.push(member);
-        else if (opened) open.push({ member, ...opened });
+        else this.policies.set(handler, policy);
+        if (opened) open.push({ member, ...opened });
       }
     }
     if (undeclared.length > 0) {

@@ -1,6 +1,7 @@
 /**
  * CI guard against template rot: generates a throwaway multi-word service from
- * templates/service, then typechecks, lints, tests and builds it, and removes it.
+ * templates/service, then typechecks, lints (with check-access), tests and builds it, and
+ * removes it.
  *   pnpm template:verify   (needs Postgres: `pnpm db:setup`)
  */
 import { execFileSync } from 'node:child_process';
@@ -38,6 +39,8 @@ try {
   ]);
   run(['pnpm', '--filter', PACKAGE, 'typecheck']);
   run(['pnpm', '--filter', PACKAGE, 'lint']);
+  // The generated copy has its contracts, so the access check reads it with full types.
+  run([process.execPath, 'tools/check-access.ts']);
   run(['pnpm', '--filter', PACKAGE, 'test']);
   run(['pnpm', 'turbo', 'run', 'build', `--filter=${PACKAGE}...`]);
   console.log('\ntemplate:verify OK');

@@ -166,21 +166,32 @@ fields. Rules:
 
 ### 6. Guardrails
 
-- `pnpm lint` runs `tools/check-access.ts`: every endpoint that does not need a signed-in
-  user (public, registration, identity and workload-only methods) is listed with its
-  reason in `security/public-endpoints.json`. It reads only decorators written directly
-  on the method or class with inline literal arguments, and fails every other use of
-  them or of their metadata keys (wrappers, aliases, stored decorators, `SetMetadata`).
-  No production code casts to a verified actor (or passes one as a type argument),
-  builds `x-ga-*` metadata, loads test helpers, or adds a gateway route outside a
-  controller. Biome and oxlint refuse explicit and implicit `any`, so request data cannot
-  become an actor without a cast either; a generic `value as T` helper is left to review.
-- The tests check the same list against the metadata the apps really carry:
-  `startTestService` (in a service's own package) and `createTestGateway` fail when the
-  open methods or routes differ from it, whatever spelling opened them.
-- `.github/CODEOWNERS` covers `security/`, the kit's auth, gRPC, platform and testing
-  code, the gateway's auth code and test harness, the kernel's actor, testing and index
-  files, the access check, the lint configs and itself.
+- `pnpm lint` runs `tools/check-access.ts`, which reads the code with the TypeScript 7
+  checker (`typescript/unstable/sync`), so names resolve through imports, renames,
+  namespaces and type aliases. Every endpoint that does not need a signed-in user
+  (public, registration, identity and workload-only methods) is listed with its reason in
+  `security/public-endpoints.json`. The access decorators may appear only as decorators
+  written on a method or class with inline literal arguments; any other use of them or
+  of their metadata (`SetMetadata`, Reflect's metadata writers, the key strings) fails.
+  Outside the kit nothing may produce a value whose type carries the actor brand: no
+  type assertion or type predicate to such a type, to `never` or to a type parameter, no
+  spread or library copy of an actor, no overload or ambient declaration of one. No
+  production code builds `x-ga-*` metadata, reaches the test helpers, loads a module by
+  a computed path, or adds a gateway route or middleware outside a controller. Biome
+  and oxlint refuse explicit and implicit `any`. `pnpm template:verify` runs the same
+  check on a generated service.
+- What runs is what the tests check: each service's `AccessPolicyCheck` and the gateway's
+  `AuthRoutes` record the policies once at boot, and the guards enforce that record, not
+  live metadata. `startTestService` (in a service's own package) and `createTestGateway`
+  fail when the recorded open methods or routes differ from the list, and
+  `createTestGateway` also fails on any route no controller serves or any unexpected
+  middleware.
+- What neither sees is code that defeats the type checker at run time or edits the
+  guardrails themselves; that is what CODEOWNERS review is for. `.github/CODEOWNERS`
+  covers `security/`, the kit's auth, gRPC, platform and testing code, the gateway's auth
+  code and test harness, the kernel's actor, testing and index files, the access check,
+  the lint, test and CI configuration (root and package `package.json`, `vitest` configs,
+  `turbo.json`, `pnpm-workspace.yaml`, the workflows) and itself.
 - The template's gRPC spec starts every new service with five access tests (no user,
   another user, admin, a stranger's empty list, an unlisted forwarder).
 - The gateway turns a downstream `UNAUTHENTICATED`, and `PERMISSION_DENIED` with a

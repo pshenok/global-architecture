@@ -94,11 +94,12 @@ the tests after step 7.
    behalf, `service(['other-service'])` for calls without a user. `public('<reason>')`
    only for data anyone may read, with the same reason in `security/public-endpoints.json`
    (`pnpm lint` and the service's own tests fail otherwise: `startTestService` compares
-   the list with the policies the service really carries; code owners review it).
-   `service(...)` and `identity()` methods are listed there too. Write the decorator
-   directly above the method with inline arguments (any quote style): `check-access`
-   fails a constant or computed argument, a wrapper, an alias, a decorator kept in a
-   constant and any direct use of the `ACCESS_POLICY` metadata.
+   the list with the policies the service recorded at boot, which are what its guard
+   enforces; code owners review it). `service(...)` and `identity()` methods are listed
+   there too. Write the decorator directly above the method with inline arguments (any
+   quote style): `check-access` fails any other use of `Access` or its metadata (a
+   constant or computed argument, a wrapper, a renamed import, a decorator kept in a
+   constant, `ACCESS_POLICY`, `Reflect.defineMetadata`).
 6. **Dependencies on other services** (if any): config vars (`grpcTarget()`),
    `GrpcClientsModule.register(...)` with `target`, adapters, bindings in `app.module.ts`,
    the `.env`/`.env.example` entries (`localhost:<port>`), and your service in the

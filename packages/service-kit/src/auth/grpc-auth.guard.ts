@@ -8,7 +8,8 @@ import {
 } from '@ga/kernel';
 import type { Metadata } from '@grpc/grpc-js';
 import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
-import { type AccessPolicy, accessPolicyOf } from './access.ts';
+import type { AccessPolicy } from './access.ts';
+import { AccessPolicyCheck } from './access-policy-check.ts';
 import {
   actorFromClaims,
   rememberVerifiedCall,
@@ -66,12 +67,16 @@ function tokenFailure(error: unknown, label: 'CALLER' | 'PRINCIPAL', key: string
  */
 @Injectable()
 export class GrpcAuthGuard implements CanActivate {
-  constructor(private readonly identity: WorkloadIdentity) {}
+  constructor(
+    private readonly identity: WorkloadIdentity,
+    private readonly policies: AccessPolicyCheck,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Fail closed: services serve gRPC only, any other transport is not authenticated.
     if (context.getType() !== 'rpc') return false;
-    const policy = accessPolicyOf(context.getHandler());
+    // The policy recorded at boot, which is also what the tests compared with the list.
+    const policy = this.policies.policyOf(context.getHandler());
     if (!policy) {
       throw new PermissionDeniedError(
         'ACCESS_NOT_DECLARED',

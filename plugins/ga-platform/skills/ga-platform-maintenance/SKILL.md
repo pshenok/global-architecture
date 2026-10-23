@@ -84,25 +84,37 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
 
 ## Access guardrails
 
-- `tools/check-access.ts` runs in `pnpm lint`: every `@Access.public`, `@Public`,
+- `tools/check-access.ts` runs in `pnpm lint` (and in `pnpm template:verify` on a
+  generated service). It reads the code with the TypeScript 7 checker
+  (`typescript/unstable/sync`, which spawns the bundled `tsgo`), so it resolves imports,
+  renames, namespaces and aliases. Every `@Access.public`, `@Public`,
   `@AllowUnregistered`, `@Access.identity` and `@Access.service` must match an entry
   (`file#Class.method` or `file#Class`, access, reason) in
-  `security/public-endpoints.json`. It reads only direct decorators with inline literal
-  arguments and fails every other use of these names or their metadata keys, a
-  decorator whose method it cannot tell, and a member opened twice. Production code may
-  not cast to a verified actor or pass one as a type argument, build
-  `x-ga-caller`/`x-ga-principal` metadata, load a test helper, or (gateway) touch the raw
-  Fastify instance outside `bootstrap.ts` and `http/openapi.ts`. Extend it when you add
-  a new way to reach data without a user; never weaken it.
-- The same list is checked at runtime, against the metadata itself: `startTestService`
-  in each service's own package and `createTestGateway` fail when the open methods or
-  routes differ from it, so a spelling the source check misses still fails the tests.
+  `security/public-endpoints.json`; the decorators may appear only as decorators on a
+  method or class with inline literal arguments, and their metadata not at all.
+  Production code may not produce a value of an actor type outside the kit (assertions,
+  type predicates, `never`, type parameters, spreads, library copies, overloads, ambient
+  declarations), build `x-ga-caller`/`x-ga-principal` metadata, reach a test helper, load
+  a module by a computed path (three platform files are allowed by name), or (gateway)
+  add routes or middleware outside controllers. Every production file must belong to a
+  tsconfig project. The API is marked unstable: after a TypeScript bump run `pnpm lint`
+  and adapt the script if the API moved. Extend it when you add a new way to reach data
+  without a user; never weaken it.
+- What runs is what the tests check: `AccessPolicyCheck` (services) and `AuthRoutes`
+  (gateway) record the policies at boot and the guards enforce that record.
+  `startTestService` in each service's own package and `createTestGateway` fail when the
+  recorded open methods or routes differ from the list (found from the kit's own place,
+  never the working directory); `createTestGateway` also fails on routes no controller
+  serves and on middleware other than logging and the request context.
 - Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument` (outside
-  tests) keep `any` from turning request data into an actor without a cast.
+  tests) keep `any` from turning request data into an actor.
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the kit's
   `auth/`, `grpc/`, `platform/` and `testing/` code, `apps/gateway/src/auth/` and the
   gateway test harness, `packages/kernel/src/actor.ts`, `testing.ts` and `index.ts`,
-  `tools/check-access.ts`, the Biome and oxlint configs and CODEOWNERS itself.
+  `tools/check-access.ts`, `lib.ts` and `verify-template.ts`, and everything that decides
+  whether the guardrails run: root and package `package.json` and `vitest` configs,
+  `turbo.json`, `pnpm-workspace.yaml`, the Biome and oxlint configs, the workflows and
+  CODEOWNERS itself.
 - Never add a switch that disables authentication or allows plaintext gRPC off loopback;
   ADR-0004 rejects both, because agents would use them.
 

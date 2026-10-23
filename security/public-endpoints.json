@@ -1,5 +1,5 @@
 {
-  "$comment": "Every endpoint that does not need a signed-in user (ADR-0004): public (anyone), unregistered and identity (a login without a user), service (other workloads only). `where` is file#Class.method, or file#Class for a decorator on the class. tools/check-access.ts (pnpm lint) compares this list with the source, and startTestService / the gateway's public-endpoints.spec.ts with the metadata the apps really carry; both fail when they differ. Changes are reviewed by the code owners of security/.",
+  "$comment": "Every endpoint that does not need a signed-in user (ADR-0004): public (anyone), unregistered and identity (a login without a user), service (other workloads only). `where` is file#Class.method, or file#Class for a decorator on the class. tools/check-access.ts (pnpm lint) compares this list with the source; startTestService and createTestGateway compare it with the policies the guards enforce, recorded at boot. Changes are reviewed by the code owners of security/.",
   "endpoints": [
     {
       "where": "apps/gateway/src/health/health.controller.ts#HealthController",

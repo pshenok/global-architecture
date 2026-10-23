@@ -36,8 +36,10 @@
   "overrides": [
     {
       "files": [
-        "**/test/**",
         "**/*.spec.ts",
+        "apps/*/test/**",
+        "packages/*/test/**",
+        "templates/service/test/**",
         "packages/service-kit/src/testing/**",
         "packages/kernel/src/testing.ts"
       ],

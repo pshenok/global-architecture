@@ -1,4 +1,5 @@
 import {
+  type UserServiceClient,
   type UserServiceController,
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
@@ -7,8 +8,10 @@ import { describe, expect, it } from 'vitest';
 import { grpcServiceConfigSchema } from '../config/config.ts';
 import { GrpcPlatformModule } from '../platform/grpc-platform.module.ts';
 import { defineService } from '../platform/service-definition.ts';
+import { grpcError } from '../testing/grpc-test-client.ts';
 import { startTestService } from '../testing/start-test-service.ts';
 import { ACCESS_POLICY, Access } from './access.ts';
+import { AccessPolicyCheck } from './access-policy-check.ts';
 
 const SERVICE = defineService({
   name: 'user-service',
@@ -95,6 +98,45 @@ Reflect.defineMetadata(
   ClassLevelController,
 );
 
+@Controller()
+@UserServiceControllerMethods()
+class GuardedController implements UserServiceController {
+  @Access.user()
+  createUser() {
+    return empty();
+  }
+
+  @Access.user()
+  getUser() {
+    return empty();
+  }
+
+  @Access.identity()
+  registerUser() {
+    return empty();
+  }
+
+  @Access.service(['house-service'])
+  resolveIdentity() {
+    return { userId: '', roles: [] };
+  }
+
+  @Access.user()
+  listUsers() {
+    return { users: [], nextPageToken: '' };
+  }
+
+  @Access.user()
+  updateUser() {
+    return empty();
+  }
+
+  @Access.user()
+  deleteUser() {
+    return {};
+  }
+}
+
 const moduleWith = (controller: new (...args: never[]) => unknown) => {
   @Module({
     imports: [
@@ -121,6 +163,38 @@ describe('@Access boot check', () => {
     await expect(
       startTestService({ module: moduleWith(ClassLevelController), service: SERVICE }),
     ).rejects.toThrow('@Access must be on methods, not on ClassLevelController');
+  });
+
+  it('records the open methods and enforces the policies it read at boot', async () => {
+    const service = await startTestService({
+      module: moduleWith(GuardedController),
+      service: SERVICE,
+    });
+    const handler = GuardedController.prototype.getUser as object;
+    try {
+      expect(service.app.get(AccessPolicyCheck).open).toEqual([
+        {
+          member: 'GuardedController.registerUser',
+          access: 'identity',
+          reason: 'login without a user',
+        },
+        {
+          member: 'GuardedController.resolveIdentity',
+          access: 'service',
+          reason: 'workloads: house-service',
+        },
+      ]);
+      // Metadata rewritten after boot changes nothing: getUser still needs a user.
+      Reflect.deleteMetadata(ACCESS_POLICY, handler);
+      Reflect.defineMetadata(ACCESS_POLICY, { kind: 'public', reason: 'late' }, handler);
+      const users = service.client<UserServiceClient>('ga.user.v1.UserService');
+      const error = await grpcError(users.getUser({ id: 'x' }));
+      users.close();
+      expect(error.details?.errorInfo?.reason).toBe('PRINCIPAL_MISSING');
+    } finally {
+      Reflect.deleteMetadata(ACCESS_POLICY, handler);
+      await service.close();
+    }
   });
 
   it('rejects policies that cannot work', () => {

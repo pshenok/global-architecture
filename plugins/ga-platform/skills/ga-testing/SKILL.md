@@ -90,8 +90,9 @@ it('books a stay', async () => {
   auth guard, `@Access` boot check, health, reflection) on a free port, with ephemeral
   workload keys for the gateway, the service and `callers`. Override **ports**, not
   adapters' internals. Run from the service's own package, it also fails unless the
-  methods open without a user are exactly the ones `security/public-endpoints.json` lists
-  for the service (`createTestGateway` does the same for the gateway's routes).
+  methods open without a user, as the service recorded them at boot, are exactly the ones
+  `security/public-endpoints.json` lists for it (`createTestGateway` does the same for the
+  gateway's routes, and fails on any route no controller serves).
 
 | `TestService` member                                   | Gives                                                                                               |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |

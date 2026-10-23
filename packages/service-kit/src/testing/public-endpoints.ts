@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** An endpoint callable without a signed-in user, read from the metadata an app carries. */
 export interface DeclaredOpenEndpoint {
@@ -16,30 +17,28 @@ interface ListedEndpoint {
 }
 
 const LIST = join('security', 'public-endpoints.json');
-
-/** The repository root: the closest directory above `from` that has the list. */
-function repositoryRoot(from: string): string | undefined {
-  for (let dir = from; ; dir = dirname(dir)) {
-    if (existsSync(join(dir, LIST))) return dir;
-    if (dirname(dir) === dir) return undefined;
-  }
-}
+/**
+ * The repository root, from this file's own place (packages/service-kit/{src,dist}/testing),
+ * never from the working directory: a list planted closer to a test cannot stand in for
+ * the reviewed one.
+ */
+const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
 const describe = (entry: { access: string; reason: string }, member: string) =>
   `${member} [${entry.access}] ${entry.reason}`;
 
 /**
- * Throws unless `declared` (what the app in `packageDir`, e.g. `apps/gateway`, really
- * carries) matches what security/public-endpoints.json lists for it. tools/check-access.ts
- * compares the same list with the source, where only direct decorators can be read; this
- * check sees the metadata itself, so a wrapper, an alias or a SetMetadata shows up here.
+ * Throws unless `declared` (the open endpoints the app in `packageDir`, e.g. `apps/gateway`,
+ * recorded at boot and enforces) matches what security/public-endpoints.json lists for it.
+ * tools/check-access.ts compares the same list with the source; this check sees the
+ * metadata itself, whatever wrote it before boot.
  */
 export function expectListedOpenEndpoints(
   packageDir: string,
   declared: readonly DeclaredOpenEndpoint[],
-  root = repositoryRoot(process.cwd()),
+  root = ROOT,
 ): void {
-  if (!root) throw new Error(`${LIST} not found above ${process.cwd()}`);
+  if (!existsSync(join(root, LIST))) throw new Error(`${join(root, LIST)} is missing`);
   const prefix = `${packageDir.split(sep).join('/')}/`;
   const listed = (
     JSON.parse(readFileSync(join(root, LIST), 'utf8')) as { endpoints: ListedEndpoint[] }
@@ -78,8 +77,6 @@ function minus(a: readonly string[], b: readonly string[]): string[] {
  * or another app's test starting a fake of this service).
  */
 export function ownPackageDir(serviceName: string): string | undefined {
-  const root = repositoryRoot(process.cwd());
-  if (!root) return undefined;
-  const dir = relative(root, process.cwd()).split(sep).join('/');
+  const dir = relative(realpathSync(ROOT), realpathSync(process.cwd())).split(sep).join('/');
   return dir === `apps/${serviceName}` ? dir : undefined;
 }

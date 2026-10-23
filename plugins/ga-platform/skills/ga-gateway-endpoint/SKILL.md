@@ -39,15 +39,18 @@ in the controller.
 - Every `@Public` route is listed in `security/public-endpoints.json` with the same reason
   (`{ "where": "apps/gateway/src/houses/houses.controller.ts#HousesController.list", "access": "public", "reason": "world-readable catalogue" }`);
   the list has code owners. Two checks compare it with the code: `pnpm lint`
-  (`check-access`) with the source, and every gateway test boot with the metadata the
-  routes really carry. Write `@Public('reason')` directly above the method or controller,
-  reason inline in any quote style. `check-access` fails anything else: a constant or
-  computed reason, a wrapper (`applyDecorators(..., Public(...))`), an alias
-  (`Public as Open`), a decorator kept in a constant or `SetMetadata(AUTH_ROUTE, ...)`;
-  the runtime check sees whatever slips past the source check.
-- Routes are controller methods. Raw Fastify routes and middleware skip the auth guard,
-  so only `bootstrap.ts` and `http/openapi.ts` (`/openapi.json`, `/docs`, only with
-  `DOCS_ENABLED`) touch the Fastify instance; `check-access` fails it anywhere else.
+  (`check-access`, type-aware) with the source, and every gateway test boot with the
+  route modes `AuthRoutes` recorded at boot, which are what `AuthGuard` enforces. Write
+  `@Public('reason')` directly above the method or controller, reason inline in any quote
+  style. `check-access` fails any other use of `Public`, `AllowUnregistered` or their
+  metadata: a constant or computed reason, a wrapper (`applyDecorators(..., Public(...))`),
+  a renamed import, a decorator kept in a constant, `SetMetadata(AUTH_ROUTE, ...)`.
+- Routes are controller methods. Routes added on the HTTP adapter or the Fastify instance,
+  and Nest middleware, skip the auth guard, so only `bootstrap.ts` and `http/openapi.ts`
+  (`/openapi.json`, `/docs`, only with `DOCS_ENABLED`) touch them: `check-access` fails
+  `HttpAdapterHost`, `getHttpAdapter`, `getInstance`, `use`, `MiddlewareConsumer` and
+  Fastify route methods anywhere else, and `createTestGateway` fails on any route no
+  controller serves.
 - A token sent to a public route is still verified (a bad one is a 401, never a silent
   downgrade; during an IdP outage it is skipped instead of failing the route), but it is
   neither resolved nor forwarded, so a public route can only call `@Access.public` RPCs.

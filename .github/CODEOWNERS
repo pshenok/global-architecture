@@ -1,5 +1,7 @@
 # Security-sensitive paths (ADR-0004): changes need the platform owner's review.
+# Guardrail code, and everything that decides whether the guardrails run at all.
 /.github/CODEOWNERS @pshenok
+/.github/workflows/ @pshenok
 /security/ @pshenok
 /packages/service-kit/src/auth/ @pshenok
 /packages/service-kit/src/grpc/ @pshenok
@@ -11,5 +13,17 @@
 /packages/kernel/src/testing.ts @pshenok
 /packages/kernel/src/index.ts @pshenok
 /tools/check-access.ts @pshenok
+/tools/lib.ts @pshenok
+/tools/verify-template.ts @pshenok
+/package.json @pshenok
+/pnpm-workspace.yaml @pshenok
+/turbo.json @pshenok
 /biome.json @pshenok
 /.oxlintrc.json @pshenok
+/vitest.shared.ts @pshenok
+/apps/*/package.json @pshenok
+/apps/*/vitest.config.ts @pshenok
+/packages/*/package.json @pshenok
+/packages/*/vitest.config.ts @pshenok
+/templates/service/package.json @pshenok
+/templates/service/vitest.config.ts @pshenok

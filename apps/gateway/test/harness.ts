@@ -2,17 +2,16 @@ import type { Role } from '@ga/kernel';
 import { parseConfig } from '@ga/service-kit';
 import {
   createTestWorkloadKeys,
-  type DeclaredOpenEndpoint,
   expectListedOpenEndpoints,
   type TestWorkloadKeys,
 } from '@ga/service-kit/testing';
-import type { Type } from '@nestjs/common';
-import { METHOD_METADATA } from '@nestjs/common/constants';
+import { RequestMethod } from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { MetadataScanner, ModulesContainer } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module.ts';
-import { AUTH_ROUTE, type AuthRoute } from '../src/auth/decorators.ts';
+import { AuthRoutes } from '../src/auth/auth-routes.ts';
 import {
   type Identity,
   IdentityResolver,
@@ -83,41 +82,54 @@ export interface TestGateway {
   close(): Promise<void>;
 }
 
+/** Modules that mount Nest middleware: request logging and the request context only. */
+const MIDDLEWARE_MODULES = new Set(['LoggerModule', 'ClsRootModule']);
+/** Routes outside controllers: the OpenAPI document (/docs is middleware of openapi.ts). */
+const NON_CONTROLLER_ROUTES = new Set(['GET /openapi.json', 'HEAD /openapi.json']);
+
 /**
- * Routes of these controllers that need no registered user, read from the metadata the
- * auth guard reads (a method's own route wins over its class's), whatever spelling put it
- * there.
+ * Fails unless every route Fastify serves is a controller route (so AuthGuard sees it) or
+ * the OpenAPI document, and no module but logging and the request context mounts
+ * middleware: anything else would bypass authentication (ADR-0004).
  */
-export function openRoutes(controllers: readonly Type[]): DeclaredOpenEndpoint[] {
-  const scanner = new MetadataScanner();
-  const open: DeclaredOpenEndpoint[] = [];
-  const add = (member: string, route: AuthRoute | undefined) => {
-    if (route?.mode === 'public') open.push({ member, access: 'public', reason: route.reason });
-    if (route?.mode === 'unregistered')
-      open.push({ member, access: 'unregistered', reason: 'registration' });
-  };
-  for (const controller of controllers) {
-    add(controller.name, Reflect.getMetadata(AUTH_ROUTE, controller) as AuthRoute | undefined);
-    const prototype = controller.prototype as Record<string, unknown>;
-    for (const name of scanner.getAllMethodNames(prototype)) {
-      const handler = prototype[name] as object;
-      if (Reflect.getMetadata(METHOD_METADATA, handler) === undefined) continue;
-      add(
-        `${controller.name}.${name}`,
-        Reflect.getMetadata(AUTH_ROUTE, handler) as AuthRoute | undefined,
-      );
+function expectOnlyGuardedRoutes(app: NestFastifyApplication, served: readonly string[]): void {
+  const routes = new Set(NON_CONTROLLER_ROUTES);
+  const modules = [...app.get(ModulesContainer).values()];
+  for (const module of modules) {
+    for (const { metatype } of module.controllers.values()) {
+      if (typeof metatype !== 'function') continue;
+      const base = (Reflect.getMetadata(PATH_METADATA, metatype) as string | undefined) ?? '';
+      const prototype = metatype.prototype as Record<string, unknown>;
+      for (const name of new MetadataScanner().getAllMethodNames(prototype)) {
+        const handler = prototype[name] as object;
+        const method = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod | undefined;
+        if (method === undefined) continue;
+        const paths = [Reflect.getMetadata(PATH_METADATA, handler) as string | string[]].flat();
+        for (const path of paths) {
+          const url = `/${[base, path].join('/')}`.replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
+          routes.add(`${RequestMethod[method]} ${url}`);
+          if (method === RequestMethod.GET) routes.add(`HEAD ${url}`);
+        }
+      }
     }
   }
-  return open;
-}
-
-/** Every controller the app registered. */
-function controllersOf(app: NestFastifyApplication): Type[] {
-  return [...app.get(ModulesContainer).values()].flatMap((module) =>
-    [...module.controllers.values()].flatMap(({ metatype }) =>
-      typeof metatype === 'function' ? [metatype as Type] : [],
-    ),
-  );
+  const stray = served.filter((route) => !routes.has(route));
+  const middleware = modules
+    .map((module) => module.metatype as { name: string; prototype?: { configure?: unknown } })
+    .filter(
+      ({ name, prototype }) =>
+        typeof prototype?.configure === 'function' && !MIDDLEWARE_MODULES.has(name),
+    )
+    .map(({ name }) => name);
+  if (stray.length > 0 || middleware.length > 0) {
+    throw new Error(
+      [
+        'the gateway serves requests outside its controllers, so AuthGuard never sees them (ADR-0004):',
+        ...stray.map((route) => `  route ${route}`),
+        ...middleware.map((name) => `  middleware from ${name}`),
+      ].join('\n'),
+    );
+  }
 }
 
 let keys: Promise<TestWorkloadKeys> | undefined;
@@ -130,8 +142,9 @@ let logins = 0;
  * `createTestGateway(new Map([[USER_SERVICE, fakeUsers]]))`. Clients that are not
  * overridden get an empty object. Pass `{ realResolver: true }` to resolve identities
  * through the (fake) user-service client instead of the in-memory map. Fails unless the
- * routes open without a registered user are exactly those security/public-endpoints.json
- * lists for the gateway (ADR-0004).
+ * routes open without a registered user, as AuthGuard enforces them, are exactly those
+ * security/public-endpoints.json lists for the gateway, and unless every route is served
+ * by a controller (ADR-0004).
  */
 export async function createTestGateway(
   clients: ReadonlyMap<symbol, unknown>,
@@ -160,11 +173,17 @@ export async function createTestGateway(
   if (!options.realResolver)
     builder = builder.overrideProvider(IdentityResolver).useValue(identities);
   const moduleRef = await builder.compile();
-  const app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(config));
+  const adapter = createAdapter(config);
+  const served: string[] = [];
+  adapter.getInstance().addHook('onRoute', (route: { method: string | string[]; url: string }) => {
+    for (const verb of [route.method].flat()) served.push(`${verb} ${route.url}`);
+  });
+  const app = moduleRef.createNestApplication<NestFastifyApplication>(adapter);
   configureGateway(app, config);
   await app.init();
   try {
-    expectListedOpenEndpoints('apps/gateway', openRoutes(controllersOf(app)));
+    expectListedOpenEndpoints('apps/gateway', app.get(AuthRoutes).open);
+    expectOnlyGuardedRoutes(app, served);
   } catch (error) {
     await app.close();
     throw error;

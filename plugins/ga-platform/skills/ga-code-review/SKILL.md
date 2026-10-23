@@ -66,16 +66,17 @@ git status                                   # the gate must not leave changes b
   `@AllowUnregistered`, `@Access.identity`, `@Access.service`) is listed in
   `security/public-endpoints.json` with a real reason; the change goes to the code owners.
   Decorators are written directly on the method or class with inline literal arguments;
-  `check-access` fails wrappers, aliases, stored decorators and raw metadata, and the
-  tests compare the list with the metadata the apps really carry.
+  `check-access` fails any other use of them or their metadata, and the tests compare the
+  list with the policies the guards enforce.
 - [ ] Tests cover the access matrix: the five template cases per resource, each role and
   owner rule, allowed and refused forwarders.
-- [ ] No casts to `Actor`/`UserActor`/`IdentityActor`/`ServiceActor` (also not through
-  `as unknown as`, `<UserActor>` or a type argument such as `cast<UserActor>(...)`), no
-  `any` that could become an actor (Biome and oxlint refuse explicit and implicit `any`),
-  no hand-built `x-ga-*` metadata, no test helpers in production code (`check-access`
-  catches these), and no new way around the guard or TLS. Lint cannot see a generic
-  helper that returns `value as T`: refuse one that could produce an actor.
+- [ ] No actor made outside the kit: `check-access` (type-aware) fails any assertion or
+  type predicate to an actor type (through aliases too), to `never` or to a type
+  parameter, any spread or library copy of an actor and any overload or ambient
+  declaration of one; Biome and oxlint refuse `any`. No hand-built `x-ga-*` metadata, no
+  test helpers in production code, and no new way around the guard or TLS. What the
+  checker cannot see (code that defeats types at run time, `eval`, edits to the
+  guardrails) is yours to refuse.
 
 ## Errors
 
