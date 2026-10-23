@@ -566,6 +566,45 @@ describe('identity resolution through user-service', () => {
       expect(users.resolveIdentity).not.toHaveBeenCalled();
     });
 
+    it.each([
+      status.DEADLINE_EXCEEDED,
+      status.CANCELLED,
+      status.UNAVAILABLE,
+      status.UNKNOWN,
+      status.INTERNAL,
+      status.NOT_FOUND,
+    ])(
+      'forgets a user who deleted themselves by id when the outcome is unclear (%i)',
+      async (code) => {
+        await loggedIn(`self-${code}`);
+        users.deleteUser.mockReturnValue(throwError(() => grpcError(code, 'unclear')));
+        const deleted = await cached.inject({
+          method: 'DELETE',
+          url: `/v1/users/${MIXED_ID}`,
+          headers: await cached.bearer(`self-${code}`),
+        });
+        expect(deleted.statusCode).toBeGreaterThanOrEqual(400);
+        gone();
+        expect((await meOn(`self-${code}`)).json().code).toBe('USER_NOT_REGISTERED');
+      },
+    );
+
+    it('forgets a user an admin deleted when the outcome is unclear', async () => {
+      await loggedIn('deleted-by-admin');
+      users.resolveIdentity.mockReturnValue(
+        of({ userId: '0190cccc-0000-7000-8000-0000000000c3', roles: ['admin'] }),
+      );
+      users.deleteUser.mockReturnValue(throwError(() => grpcError(status.UNAVAILABLE, 'down')));
+      const deleted = await cached.inject({
+        method: 'DELETE',
+        url: `/v1/users/${MIXED_ID}`,
+        headers: await cached.bearer('admin'),
+      });
+      expect(deleted.statusCode).toBe(503);
+      gone();
+      expect((await meOn('deleted-by-admin')).json().code).toBe('USER_NOT_REGISTERED');
+    });
+
     it('forgets the user when the delete fails after it may have committed', async () => {
       await loggedIn('deadline');
       users.deleteUser.mockReturnValue(

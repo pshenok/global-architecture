@@ -80,7 +80,12 @@ export class AccessPolicyCheck implements OnModuleInit {
         const member = `${metatype.name}.${name}`;
         const opened = policy && opening(policy);
         if (!policy) undeclared.push(member);
-        else this.policies.set(handler, policy);
+        else {
+          this.policies.set(handler, policy);
+          // Nest calls instance[name]: a method bound in the constructor is another function.
+          const bound = (instance as Record<string, unknown>)[name];
+          if (typeof bound === 'function') this.policies.set(bound, policy);
+        }
         if (opened) open.push({ member, ...opened });
       }
     }

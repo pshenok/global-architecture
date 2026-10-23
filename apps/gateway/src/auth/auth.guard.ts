@@ -33,7 +33,7 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Fail closed: the gateway serves HTTP only, any other transport is not authenticated.
     if (context.getType() !== 'http') return false;
-    const route = this.routes.routeOf(context.getHandler());
+    const route = this.routes.routeOf(context.getClass(), context.getHandler());
     if (route === 'unknown') {
       // A server bug (500), never something a client can fix by signing in.
       throw new Error(

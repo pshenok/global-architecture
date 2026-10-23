@@ -11,17 +11,21 @@ export interface OpenRoute {
   readonly reason: string;
 }
 
+/** Route modes by controller, then by handler (the prototype method and any bound copy). */
+type RouteTable = Map<Type, Map<object, AuthRoute | undefined>>;
+
 /**
- * The auth mode of each route handler of these controllers, as the guard applies it (the
- * method's own decorator wins over its controller's), and the routes open without a
- * registered user.
+ * The auth mode of each route of these controllers, as the guard applies it (the method's
+ * own decorator wins over its controller's), and the routes open without a registered
+ * user. Modes are kept per controller: two controllers that inherit one handler from a
+ * base class can differ (a class-level @Public on one must not open the other).
  */
 export function authRoutesOf(
-  controllers: readonly Type[],
+  controllers: readonly { readonly type: Type; readonly instance?: unknown }[],
   reflector = new Reflector(),
-): { handlers: Map<object, AuthRoute | undefined>; open: OpenRoute[] } {
+): { routes: RouteTable; open: OpenRoute[] } {
   const scanner = new MetadataScanner();
-  const handlers = new Map<object, AuthRoute | undefined>();
+  const routes: RouteTable = new Map();
   const open: OpenRoute[] = [];
   const add = (member: string, route: AuthRoute | undefined) => {
     if (route?.mode === 'public') open.push({ member, access: 'public', reason: route.reason });
@@ -29,9 +33,11 @@ export function authRoutesOf(
       open.push({ member, access: 'unregistered', reason: 'registration' });
     }
   };
-  for (const controller of controllers) {
-    add(controller.name, reflector.get<AuthRoute | undefined>(AUTH_ROUTE, controller));
-    const prototype = controller.prototype as Record<string, unknown>;
+  for (const { type, instance } of controllers) {
+    const handlers = new Map<object, AuthRoute | undefined>();
+    routes.set(type, handlers);
+    add(type.name, reflector.get<AuthRoute | undefined>(AUTH_ROUTE, type));
+    const prototype = type.prototype as Record<string, unknown>;
     for (const name of scanner.getAllMethodNames(prototype)) {
       const handler = prototype[name];
       if (
@@ -40,14 +46,15 @@ export function authRoutesOf(
       ) {
         continue;
       }
-      handlers.set(
-        handler,
-        reflector.getAllAndOverride<AuthRoute | undefined>(AUTH_ROUTE, [handler, controller]),
-      );
-      add(`${controller.name}.${name}`, reflector.get<AuthRoute | undefined>(AUTH_ROUTE, handler));
+      const route = reflector.getAllAndOverride<AuthRoute | undefined>(AUTH_ROUTE, [handler, type]);
+      handlers.set(handler, route);
+      // Nest calls instance[name]: a method bound in the constructor is another function.
+      const bound = (instance as Record<string, unknown> | undefined)?.[name];
+      if (typeof bound === 'function') handlers.set(bound, route);
+      add(`${type.name}.${name}`, reflector.get<AuthRoute | undefined>(AUTH_ROUTE, handler));
     }
   }
-  return { handlers, open };
+  return { routes, open };
 }
 
 /**
@@ -58,7 +65,7 @@ export function authRoutesOf(
  */
 @Injectable()
 export class AuthRoutes implements OnModuleInit {
-  private handlers = new Map<object, AuthRoute | undefined>();
+  private routes: RouteTable = new Map();
   private recorded: readonly OpenRoute[] = [];
 
   constructor(
@@ -69,9 +76,13 @@ export class AuthRoutes implements OnModuleInit {
   onModuleInit(): void {
     const controllers = this.discovery
       .getControllers()
-      .flatMap(({ metatype }) => (typeof metatype === 'function' ? [metatype as Type] : []));
-    const { handlers, open } = authRoutesOf(controllers, this.reflector);
-    this.handlers = handlers;
+      .flatMap(({ metatype, instance }) =>
+        typeof metatype === 'function'
+          ? [{ type: metatype as Type, instance: instance as unknown }]
+          : [],
+      );
+    const { routes, open } = authRoutesOf(controllers, this.reflector);
+    this.routes = routes;
     this.recorded = Object.freeze(open);
   }
 
@@ -80,8 +91,9 @@ export class AuthRoutes implements OnModuleInit {
     return this.recorded;
   }
 
-  /** The recorded mode of a handler (undefined: a registered user); `unknown` if none. */
-  routeOf(handler: object): AuthRoute | undefined | 'unknown' {
-    return this.handlers.has(handler) ? this.handlers.get(handler) : 'unknown';
+  /** The recorded mode of a controller's handler (undefined: a registered user); `unknown` if none. */
+  routeOf(controller: Type, handler: object): AuthRoute | undefined | 'unknown' {
+    const handlers = this.routes.get(controller);
+    return handlers?.has(handler) ? handlers.get(handler) : 'unknown';
   }
 }

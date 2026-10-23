@@ -15,17 +15,24 @@
  *    security/public-endpoints.json (CODEOWNERS). The tests compare the same list with
  *    the policies the apps enforce (startTestService, createTestGateway).
  * 2. Actors. Outside the service kit and kernel/actor.ts, nothing produces a value whose
- *    type carries the kernel's verified brand: no type assertion or type predicate to such
- *    a type, to `never` or to a bare type parameter, no `x!` that yields `never`, no object
- *    literal or library call (Object.assign, structuredClone, ...) of such a type, no
- *    overload or ambient declaration returning one. Biome refuses explicit `any` and oxlint
- *    implicit `any`, the remaining way around a type.
+ *    type carries the kernel's verified brand: no type assertion or type predicate to a
+ *    type that is or holds an actor (a field, an element, a Promise...), to `never` or to a
+ *    type built from a type parameter; no `x!` that yields `never`; no spread of an actor;
+ *    no call whose result is an actor although its declaration does not say so (a generic
+ *    helper, structuredClone, Object.assign); no constructor parameter typed as an actor;
+ *    no overload or ambient declaration of one. Biome refuses explicit `any` and oxlint
+ *    implicit `any`; `@ts-ignore`/`@ts-expect-error`/`@ts-nocheck` and lint suppressions
+ *    of the any-rules (or of everything) fail here, and so does a non-.ts or .d.ts file.
  * 3. Identity metadata (x-ga-caller, x-ga-principal) appears only in the service kit.
  * 4. Production code never reaches the test helpers (kernel testing.ts, the kit's
- *    testing/) by any route, and never loads a module from a computed specifier.
+ *    testing/) by any route, and never loads a module from a computed specifier or
+ *    through createRequire (three platform files are allowed by name).
  * 5. Gateway routes are controller routes: outside bootstrap.ts and http/openapi.ts no
  *    gateway code touches the HTTP adapter, the Fastify instance or Nest middleware.
- *    createTestGateway also fails on any route no controller serves.
+ *    createTestGateway also fails on any route, hook, plugin or middleware that any other
+ *    gateway file adds.
+ * What lint and tests cannot see (code that defeats the checker at run time, such as eval,
+ * and edits to the guardrails themselves) is left to CODEOWNERS review.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -39,19 +46,24 @@ import {
   type ImportSpecifier,
   type MethodDeclaration,
   type Node,
+  NodeFlags,
   type ObjectLiteralExpression,
+  type ParameterDeclaration,
   type PropertyAccessExpression,
   type PropertyAssignment,
+  type ShorthandPropertyAssignment,
   type SourceFile,
   type StringLiteral,
   SyntaxKind,
   type TypeAssertion,
   type TypePredicateNode,
+  type UnionTypeNode,
 } from 'typescript/unstable/ast';
 import {
   API,
   type Checker,
   type Project,
+  SignatureKind,
   SymbolFlags,
   type Symbol as TsSymbol,
   type Type,
@@ -162,6 +174,12 @@ const COMPUTED_LOADS = new Set([
   'packages/contracts/src/runtime/wkt.ts',
   'packages/service-kit/src/telemetry/instrumentation.ts',
 ]);
+/**
+ * TypeScript suppressions, and lint suppressions of the any-rules or of everything: each
+ * would let a literal or an `any` pass as an actor without an assertion to see.
+ */
+const SUPPRESSIONS =
+  /@ts-(?:ignore|expect-error|nocheck)|(?:oxlint|eslint)-disable(?:-next-line|-line)?(?:\s*(?:\*\/|--|$)|[^\n]*(?:no-unsafe-|no-explicit-any))|biome-ignore[^\n]*noExplicitAny/;
 /** The kernel's actor brand: a unique symbol declared in packages/kernel/src/actor.ts. */
 const BRAND = /^__@verified@\d+$/;
 
@@ -170,7 +188,7 @@ function* sourceFiles(dir: string): Generator<string> {
     const path = join(dir, entry.name);
     if (SKIP_DIRS.has(entry.name) || relative(ROOT, path) === GENERATED) continue;
     if (entry.isDirectory()) yield* sourceFiles(path);
-    else if (entry.name.endsWith('.ts')) yield path;
+    else yield path;
   }
 }
 
@@ -317,7 +335,7 @@ function declared(checker: Checker, cache: Map<number, TsSymbol>, symbol: TsSymb
 const declaredIn = (symbol: TsSymbol, pattern: RegExp) =>
   symbol.declarations.some((declaration) => pattern.test(declaration.path));
 
-/** Whether a value of this type carries the verified brand (any member of a union counts). */
+/** Whether a value of this type is a verified actor (any member of a union counts). */
 function branded(checker: Checker, type: Type | undefined, seen = new Set<number>()): boolean {
   if (!type || seen.has(type.id)) return false;
   seen.add(type.id);
@@ -328,6 +346,55 @@ function branded(checker: Checker, type: Type | undefined, seen = new Set<number
     return true;
   }
   return checker.getPropertiesOfType(type).some((property) => BRAND.test(property.name));
+}
+
+/** TypeScript's lib and third-party packages: walked only through their type arguments. */
+const LIBRARY =
+  /\/lib\.[\w.]+\.d\.ts$|\/node_modules\/(?!@ga\/|\.pnpm\/[^/]+\/node_modules\/@ga\/)/;
+const holding = new Map<Checker, Map<number, boolean>>();
+
+/**
+ * Whether a value of this type is an actor or holds one a few levels down: union and
+ * intersection members, type arguments (arrays, tuples, Promise, Map), index signatures,
+ * call and construct results, and the properties of the code's own types.
+ */
+function holdsActor(checker: Checker, type: Type | undefined): boolean {
+  if (!type) return false;
+  const cache = holding.get(checker) ?? new Map<number, boolean>();
+  holding.set(checker, cache);
+  let result = cache.get(type.id);
+  if (result === undefined) {
+    result = holds(checker, type, new Set(), 0);
+    cache.set(type.id, result);
+  }
+  return result;
+}
+
+function holds(
+  checker: Checker,
+  type: Type | undefined,
+  seen: Set<number>,
+  depth: number,
+): boolean {
+  if (!type || seen.has(type.id)) return false;
+  seen.add(type.id);
+  if (type.isUnionType() || type.isIntersectionType()) {
+    return (type.getTypes() ?? []).some((member) => holds(checker, member, seen, depth));
+  }
+  const properties = checker.getPropertiesOfType(type);
+  if (properties.some((property) => BRAND.test(property.name))) return true;
+  if (!(type.flags & TypeFlags.Object) || depth >= 4) return false;
+  const deeper = (inner: Type | undefined) => holds(checker, inner, seen, depth + 1);
+  if (type.isTypeReference() && checker.getTypeArguments(type).some(deeper)) return true;
+  if (checker.getIndexInfosOfType(type).some((info) => deeper(info.valueType))) return true;
+  for (const kind of [SignatureKind.Call, SignatureKind.Construct]) {
+    for (const signature of checker.getSignaturesOfType(type, kind)) {
+      if (deeper(checker.getReturnTypeOfSignature(signature))) return true;
+    }
+  }
+  if (properties.length === 0) return false;
+  if (type.getSymbol()?.declarations.some(({ path }) => LIBRARY.test(path))) return false;
+  return checker.getTypeOfSymbol(properties).some(deeper);
 }
 
 const isNever = (type: Type | undefined) => !!type && (type.flags & TypeFlags.Never) !== 0;
@@ -345,6 +412,17 @@ function checkFile(
   const kit = isKit(file);
   const definesAccess = kit || GATEWAY_ACCESS_CODE.has(file);
   const tools = file.startsWith('tools/');
+
+  // Comments that switch the checker or the any-rules off would hide what follows them.
+  if (!kit && !tools) {
+    source.text.split('\n').forEach((line, index) => {
+      if (SUPPRESSIONS.test(line)) {
+        problems.push(
+          `${file}:${index + 1}: turns type checking or an any-rule off; fix the types instead`,
+        );
+      }
+    });
+  }
 
   // Literal strings: metadata keys and module names, in any quote style.
   for (const node of nodes) {
@@ -384,12 +462,30 @@ function checkFile(
   );
   const symbols = identifiers.length > 0 ? checker.getSymbolAtLocation(identifiers) : [];
   identifiers.forEach((identifier, index) => {
-    const symbol = symbols[index];
+    const parent = identifier.parent;
+    // `{ Public }` names the property; the value it copies is what matters.
+    const symbol =
+      parent.kind === SyntaxKind.ShorthandPropertyAssignment &&
+      (parent as ShorthandPropertyAssignment).name === identifier
+        ? checker.getShorthandAssignmentValueSymbol(parent)
+        : symbols[index];
     if (!symbol) return;
     const target = declared(checker, aliases, symbol);
-    const parent = identifier.parent;
     if (!tools && declaredIn(target, TEST_HELPER_FILE)) {
       problems.push(`${at(identifier)}: reaches a test helper (${target.name})`);
+    }
+    if (!tools && !COMPUTED_LOADS.has(file) && target.name === 'createRequire') {
+      problems.push(`${at(identifier)}: loads modules through createRequire`);
+    }
+    if (
+      !definesAccess &&
+      !tools &&
+      target.name === 'Reflect' &&
+      declaredIn(target, /\/lib\.[\w.]+\.d\.ts$|node_modules\/reflect-metadata\//)
+    ) {
+      problems.push(
+        `${at(identifier)}: uses Reflect; access metadata comes only from the decorators`,
+      );
     }
     if (
       file.startsWith('apps/gateway/src/') &&
@@ -445,6 +541,38 @@ function record(
   }
 }
 
+/** Whether a written type mentions a type parameter anywhere (`T`, `T[]`, `NonNullable<T>`). */
+function mentionsTypeParameter(checker: Checker, typeNode: Node): boolean {
+  const names: Node[] = [];
+  const visit = (node: Node): void => {
+    if (node.kind === SyntaxKind.Identifier && node.parent.kind === SyntaxKind.TypeReference) {
+      names.push(node);
+    }
+    node.forEachChild(visit);
+  };
+  visit(typeNode);
+  return (
+    names.length > 0 &&
+    checker
+      .getSymbolAtLocation(names)
+      .some((symbol) => !!symbol && (symbol.flags & SymbolFlags.TypeParameter) !== 0)
+  );
+}
+
+/** `(value: T | undefined): value is T`: a sound narrowing, not a cast. */
+function narrowsOwnParameter(predicate: TypePredicateNode): boolean {
+  const target = predicate.type?.getText();
+  const fn = predicate.parent as unknown as { parameters?: readonly ParameterDeclaration[] };
+  const parameter = fn.parameters?.find(
+    (candidate) => candidate.name.getText() === predicate.parameterName.getText(),
+  );
+  return (
+    !!target &&
+    parameter?.type?.kind === SyntaxKind.UnionType &&
+    (parameter.type as UnionTypeNode).types.some((member) => member.getText() === target)
+  );
+}
+
 function checkActors(checker: Checker, nodes: readonly Node[], at: (node: Node) => string): void {
   const forged = (node: Node, how: string) =>
     problems.push(
@@ -455,15 +583,27 @@ function checkActors(checker: Checker, nodes: readonly Node[], at: (node: Node) 
       const typeNode = (node as AsExpression | TypeAssertion).type;
       if (typeNode.kind === SyntaxKind.TypeReference && typeNode.getText() === 'const') continue;
       const type = checker.getTypeFromTypeNode(typeNode);
-      if (branded(checker, type)) forged(node, 'asserts a verified actor type');
+      if (holdsActor(checker, type)) forged(node, 'asserts a type that is or holds an actor');
       else if (isNever(type)) forged(node, 'asserts `never`, which converts to any type');
-      else if (type?.isTypeParameter()) forged(node, 'asserts a type parameter (a generic cast)');
-    } else if (node.kind === SyntaxKind.TypePredicate) {
-      const typeNode = (node as TypePredicateNode).type;
-      const type = typeNode && checker.getTypeFromTypeNode(typeNode);
-      if (branded(checker, type) || type?.isTypeParameter()) {
-        forged(node, 'a type predicate claims a verified actor (or any type) unchecked');
+      else if (mentionsTypeParameter(checker, typeNode)) {
+        forged(node, 'asserts a type built from a type parameter (a generic cast)');
       }
+    } else if (node.kind === SyntaxKind.TypePredicate) {
+      const predicate = node as TypePredicateNode;
+      if (!predicate.type) continue;
+      const type = checker.getTypeFromTypeNode(predicate.type);
+      if (
+        holdsActor(checker, type) ||
+        (mentionsTypeParameter(checker, predicate.type) && !narrowsOwnParameter(predicate))
+      ) {
+        forged(node, 'a type predicate claims an actor (or any type) without checking it');
+      }
+    } else if (
+      node.kind === SyntaxKind.Parameter &&
+      node.parent.kind === SyntaxKind.Constructor &&
+      branded(checker, checker.getTypeAtLocation(node))
+    ) {
+      forged(node, 'takes an actor through dependency injection; actors come per request');
     }
   }
   // `x!` on a value that is always null or undefined yields `never`.
@@ -473,7 +613,7 @@ function checkActors(checker: Checker, nodes: readonly Node[], at: (node: Node) 
       if (isNever(type)) forged(nonNull[index] as Node, '`!` turns null or undefined into `never`');
     });
   }
-  // An object literal can carry the brand only by spreading an actor.
+  // An object literal is an actor only by spreading one.
   const spreads = nodes.filter(
     (node) =>
       node.kind === SyntaxKind.ObjectLiteralExpression &&
@@ -486,32 +626,23 @@ function checkActors(checker: Checker, nodes: readonly Node[], at: (node: Node) 
       if (branded(checker, type)) forged(spreads[index] as Node, 'builds an actor from another');
     });
   }
-  // Library calls (Object.assign, structuredClone, ...) that return a branded value.
+  // A call whose result is an actor although its declaration does not say so: a generic
+  // helper or library function (structuredClone, Object.assign, a cast or spread inside).
   const calls = nodes.filter(
     (node): node is CallExpression =>
       node.kind === SyntaxKind.CallExpression &&
       (node as CallExpression).expression.kind !== SyntaxKind.ImportKeyword,
   );
   if (calls.length > 0) {
-    const callees = checker.getSymbolAtLocation(
-      calls.map((call) =>
-        call.expression.kind === SyntaxKind.PropertyAccessExpression
-          ? (call.expression as PropertyAccessExpression).name
-          : call.expression,
-      ),
-    );
-    const external = calls.filter((_, index) =>
-      callees[index]?.declarations.some(
-        ({ path }) => path.includes('/node_modules/') && !path.includes('/node_modules/@ga/'),
-      ),
-    );
-    if (external.length > 0) {
-      checker.getTypeAtLocation(external).forEach((type, index) => {
-        if (branded(checker, type)) {
-          forged(external[index] as Node, 'copies an actor with a library call');
-        }
-      });
-    }
+    checker.getTypeAtLocation(calls).forEach((type, index) => {
+      if (!branded(checker, type)) return;
+      const call = calls[index] as CallExpression;
+      const signature = checker.getResolvedSignature(call);
+      const declared = signature && (signature.getTarget() ?? signature);
+      if (!declared || !branded(checker, checker.getReturnTypeOfSignature(declared))) {
+        forged(call, 'a call returns an actor its declaration does not promise');
+      }
+    });
   }
   // Overloads and ambient declarations state a type without producing the value.
   for (const node of nodes) {
@@ -520,17 +651,22 @@ function checkActors(checker: Checker, nodes: readonly Node[], at: (node: Node) 
         node.kind === SyntaxKind.MethodDeclaration) &&
       !(node as MethodDeclaration).body;
     const ambient =
-      node.kind === SyntaxKind.VariableDeclaration &&
-      /^\s*(?:export\s+)?declare\b/.test(node.parent.parent.getText());
+      (node.flags & NodeFlags.Ambient) !== 0 &&
+      (node.kind === SyntaxKind.VariableDeclaration ||
+        node.kind === SyntaxKind.FunctionDeclaration ||
+        node.kind === SyntaxKind.PropertyDeclaration);
     if (!bodyless && !ambient) continue;
     let type: Type | undefined;
-    if (bodyless) {
+    if (
+      node.kind === SyntaxKind.VariableDeclaration ||
+      node.kind === SyntaxKind.PropertyDeclaration
+    ) {
+      type = checker.getTypeAtLocation(node);
+    } else {
       const signature = checker.getSignatureFromDeclaration(node);
       type = signature && checker.getReturnTypeOfSignature(signature);
-    } else {
-      type = checker.getTypeAtLocation(node);
     }
-    if (branded(checker, type)) forged(node, 'declares an actor without producing one');
+    if (holdsActor(checker, type)) forged(node, 'declares an actor without producing one');
   }
 }
 
@@ -558,6 +694,10 @@ try {
     for (const path of sourceFiles(join(ROOT, top))) {
       const file = relative(ROOT, path);
       if (!isProduction(file) || file === 'tools/check-access.ts') continue;
+      if (!file.endsWith('.ts') || (file.endsWith('.d.ts') && !isKit(file))) {
+        problems.push(`${file}: production code is checked TypeScript (.ts files, no .d.ts)`);
+        continue;
+      }
       const project = snapshot.getDefaultProjectForFile(path);
       const source = project?.program.getSourceFile(path);
       if (!project || !source) {

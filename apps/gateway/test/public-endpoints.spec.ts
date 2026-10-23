@@ -1,5 +1,6 @@
 import { expectListedOpenEndpoints } from '@ga/service-kit/testing';
-import { applyDecorators, Controller, Get, SetMetadata } from '@nestjs/common';
+import { applyDecorators, Controller, Get, SetMetadata, type Type } from '@nestjs/common';
+import { type DiscoveryService, Reflector } from '@nestjs/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AuthRoutes, authRoutesOf } from '../src/auth/auth-routes.ts';
 import { AllowUnregistered, AUTH_ROUTE, Public as Open } from '../src/auth/decorators.ts';
@@ -34,6 +35,63 @@ class ClassWideController {
   list() {}
 }
 
+class Listing {
+  @Get()
+  list() {}
+}
+
+@Controller('catalogue')
+@Open('world-readable catalogue')
+class CatalogueController extends Listing {}
+
+@Controller('private')
+class PrivateController extends Listing {}
+
+@Controller('bound')
+class BoundController {
+  constructor() {
+    this.list = this.list.bind(this);
+  }
+
+  @Get()
+  @Open('bound')
+  list() {}
+}
+
+/** AuthRoutes over these controllers, as the gateway builds it at boot. */
+function recordOf(...types: Type[]): AuthRoutes {
+  const controllers = types.map((type) => ({ metatype: type, instance: new type() }));
+  const routes = new AuthRoutes(
+    { getControllers: () => controllers } as unknown as DiscoveryService,
+    new Reflector(),
+  );
+  routes.onModuleInit();
+  return routes;
+}
+
+describe('AuthRoutes', () => {
+  it('keeps the mode of an inherited handler per controller', () => {
+    const routes = recordOf(CatalogueController, PrivateController);
+    expect(routes.routeOf(CatalogueController, Listing.prototype.list)).toMatchObject({
+      mode: 'public',
+    });
+    expect(routes.routeOf(PrivateController, Listing.prototype.list)).toBeUndefined();
+  });
+
+  it('knows handlers bound on the instance, and refuses anything else', () => {
+    const controller = new BoundController();
+    const routes = new AuthRoutes(
+      {
+        getControllers: () => [{ metatype: BoundController, instance: controller }],
+      } as unknown as DiscoveryService,
+      new Reflector(),
+    );
+    routes.onModuleInit();
+    expect(routes.routeOf(BoundController, controller.list)).toMatchObject({ mode: 'public' });
+    expect(routes.routeOf(BoundController, () => undefined)).toBe('unknown');
+  });
+});
+
 describe('security/public-endpoints.json at runtime', () => {
   let gateway: TestGateway;
 
@@ -46,13 +104,16 @@ describe('security/public-endpoints.json at runtime', () => {
   });
 
   it('sees routes opened by a wrapper, an alias or raw metadata', () => {
-    expect(authRoutesOf([ProbeController, ClassWideController]).open).toEqual([
+    expect(authRoutesOf([{ type: ProbeController }, { type: ClassWideController }]).open).toEqual([
       { member: 'ProbeController.wrapped', access: 'public', reason: 'world-readable catalogue' },
       { member: 'ProbeController.raw', access: 'public', reason: 'raw' },
       { member: 'ProbeController.signup', access: 'unregistered', reason: 'registration' },
       { member: 'ClassWideController', access: 'public', reason: 'everything' },
     ]);
-    const open = [...gateway.app.get(AuthRoutes).open, ...authRoutesOf([ProbeController]).open];
+    const open = [
+      ...gateway.app.get(AuthRoutes).open,
+      ...authRoutesOf([{ type: ProbeController }]).open,
+    ];
     expect(() => expectListedOpenEndpoints('apps/gateway', open)).toThrow(
       'open but not listed: ProbeController.wrapped [public] world-readable catalogue',
     );

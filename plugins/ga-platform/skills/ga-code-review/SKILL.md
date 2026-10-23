@@ -71,12 +71,14 @@ git status                                   # the gate must not leave changes b
 - [ ] Tests cover the access matrix: the five template cases per resource, each role and
   owner rule, allowed and refused forwarders.
 - [ ] No actor made outside the kit: `check-access` (type-aware) fails any assertion or
-  type predicate to an actor type (through aliases too), to `never` or to a type
-  parameter, any spread or library copy of an actor and any overload or ambient
-  declaration of one; Biome and oxlint refuse `any`. No hand-built `x-ga-*` metadata, no
-  test helpers in production code, and no new way around the guard or TLS. What the
-  checker cannot see (code that defeats types at run time, `eval`, edits to the
-  guardrails) is yours to refuse.
+  type predicate to a type that is or holds an actor (through aliases too), to `never` or
+  to a type built from a type parameter, any spread of an actor, any call that returns an
+  actor its declaration does not promise, constructor injection of an actor, and
+  overloads or ambient declarations of one; Biome and oxlint refuse `any`, and
+  `@ts-ignore`-style comments fail. No hand-built `x-ga-*` metadata, no test helpers in
+  production code, and no new way around the guard or TLS. What the checker cannot see
+  (code that defeats types at run time, `eval`, edits to the guardrails) is yours to
+  refuse.
 
 ## Errors
 

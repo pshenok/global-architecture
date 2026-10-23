@@ -47,10 +47,10 @@ in the controller.
   a renamed import, a decorator kept in a constant, `SetMetadata(AUTH_ROUTE, ...)`.
 - Routes are controller methods. Routes added on the HTTP adapter or the Fastify instance,
   and Nest middleware, skip the auth guard, so only `bootstrap.ts` and `http/openapi.ts`
-  (`/openapi.json`, `/docs`, only with `DOCS_ENABLED`) touch them: `check-access` fails
-  `HttpAdapterHost`, `getHttpAdapter`, `getInstance`, `use`, `MiddlewareConsumer` and
-  Fastify route methods anywhere else, and `createTestGateway` fails on any route no
-  controller serves.
+  (`/openapi.json`, `/docs`, only with `DOCS_ENABLED`; both code-owned) touch them:
+  `check-access` fails `HttpAdapterHost`, `getHttpAdapter`, `getInstance`, `use`,
+  `MiddlewareConsumer` and Fastify route methods anywhere else, and `createTestGateway`
+  fails on any route, hook, plugin or middleware another gateway file adds.
 - A token sent to a public route is still verified (a bad one is a 401, never a silent
   downgrade; during an IdP outage it is skipped instead of failing the route), but it is
   neither resolved nor forwarded, so a public route can only call `@Access.public` RPCs.

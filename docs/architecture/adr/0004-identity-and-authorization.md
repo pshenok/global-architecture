@@ -172,26 +172,32 @@ fields. Rules:
   (public, registration, identity and workload-only methods) is listed with its reason in
   `security/public-endpoints.json`. The access decorators may appear only as decorators
   written on a method or class with inline literal arguments; any other use of them or
-  of their metadata (`SetMetadata`, Reflect's metadata writers, the key strings) fails.
-  Outside the kit nothing may produce a value whose type carries the actor brand: no
-  type assertion or type predicate to such a type, to `never` or to a type parameter, no
-  spread or library copy of an actor, no overload or ambient declaration of one. No
-  production code builds `x-ga-*` metadata, reaches the test helpers, loads a module by
-  a computed path, or adds a gateway route or middleware outside a controller. Biome
-  and oxlint refuse explicit and implicit `any`. `pnpm template:verify` runs the same
-  check on a generated service.
+  of their metadata (`SetMetadata`, `Reflect`, the key strings) fails. Outside the kit
+  nothing may produce a value whose type carries the actor brand: no type assertion or
+  type predicate to a type that is or holds an actor, to `never` or to a type built from
+  a type parameter; no spread of an actor; no call that returns an actor its declaration
+  does not promise (a generic helper, `structuredClone`, `Object.assign`); no constructor
+  parameter typed as an actor; no overload or ambient declaration of one. Biome and oxlint
+  refuse explicit and implicit `any`, and check-access refuses `@ts-ignore`-style comments,
+  suppressions of the any-rules and non-`.ts` files. No production code builds `x-ga-*`
+  metadata, reaches the test helpers, loads a module by a computed path or
+  `createRequire`, or adds a gateway route or middleware outside a controller.
+  `pnpm template:verify` runs the same check on a generated service.
 - What runs is what the tests check: each service's `AccessPolicyCheck` and the gateway's
-  `AuthRoutes` record the policies once at boot, and the guards enforce that record, not
-  live metadata. `startTestService` (in a service's own package) and `createTestGateway`
-  fail when the recorded open methods or routes differ from the list, and
-  `createTestGateway` also fails on any route no controller serves or any unexpected
-  middleware.
-- What neither sees is code that defeats the type checker at run time or edits the
-  guardrails themselves; that is what CODEOWNERS review is for. `.github/CODEOWNERS`
-  covers `security/`, the kit's auth, gRPC, platform and testing code, the gateway's auth
-  code and test harness, the kernel's actor, testing and index files, the access check,
-  the lint, test and CI configuration (root and package `package.json`, `vitest` configs,
-  `turbo.json`, `pnpm-workspace.yaml`, the workflows) and itself.
+  `AuthRoutes` record the policies once at boot (per controller and handler, bound
+  methods included), and the guards enforce that record, not live metadata.
+  `startTestService` (in a service's own package) and `createTestGateway` fail when the
+  recorded open methods or routes differ from the list. `createTestGateway` also fails on
+  any route, hook, plugin or middleware added outside the controllers by a gateway file
+  other than `bootstrap.ts` and `http/openapi.ts`, and on Nest middleware other than
+  logging and the request context.
+- What neither sees is code that defeats the type checker at run time (`eval` and the
+  like) or edits the guardrails themselves; that is what CODEOWNERS review is for.
+  `.github/CODEOWNERS` covers `security/`, the whole service kit, the gateway's auth code,
+  its bootstrap, main and OpenAPI files and test harness, the kernel's actor, testing and
+  index files, the access check, and everything that decides whether and how the checks
+  run: package manifests, tsconfigs, `.swcrc`, `vitest` configs, `turbo.json`,
+  `pnpm-workspace.yaml`, Biome and oxlint configs, the workflows and itself.
 - The template's gRPC spec starts every new service with five access tests (no user,
   another user, admin, a stranger's empty list, an unlisted forwarder).
 - The gateway turns a downstream `UNAUTHENTICATED`, and `PERMISSION_DENIED` with a

@@ -92,29 +92,33 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
   (`file#Class.method` or `file#Class`, access, reason) in
   `security/public-endpoints.json`; the decorators may appear only as decorators on a
   method or class with inline literal arguments, and their metadata not at all.
-  Production code may not produce a value of an actor type outside the kit (assertions,
-  type predicates, `never`, type parameters, spreads, library copies, overloads, ambient
-  declarations), build `x-ga-caller`/`x-ga-principal` metadata, reach a test helper, load
-  a module by a computed path (three platform files are allowed by name), or (gateway)
-  add routes or middleware outside controllers. Every production file must belong to a
-  tsconfig project. The API is marked unstable: after a TypeScript bump run `pnpm lint`
+  Production code may not produce a value of an actor type outside the kit (assertions
+  or predicates to types holding an actor, `never` or type-parameter types, spreads,
+  calls returning an actor their declaration does not promise, constructor injection,
+  overloads, ambient declarations), use `@ts-ignore`-style comments or suppress the
+  any-rules, build `x-ga-caller`/`x-ga-principal` metadata, reach a test helper, load a
+  module by a computed path or `createRequire` (three platform files are allowed by name),
+  use `Reflect`, or (gateway) add routes or middleware outside controllers. Every
+  production file must be a `.ts` file in a tsconfig project (`.d.ts` only in the kit). The API is marked unstable: after a TypeScript bump run `pnpm lint`
   and adapt the script if the API moved. Extend it when you add a new way to reach data
   without a user; never weaken it.
 - What runs is what the tests check: `AccessPolicyCheck` (services) and `AuthRoutes`
-  (gateway) record the policies at boot and the guards enforce that record.
-  `startTestService` in each service's own package and `createTestGateway` fail when the
-  recorded open methods or routes differ from the list (found from the kit's own place,
-  never the working directory); `createTestGateway` also fails on routes no controller
-  serves and on middleware other than logging and the request context.
+  (gateway) record the policies at boot, per controller and handler, and the guards
+  enforce that record. `startTestService` in each service's own package and
+  `createTestGateway` fail when the recorded open methods or routes differ from the list
+  (found from the kit's own place, never the working directory); `createTestGateway` also
+  fails on routes, hooks, plugins or middleware added by any gateway file but
+  `bootstrap.ts` and `http/openapi.ts`, and on Nest middleware other than logging and the
+  request context.
 - Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument` (outside
   tests) keep `any` from turning request data into an actor.
-- `.github/CODEOWNERS` requires the platform owner's review for `security/`, the kit's
-  `auth/`, `grpc/`, `platform/` and `testing/` code, `apps/gateway/src/auth/` and the
-  gateway test harness, `packages/kernel/src/actor.ts`, `testing.ts` and `index.ts`,
-  `tools/check-access.ts`, `lib.ts` and `verify-template.ts`, and everything that decides
-  whether the guardrails run: root and package `package.json` and `vitest` configs,
-  `turbo.json`, `pnpm-workspace.yaml`, the Biome and oxlint configs, the workflows and
-  CODEOWNERS itself.
+- `.github/CODEOWNERS` requires the platform owner's review for `security/`, the whole
+  service kit, `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
+  `http/openapi.ts` and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and
+  `index.ts`, `tools/check-access.ts`, `lib.ts` and `verify-template.ts`, and everything
+  that decides whether and how the guardrails run: package manifests, tsconfigs, `.swcrc`,
+  `vitest` configs, `turbo.json`, `pnpm-workspace.yaml`, every Biome and oxlint config,
+  the workflows and CODEOWNERS itself.
 - Never add a switch that disables authentication or allows plaintext gRPC off loopback;
   ADR-0004 rejects both, because agents would use them.
 

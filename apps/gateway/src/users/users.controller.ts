@@ -134,10 +134,11 @@ export class UsersController {
       await firstValueFrom(this.users.deleteUser({ id: target }));
     } catch (error) {
       // A delete that may have committed before the failure (a deadline, a dropped
-      // connection) still clears the cache, but only if this caller may delete the user:
-      // a refused or impossible delete leaves other users' logins alone.
+      // connection, or a retry that then found the user gone) still clears the cache, but
+      // only if this caller may delete the user: a refused delete leaves others alone.
       const code = grpcStatusOf(error);
-      const mayHaveDeleted = code !== undefined && OUTCOME_UNKNOWN.has(code);
+      const mayHaveDeleted =
+        code !== undefined && (OUTCOME_UNKNOWN.has(code) || code === status.NOT_FOUND);
       if (mayHaveDeleted && (target === actor.userId || isAdmin(actor))) {
         this.identities.forgetUser(target);
       }

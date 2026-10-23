@@ -5,9 +5,7 @@ import {
   expectListedOpenEndpoints,
   type TestWorkloadKeys,
 } from '@ga/service-kit/testing';
-import { RequestMethod } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { MetadataScanner, ModulesContainer } from '@nestjs/core';
+import { ModulesContainer } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module.ts';
@@ -84,49 +82,78 @@ export interface TestGateway {
 
 /** Modules that mount Nest middleware: request logging and the request context only. */
 const MIDDLEWARE_MODULES = new Set(['LoggerModule', 'ClsRootModule']);
-/** Routes outside controllers: the OpenAPI document (/docs is middleware of openapi.ts). */
-const NON_CONTROLLER_ROUTES = new Set(['GET /openapi.json', 'HEAD /openapi.json']);
+/** Gateway files allowed to add routes, hooks and middleware outside controllers. */
+const RAW_HTTP_FILES = new Set(['src/bootstrap.ts', 'src/http/openapi.ts']);
+/** Routes outside controllers: the OpenAPI document, and CORS preflight when CORS is on. */
+const NON_CONTROLLER_ROUTES = new Set(['GET /openapi.json', 'HEAD /openapi.json', 'OPTIONS *']);
+
+/** Who registered something: the gateway source file on the call stack, `nest` or `library`. */
+function registeredBy(): string {
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 100;
+  const stack = new Error().stack ?? '';
+  Error.stackTraceLimit = limit;
+  if (stack.includes('/@nestjs/core/router/')) return 'nest';
+  const own = /\/apps\/gateway\/(src\/[^:)]+\.ts)/.exec(stack);
+  return own?.[1] ?? 'library';
+}
+
+/** What the HTTP server got besides controller routes while the gateway started. */
+interface Registrations {
+  readonly routes: { readonly route: string; readonly by: string }[];
+  readonly hooks: { readonly what: string; readonly by: string }[];
+}
+
+/** Records every route, hook, plugin and middleware the adapter gets, and who added it. */
+function recordRegistrations(adapter: ReturnType<typeof createAdapter>): Registrations {
+  const registrations: Registrations = { routes: [], hooks: [] };
+  const fastify = adapter.getInstance();
+  fastify.addHook('onRoute', (route: { method: string | string[]; url: string }) => {
+    const by = registeredBy();
+    for (const verb of [route.method].flat()) {
+      registrations.routes.push({ route: `${verb} ${route.url}`, by });
+    }
+  });
+  const track = <T extends object>(target: T, name: string) => {
+    const original = (target as Record<string, unknown>)[name];
+    if (typeof original !== 'function') return;
+    (target as Record<string, unknown>)[name] = function (this: unknown, ...args: unknown[]) {
+      registrations.hooks.push({ what: `${name}(${String(args[0])})`, by: registeredBy() });
+      return (original as (...rest: unknown[]) => unknown).apply(this, args);
+    };
+  };
+  track(fastify, 'addHook');
+  track(fastify, 'register');
+  track(adapter, 'use');
+  return registrations;
+}
 
 /**
- * Fails unless every route Fastify serves is a controller route (so AuthGuard sees it) or
- * the OpenAPI document, and no module but logging and the request context mounts
- * middleware: anything else would bypass authentication (ADR-0004).
+ * Fails unless every route is a controller route (so AuthGuard sees it) or one of the
+ * known exceptions added by bootstrap.ts / http/openapi.ts or a plugin, no gateway file
+ * but those two adds hooks, plugins or middleware, and no module but logging and the
+ * request context mounts Nest middleware (ADR-0004).
  */
-function expectOnlyGuardedRoutes(app: NestFastifyApplication, served: readonly string[]): void {
-  const routes = new Set(NON_CONTROLLER_ROUTES);
-  const modules = [...app.get(ModulesContainer).values()];
-  for (const module of modules) {
-    for (const { metatype } of module.controllers.values()) {
-      if (typeof metatype !== 'function') continue;
-      const base = (Reflect.getMetadata(PATH_METADATA, metatype) as string | undefined) ?? '';
-      const prototype = metatype.prototype as Record<string, unknown>;
-      for (const name of new MetadataScanner().getAllMethodNames(prototype)) {
-        const handler = prototype[name] as object;
-        const method = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod | undefined;
-        if (method === undefined) continue;
-        const paths = [Reflect.getMetadata(PATH_METADATA, handler) as string | string[]].flat();
-        for (const path of paths) {
-          const url = `/${[base, path].join('/')}`.replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
-          routes.add(`${RequestMethod[method]} ${url}`);
-          if (method === RequestMethod.GET) routes.add(`HEAD ${url}`);
-        }
-      }
-    }
-  }
-  const stray = served.filter((route) => !routes.has(route));
-  const middleware = modules
+function expectOnlyGuardedRoutes(app: NestFastifyApplication, seen: Registrations): void {
+  const allowedFrom = (by: string) => by === 'nest' || by === 'library' || RAW_HTTP_FILES.has(by);
+  const stray = seen.routes.filter(
+    ({ route, by }) => by !== 'nest' && !(NON_CONTROLLER_ROUTES.has(route) && allowedFrom(by)),
+  );
+  const hooks = seen.hooks.filter(({ by }) => !allowedFrom(by));
+  const middleware = [...app.get(ModulesContainer).values()]
     .map((module) => module.metatype as { name: string; prototype?: { configure?: unknown } })
     .filter(
       ({ name, prototype }) =>
         typeof prototype?.configure === 'function' && !MIDDLEWARE_MODULES.has(name),
     )
     .map(({ name }) => name);
-  if (stray.length > 0 || middleware.length > 0) {
+  if (stray.length > 0 || hooks.length > 0 || middleware.length > 0) {
     throw new Error(
       [
         'the gateway serves requests outside its controllers, so AuthGuard never sees them (ADR-0004):',
-        ...stray.map((route) => `  route ${route}`),
-        ...middleware.map((name) => `  middleware from ${name}`),
+        ...stray.map(({ route, by }) => `  route ${route} (from ${by})`),
+        ...hooks.map(({ what, by }) => `  ${what} (from ${by})`),
+        ...middleware.map((name) => `  Nest middleware from ${name}`),
       ].join('\n'),
     );
   }
@@ -174,16 +201,13 @@ export async function createTestGateway(
     builder = builder.overrideProvider(IdentityResolver).useValue(identities);
   const moduleRef = await builder.compile();
   const adapter = createAdapter(config);
-  const served: string[] = [];
-  adapter.getInstance().addHook('onRoute', (route: { method: string | string[]; url: string }) => {
-    for (const verb of [route.method].flat()) served.push(`${verb} ${route.url}`);
-  });
+  const registrations = recordRegistrations(adapter);
   const app = moduleRef.createNestApplication<NestFastifyApplication>(adapter);
   configureGateway(app, config);
   await app.init();
   try {
     expectListedOpenEndpoints('apps/gateway', app.get(AuthRoutes).open);
-    expectOnlyGuardedRoutes(app, served);
+    expectOnlyGuardedRoutes(app, registrations);
   } catch (error) {
     await app.close();
     throw error;
