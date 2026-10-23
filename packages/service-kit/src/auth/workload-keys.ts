@@ -86,15 +86,18 @@ export function parseWorkloadKeyMap(text: string, source: string): WorkloadKeyMa
 }
 
 export function readWorkloadKeyMap(file: string): WorkloadKeyMap {
-  let text: string;
+  return parseWorkloadKeyMap(readWorkloadKeyMapText(file), `WORKLOAD_KEYS_FILE=${file}`);
+}
+
+/** The text of WORKLOAD_KEYS_FILE, for callers that parse it and remember what they parsed. */
+export function readWorkloadKeyMapText(file: string): string {
   try {
-    text = readFileSync(file, 'utf8');
+    return readFileSync(file, 'utf8');
   } catch (error) {
     throw new Error(
       `WORKLOAD_KEYS_FILE=${file} cannot be read (run \`pnpm keys\` locally): ${String(error)}`,
     );
   }
-  return parseWorkloadKeyMap(text, `WORKLOAD_KEYS_FILE=${file}`);
 }
 
 /** Loads this workload's private signing key (an Ed25519 JWK with `d`). */

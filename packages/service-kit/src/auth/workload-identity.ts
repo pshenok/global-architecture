@@ -23,7 +23,7 @@ import {
   parseSigningKey,
   parseWorkloadKeyMap,
   readSigningKeyText,
-  readWorkloadKeyMap,
+  readWorkloadKeyMapText,
   type SigningKey,
   type WorkloadKeyMap,
 } from './workload-keys.ts';
@@ -80,20 +80,15 @@ export class WorkloadIdentity implements OnApplicationShutdown {
       keyText,
       `WORKLOAD_KEY_FILE=${config.WORKLOAD_KEY_FILE}`,
     );
-    const map = readWorkloadKeyMap(config.WORKLOAD_KEYS_FILE);
+    // One read per file: what is parsed is what reload() later compares against.
+    const mapText = readWorkloadKeyMapText(config.WORKLOAD_KEYS_FILE);
+    const map = parseWorkloadKeyMap(mapText, `WORKLOAD_KEYS_FILE=${config.WORKLOAD_KEYS_FILE}`);
     if (!publishes(map, name, signingKey)) {
       throw new Error(
         `WORKLOAD_KEYS_FILE has no public key ${signingKey.kid} for workload ${name}: publish the new public key before switching the private key`,
       );
     }
-    const identity = new WorkloadIdentity(
-      name,
-      signingKey,
-      keyText,
-      map,
-      readFileSync(config.WORKLOAD_KEYS_FILE, 'utf8'),
-      config,
-    );
+    const identity = new WorkloadIdentity(name, signingKey, keyText, map, mapText, config);
     identity.logger.log(`workload ${name} signs with key ${signingKey.kid}; ${summary(map)}`);
     return identity;
   }
