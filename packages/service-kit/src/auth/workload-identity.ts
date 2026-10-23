@@ -21,8 +21,9 @@ import {
   verifyPrincipalToken,
 } from './tokens.ts';
 import {
+  parseSigningKey,
   parseWorkloadKeyMap,
-  readSigningKey,
+  readSigningKeyText,
   readWorkloadKeyMap,
   type SigningKey,
   type WorkloadKeyMap,
@@ -33,38 +34,55 @@ interface CachedCallerToken {
   readonly refreshAt: number;
 }
 
+/** Whether `map` publishes `key` as one of `name`'s public keys. */
+const publishes = (map: WorkloadKeyMap, name: string, key: SigningKey): boolean =>
+  map
+    .get(name)
+    ?.some((published) => published.kid === key.kid && published.x === key.publicJwk.x) ?? false;
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 /**
  * This workload's identity: its private key (signs caller assertions, and user
  * principals when it is an edge) and every workload's public keys (verifies what
- * others signed). The public key map is re-read periodically, so keys rotate
- * without restarts; a broken file keeps the last good map.
+ * others signed). Both files are re-read every WORKLOAD_KEYS_RELOAD_S, so keys rotate
+ * without restarts: a broken map keeps the last good one, and a new private key is
+ * used only once the map publishes its public half.
  */
 export class WorkloadIdentity implements OnApplicationShutdown {
   private readonly logger = new Logger(WorkloadIdentity.name);
+  private map: WorkloadKeyMap;
   private keySets: ReadonlyMap<string, JWTVerifyGetKey>;
   private mapText: string;
+  private keyText: string;
   private readonly callerTokens = new Map<string, Promise<CachedCallerToken>>();
   private readonly timer: NodeJS.Timeout;
 
   private constructor(
     readonly name: string,
-    private readonly signingKey: SigningKey,
+    private signingKey: SigningKey,
+    keyText: string,
     map: WorkloadKeyMap,
     mapText: string,
     private readonly config: WorkloadIdentityConfig,
   ) {
+    this.map = map;
     this.keySets = keySetsOf(map);
     this.mapText = mapText;
-    this.timer = setInterval(() => this.reload(), config.WORKLOAD_KEYS_RELOAD_S * 1_000);
+    this.keyText = keyText;
+    this.timer = setInterval(() => void this.reload(), config.WORKLOAD_KEYS_RELOAD_S * 1_000);
     this.timer.unref();
   }
 
   /** Loads the keys; throws (fails boot) when a file is missing or invalid. */
   static async load(name: string, config: WorkloadIdentityConfig): Promise<WorkloadIdentity> {
-    const signingKey = await readSigningKey(config.WORKLOAD_KEY_FILE);
+    const keyText = readSigningKeyText(config.WORKLOAD_KEY_FILE);
+    const signingKey = await parseSigningKey(
+      keyText,
+      `WORKLOAD_KEY_FILE=${config.WORKLOAD_KEY_FILE}`,
+    );
     const map = readWorkloadKeyMap(config.WORKLOAD_KEYS_FILE);
-    const own = map.get(name)?.find((key) => key.kid === signingKey.kid);
-    if (!own || own.x !== signingKey.publicJwk.x) {
+    if (!publishes(map, name, signingKey)) {
       throw new Error(
         `WORKLOAD_KEYS_FILE has no public key ${signingKey.kid} for workload ${name}: publish the new public key before switching the private key`,
       );
@@ -72,12 +90,18 @@ export class WorkloadIdentity implements OnApplicationShutdown {
     const identity = new WorkloadIdentity(
       name,
       signingKey,
+      keyText,
       map,
       readFileSync(config.WORKLOAD_KEYS_FILE, 'utf8'),
       config,
     );
     identity.logger.log(`workload ${name} signs with key ${signingKey.kid}; ${summary(map)}`);
     return identity;
+  }
+
+  /** The key id this workload signs with now. */
+  get signingKid(): string {
+    return this.signingKey.kid;
   }
 
   /** Workloads allowed to sign user principals. */
@@ -135,19 +159,55 @@ export class WorkloadIdentity implements OnApplicationShutdown {
     return verifyPrincipalToken(token, this.config.PRINCIPAL_ISSUERS, this.keySets);
   }
 
-  /** Re-reads the public key map; keeps the last good one when the file is unreadable or invalid. */
-  reload(): void {
-    let text: string;
+  /**
+   * Re-reads both key files (also runs every WORKLOAD_KEYS_RELOAD_S). Never throws:
+   * problems are logged and the last good keys stay in use.
+   */
+  async reload(): Promise<void> {
+    this.reloadMap();
+    await this.reloadSigningKey();
+    if (!publishes(this.map, this.name, this.signingKey)) {
+      this.logger.error(
+        `WORKLOAD_KEYS_FILE no longer publishes this workload's signing key ${this.signingKey.kid}: other workloads refuse its calls until WORKLOAD_KEY_FILE holds a published key`,
+      );
+    }
+  }
+
+  private reloadMap(): void {
     try {
-      text = readFileSync(this.config.WORKLOAD_KEYS_FILE, 'utf8');
+      const text = readFileSync(this.config.WORKLOAD_KEYS_FILE, 'utf8');
       if (text === this.mapText) return;
       const map = parseWorkloadKeyMap(text, `WORKLOAD_KEYS_FILE=${this.config.WORKLOAD_KEYS_FILE}`);
+      this.map = map;
       this.keySets = keySetsOf(map);
       this.mapText = text;
       this.logger.log(`workload keys reloaded; ${summary(map)}`);
     } catch (error) {
+      this.logger.error(`workload keys not reloaded, keeping the last good set: ${message(error)}`);
+    }
+  }
+
+  /** Switches to a new private key once the map publishes it (rotation step 2). */
+  private async reloadSigningKey(): Promise<void> {
+    try {
+      const text = readSigningKeyText(this.config.WORKLOAD_KEY_FILE);
+      if (text === this.keyText) return;
+      const next = await parseSigningKey(
+        text,
+        `WORKLOAD_KEY_FILE=${this.config.WORKLOAD_KEY_FILE}`,
+      );
+      if (!publishes(this.map, this.name, next)) {
+        throw new Error(
+          `its new key ${next.kid} is not in WORKLOAD_KEYS_FILE yet (publish the public key first)`,
+        );
+      }
+      this.signingKey = next;
+      this.keyText = text;
+      this.callerTokens.clear();
+      this.logger.log(`workload ${this.name} now signs with key ${next.kid}`);
+    } catch (error) {
       this.logger.error(
-        `workload keys not reloaded, keeping the last good set: ${error instanceof Error ? error.message : String(error)}`,
+        `WORKLOAD_KEY_FILE not reloaded, still signing with ${this.signingKey.kid}: ${message(error)}`,
       );
     }
   }
@@ -161,9 +221,6 @@ function summary(map: WorkloadKeyMap): string {
   return `trusts ${[...map].map(([name, keys]) => `${name}[${keys.map((key) => key.kid.slice(0, 8)).join(',')}]`).join(' ')}`;
 }
 
-/** DI token of this workload's name. */
-export const WORKLOAD_NAME = Symbol('WORKLOAD_NAME');
-
 /**
  * Provides {@link WorkloadIdentity} globally. GrpcPlatformModule imports it with the
  * service name; the gateway imports it as `gateway`.
@@ -175,7 +232,6 @@ export class WorkloadIdentityModule {
     return {
       module: WorkloadIdentityModule,
       providers: [
-        { provide: WORKLOAD_NAME, useValue: options.name },
         {
           provide: WorkloadIdentity,
           inject: [CONFIG],
@@ -183,7 +239,7 @@ export class WorkloadIdentityModule {
             WorkloadIdentity.load(options.name, config),
         },
       ],
-      exports: [WORKLOAD_NAME, WorkloadIdentity],
+      exports: [WorkloadIdentity],
     };
   }
 }

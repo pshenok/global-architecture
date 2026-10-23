@@ -107,20 +107,24 @@ Rotate in this order:
 1. Add the new public key to the map and roll out the map.
 2. Wait until every workload has reloaded it: each logs `workload keys reloaded; trusts ...`
    (within 60 s after the file changes).
-3. Switch the workload's private key and restart it. A workload refuses to boot when its
-   public key is missing from the map, so a reversed order fails loudly.
-4. After 120 s (the longest token lifetime), remove the old public key.
+3. Replace the workload's private key file (`WORKLOAD_KEY_FILE`). It switches on its next
+   reload, without a restart, and logs `now signs with key <kid>`. A key whose public half
+   is not published yet is not used (an error is logged every reload), and a workload
+   refuses to boot with one, so a reversed order fails loudly instead of cutting it off.
+4. 120 s after that log line (the longest token lifetime), remove the old public key. A
+   workload whose own signing key disappears from the map logs an error every reload.
 
 On compromise, remove the leaked public key at once (its tokens fail once each workload
-reloads the map) and switch the private key; calls signed with the old key fail in
-between. Locally, `pnpm keys --rotate <name>` does steps 1 and 2 and switches the private
-key; restart with `pnpm exec pm2 reload <name>`, and later `pnpm keys --prune <name>` does
-step 4 (it refuses within 130 s of the switch).
+reloads the map) and publish and switch to a new private key; calls signed with the old
+key fail in between. Locally, `pnpm keys --rotate <name>` does steps 1 to 3, and later
+`pnpm keys --prune <name>` does step 4 (it refuses within 130 s of the switch).
 
 **IdP keys rotate by themselves.** The gateway refreshes each provider's JWKS in the
-background (`AUTH_JWKS_REFRESH_S`, 300 s), fetches early for a token with an unknown `kid`
-(at most once per `AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S`, 30 s), and stops using keys it could
-not refresh for `AUTH_JWKS_MAX_STALE_S` (30 min; then 503, never 401).
+background (`AUTH_JWKS_REFRESH_S`, 300 s; within seconds after a failed fetch), fetches
+early for a token with an unknown `kid` (at most once per
+`AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S`, 30 s; a 503, not a 401, while fetches fail), and stops
+using keys it could not refresh for `AUTH_JWKS_MAX_STALE_S` (30 min, at least twice the
+refresh interval; then 503, never 401). Requests never start a fetch while keys are unusable.
 
 **Adding or changing an identity provider** is configuration: an entry in `AUTH_ISSUERS`
 (one to five issuers, so a migration can trust two at once; asymmetric algorithms only;

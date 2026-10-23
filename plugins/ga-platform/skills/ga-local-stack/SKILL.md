@@ -127,14 +127,14 @@ on your machine only and never paste its output into tickets or shared logs.
 ```bash
 pnpm certs [--force]                     # HTTPS certificate, gRPC CA + server certificate
 pnpm keys                                # missing keys for the gateway and every registered service
-pnpm keys --rotate house-service         # publish a new public key, wait 65 s, switch the private key
-pnpm exec pm2 reload house-service       # then restart it so it signs with the new key
+pnpm keys --rotate house-service         # publish a new public key, wait 65 s, replace the private key
 pnpm keys --prune house-service          # drop its old public keys (refused within 130 s of a rotation)
 curl -s -X POST http://127.0.0.1:8090/rotate   # new dev IdP signing key; the gateway fetches it on first use
 ```
 
-Every workload re-reads `.certs/workload-keys.json` every 60 s, so a rotation needs no
-restart of the others. The production runbook is in `ga-platform-maintenance`.
+Every workload re-reads `.certs/workload-keys.json` and its own private key every 60 s,
+so a rotation needs no restart: the rotated workload logs `now signs with key ...` once it
+switches. The production runbook is in `ga-platform-maintenance`.
 
 ## Tracing (off by default)
 

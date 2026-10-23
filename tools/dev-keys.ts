@@ -6,10 +6,11 @@
  *   pnpm keys                    create missing keys for the gateway and every service in
  *                                services.json, and publish their public halves (idempotent)
  *   pnpm keys --rotate <name>    publish a new public key, wait until every workload has
- *                                reloaded the map (65 s), then switch the private key;
- *                                restart <name> afterwards (pnpm exec pm2 reload <name>)
+ *                                reloaded the map (65 s), then replace the private key;
+ *                                <name> switches to it on its next reload (60 s), no restart
  *   pnpm keys --prune <name>     drop every public key of <name> but the current one
- *                                (refused within 130 s of a rotation)
+ *                                (refused within 130 s of a rotation: the switch, plus the
+ *                                lifetime of tokens signed with the old key)
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -93,7 +94,7 @@ async function rotate(name: string): Promise<void> {
   await sleep(RELOAD_MARGIN_MS);
   writeAtomic(workloadKeyPath(name), `${JSON.stringify(privateJwk)}\n`, 0o600);
   console.log(
-    `${name} now signs with ${publicJwk.kid}: restart it (pnpm exec pm2 reload ${name}), then later pnpm keys --prune ${name}`,
+    `${name} switches to ${publicJwk.kid} within 60 s, no restart needed (it logs "now signs with key"); then pnpm keys --prune ${name}`,
   );
 }
 

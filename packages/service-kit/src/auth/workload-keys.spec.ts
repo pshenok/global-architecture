@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { calculateJwkThumbprint, decodeProtectedHeader, exportJWK, generateKeyPair } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestWorkloadKeys, type TestWorkloadKeys } from '../testing/workload-keys.ts';
 import type { WorkloadIdentityConfig } from './config.ts';
@@ -90,6 +91,62 @@ describe('WorkloadIdentity', () => {
     }
   });
 
+  it('rotates a signing key without a restart, and only once the key is published', async () => {
+    const rotating = await createTestWorkloadKeys(['gateway', 'house-service']);
+    try {
+      const house = await WorkloadIdentity.load('house-service', {
+        ...config('house-service'),
+        ...rotating.env('house-service'),
+      });
+      const gateway = await WorkloadIdentity.load('gateway', {
+        ...config('gateway'),
+        ...rotating.env('gateway'),
+      });
+      const oldKid = gateway.signingKid;
+      const { privateKey, publicKey } = await generateKeyPair('EdDSA', { extractable: true });
+      const pub = await exportJWK(publicKey);
+      const kid = await calculateJwkThumbprint(pub);
+      const signedKid = async () =>
+        decodeProtectedHeader(await gateway.callerToken('house-service')).kid;
+
+      // Private key replaced before its public half is published: keep the old one.
+      writeFileSync(
+        rotating.keyFile('gateway'),
+        JSON.stringify({ ...(await exportJWK(privateKey)), kid, alg: 'EdDSA' }),
+      );
+      await gateway.reload();
+      expect(await signedKid()).toBe(oldKid);
+
+      // Published: every workload trusts it, and the gateway switches on its next reload.
+      const map = JSON.parse(readFileSync(rotating.keysFile, 'utf8')) as {
+        workloads: Record<string, { keys: unknown[] }>;
+      };
+      map.workloads.gateway?.keys.push({ kty: 'OKP', crv: 'Ed25519', x: pub.x, kid, alg: 'EdDSA' });
+      writeFileSync(rotating.keysFile, JSON.stringify(map));
+      await house.reload();
+      await gateway.reload();
+      expect(await signedKid()).toBe(kid);
+      await expect(house.verifyCaller(await gateway.callerToken('house-service'))).resolves.toBe(
+        'gateway',
+      );
+
+      // Pruning the old key does not cut the gateway off.
+      map.workloads.gateway = {
+        keys: [{ kty: 'OKP', crv: 'Ed25519', x: pub.x, kid, alg: 'EdDSA' }],
+      };
+      writeFileSync(rotating.keysFile, JSON.stringify(map));
+      await house.reload();
+      await gateway.reload();
+      await expect(house.verifyCaller(await gateway.callerToken('house-service'))).resolves.toBe(
+        'gateway',
+      );
+      house.onApplicationShutdown();
+      gateway.onApplicationShutdown();
+    } finally {
+      rotating.dispose();
+    }
+  });
+
   it('keeps the last good key map when a reload fails, and applies the next valid one', async () => {
     const reloading = await createTestWorkloadKeys(['gateway', 'house-service']);
     try {
@@ -107,12 +164,12 @@ describe('WorkloadIdentity', () => {
       };
       for (const broken of ['{ broken', JSON.stringify({ workloads: { gateway: { keys: [] } } })]) {
         writeFileSync(reloading.keysFile, broken);
-        house.reload();
+        await house.reload();
         await expect(house.verifyCaller(token)).resolves.toBe('gateway');
       }
       delete good.workloads.gateway;
       writeFileSync(reloading.keysFile, JSON.stringify(good));
-      house.reload();
+      await house.reload();
       await expect(house.verifyCaller(token)).rejects.toMatchObject({ reason: 'invalid' });
       house.onApplicationShutdown();
       gateway.onApplicationShutdown();

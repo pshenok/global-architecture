@@ -82,8 +82,9 @@ two issuers with the same `sub` are different logins.
 
 Every workload (the gateway and each service) has its own Ed25519 key
 (`WORKLOAD_KEY_FILE`, a secret) and trusts one public key map (`WORKLOAD_KEYS_FILE`,
-not secret, re-read every `WORKLOAD_KEYS_RELOAD_S` so keys rotate without restarts; a
-broken file keeps the last good map).
+not secret). Both are re-read every `WORKLOAD_KEYS_RELOAD_S`, so keys rotate without
+restarts: a broken map keeps the last good one, and a new private key is used only once
+the map publishes its public half.
 
 | gRPC metadata    | Signed by                                   | Says                                      | Lifetime   |
 | ---------------- | ------------------------------------------- | ----------------------------------------- | ---------- |

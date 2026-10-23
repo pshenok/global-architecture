@@ -7,7 +7,6 @@ const registry = require('./services.json');
 const DB_URL = (database) => `postgresql://ga:ga@localhost:5432/${database}`;
 const CERTS = `${__dirname}/.certs`;
 
-/** gRPC TLS between workloads (tools/dev-certs.ts): services serve it, everyone verifies it. */
 /** Workload identity (tools/dev-keys.ts): each app signs with its own key, trusts the map. */
 const workloadKeys = (name) => ({
   WORKLOAD_KEY_FILE: `${CERTS}/workloads/${name}.jwk.json`,
@@ -25,6 +24,7 @@ const AUTH_ISSUERS = JSON.stringify([
   },
 ]);
 
+/** gRPC TLS between workloads (tools/dev-certs.ts): services serve it, everyone verifies it. */
 const grpcServerTls = {
   GRPC_TLS_CERT_FILE: `${CERTS}/grpc-server.pem`,
   GRPC_TLS_KEY_FILE: `${CERTS}/grpc-server-key.pem`,

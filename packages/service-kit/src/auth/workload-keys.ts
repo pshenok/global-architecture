@@ -99,19 +99,25 @@ export function readWorkloadKeyMap(file: string): WorkloadKeyMap {
 
 /** Loads this workload's private signing key (an Ed25519 JWK with `d`). */
 export async function readSigningKey(file: string): Promise<SigningKey> {
-  let text: string;
+  return parseSigningKey(readSigningKeyText(file), `WORKLOAD_KEY_FILE=${file}`);
+}
+
+/** The raw private key file (WORKLOAD_KEY_FILE), to notice when it is replaced. */
+export function readSigningKeyText(file: string): string {
   try {
-    text = readFileSync(file, 'utf8');
+    return readFileSync(file, 'utf8');
   } catch (error) {
     throw new Error(
       `WORKLOAD_KEY_FILE=${file} cannot be read (run \`pnpm keys\` locally): ${String(error)}`,
     );
   }
-  const parsed = PrivateJwk.safeParse(parseJson(text, `WORKLOAD_KEY_FILE=${file}`));
+}
+
+/** Parses a private signing key (an Ed25519 JWK with `d`); `source` names it in errors. */
+export async function parseSigningKey(text: string, source: string): Promise<SigningKey> {
+  const parsed = PrivateJwk.safeParse(parseJson(text, source));
   if (!parsed.success) {
-    throw new Error(
-      `WORKLOAD_KEY_FILE=${file} is not an Ed25519 private JWK: ${describe(parsed.error)}`,
-    );
+    throw new Error(`${source} is not an Ed25519 private JWK: ${describe(parsed.error)}`);
   }
   const { d: _private, ...publicJwk } = parsed.data;
   const key = (await importJWK(parsed.data as JWK, 'EdDSA')) as CryptoKey;

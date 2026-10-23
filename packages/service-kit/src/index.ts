@@ -23,7 +23,6 @@ export {
   TokenError,
 } from './auth/tokens.ts';
 export {
-  WORKLOAD_NAME,
   WorkloadIdentity,
   WorkloadIdentityModule,
 } from './auth/workload-identity.ts';
