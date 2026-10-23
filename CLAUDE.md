@@ -16,7 +16,7 @@ pnpm --filter @ga/<svc> db:generate --name <change>   # after editing schema.ts
 pnpm stack:up && pnpm test:e2e  # whole system locally (PM2): certs, keys, dev IdP, DBs, migrations, health
 pnpm dev:token alice --email alice@example.com   # access token from the local dev IdP
 pnpm grpc:call house-service ListHouses '{}' --as <userId>   # call a service as the platform does
-pnpm users:grant-role <userId> admin            # platform roles live in user-service
+pnpm users:grant-role <userId> admin            # platform roles live in user-service (users:revoke-role)
 ```
 
 ## Rules that break production when ignored

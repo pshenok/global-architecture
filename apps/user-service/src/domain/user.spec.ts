@@ -31,6 +31,16 @@ describe('User', () => {
     expect(() => user.grantRole('root', later)).toThrow(ValidationError);
   });
 
+  it('revokes a role it holds, ignores one it does not, and refuses unknown ones', () => {
+    const user = User.create({ id: 'u1', email: null, fullName: 'Ann' }, now);
+    user.revokeRole('admin', later);
+    expect(user.toState()).toMatchObject({ roles: [], updatedAt: now });
+    user.grantRole('admin', now);
+    user.revokeRole('admin', later);
+    expect(user.toState()).toMatchObject({ roles: [], updatedAt: later });
+    expect(() => user.revokeRole('root', later)).toThrow(ValidationError);
+  });
+
   it('is visible to the user and to admins only', () => {
     const user = User.create({ id: 'u1', email: null, fullName: 'Ann' }, now);
     expect(user.isVisibleTo(userActor('u1'))).toBe(true);

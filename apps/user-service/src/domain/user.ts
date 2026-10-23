@@ -103,16 +103,32 @@ export class User {
 
   /** Grants a platform role; granting a role the user has is a no-op. */
   grantRole(role: string, now: Date): void {
-    if (!(ROLES as readonly string[]).includes(role)) {
-      throw new ValidationError(`unknown role ${role}`, [
-        { field: 'role', description: `must be one of ${ROLES.join(', ')}` },
-      ]);
-    }
-    if (this.state.roles.includes(role as Role)) return;
-    this.state = { ...this.state, roles: [...this.state.roles, role as Role], updatedAt: now };
+    const known = knownRole(role);
+    if (this.state.roles.includes(known)) return;
+    this.state = { ...this.state, roles: [...this.state.roles, known], updatedAt: now };
+  }
+
+  /** Revokes a platform role; revoking a role the user does not have is a no-op. */
+  revokeRole(role: string, now: Date): void {
+    const known = knownRole(role);
+    if (!this.state.roles.includes(known)) return;
+    this.state = {
+      ...this.state,
+      roles: this.state.roles.filter((held) => held !== known),
+      updatedAt: now,
+    };
   }
 
   toState(): UserState {
     return { ...this.state, roles: [...this.state.roles] };
   }
+}
+
+function knownRole(role: string): Role {
+  if (!(ROLES as readonly string[]).includes(role)) {
+    throw new ValidationError(`unknown role ${role}`, [
+      { field: 'role', description: `must be one of ${ROLES.join(', ')}` },
+    ]);
+  }
+  return role as Role;
 }

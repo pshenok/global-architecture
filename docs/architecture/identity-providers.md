@@ -63,8 +63,13 @@ when you adopt one.
 
 ## Changing provider
 
-1. Add the new issuer to `AUTH_ISSUERS` (up to five issuers are trusted at once).
-2. Map existing users to their new logins: insert `user_identities (issuer, subject,
-   user_id, created_at)` rows in user-service's database, matched by a reliable
-   attribute exported from both providers. Never link logins by email automatically.
-3. Remove the old issuer when its tokens have expired.
+1. Import the users into the new provider, so their new subjects are known.
+2. Map existing users to their new logins **before** the gateway trusts the issuer:
+   insert `user_identities (issuer, subject, user_id, created_at)` rows in
+   user-service's database, matched by a reliable attribute exported from both
+   providers. Never link logins by email automatically. In the other order, a user
+   who signs in early gets "not registered", registers a second account (or hits
+   `USER_EMAIL_TAKEN`), and the mapping insert then conflicts with that login.
+3. Add the new issuer to `AUTH_ISSUERS` (up to five issuers are trusted at once) and
+   roll out the gateways.
+4. Remove the old issuer when its tokens have expired.

@@ -129,8 +129,9 @@ refresh interval; then 503, never 401). Requests never start a fetch while keys 
 **Adding or changing an identity provider** is configuration: an entry in `AUTH_ISSUERS`
 (one to five issuers, so a migration can trust two at once; asymmetric algorithms only;
 https except loopback outside production). See `docs/architecture/identity-providers.md`.
-Moving users to a new provider means inserting `user_identities` rows in user-service,
-never linking logins by email; platform roles stay in user-service.
+Moving users to a new provider means inserting `user_identities` rows in user-service
+before the gateway trusts the new issuer (otherwise early logins register second
+accounts), never linking logins by email; platform roles stay in user-service.
 
 ## Recording decisions
 

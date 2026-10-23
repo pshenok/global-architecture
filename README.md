@@ -83,7 +83,7 @@ pnpm --filter @ga/booking-service test
 pnpm stack:status | pnpm stack:logs
 pnpm dev:token <sub> --email <email>                       # token from the local dev IdP
 pnpm grpc:call <service> <Method> '<json>' --as <userId>   # call a service as the platform does
-pnpm users:grant-role <userId> admin                       # platform roles
+pnpm users:grant-role <userId> admin                       # platform roles (users:revoke-role to remove)
 pnpm keys [--rotate|--prune <workload>]                    # local workload keys
 ```
 

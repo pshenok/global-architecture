@@ -72,13 +72,17 @@ two issuers with the same `sub` are different logins.
   deletes, including lookups still in flight; other replicas catch up within the TTLs.
   While user-service is unreachable a known mapping keeps serving for
   `IDENTITY_CACHE_STALE_IF_ERROR_S` (5 min); unknown logins get 503.
-- **Roles** are platform data in `users.roles` (today: `admin`), granted with
-  `pnpm users:grant-role <userId> admin` inside user-service. An IdP role never
-  becomes a platform role, so an IdP administrator is not a platform administrator.
-  Role changes and deletions reach requests within the cache TTL.
+- **Roles** are platform data in `users.roles` (today: `admin`), granted and revoked
+  with `pnpm users:grant-role|users:revoke-role <userId> admin` inside user-service
+  (each change is printed with the operator's OS user). An IdP role never becomes a
+  platform role, so an IdP administrator is not a platform administrator. Role changes
+  and deletions reach requests within the cache TTL, or the stale window while
+  user-service is unreachable; to cut off a compromised admin at once, revoke the role,
+  then restart the gateways (their caches are in memory).
 - Logins are **never linked by email** (that would let an IdP with weak email
-  verification take accounts over). Moving to another IdP means adding the new issuer
-  and inserting `user_identities` rows for the new subjects, then removing the old issuer.
+  verification take accounts over). Moving to another IdP means inserting
+  `user_identities` rows for the new subjects first, then adding the new issuer, then
+  removing the old one (in the other order, early logins would register as new users).
 
 ### 3. Two signed tokens on every internal call
 
@@ -138,7 +142,9 @@ fields. Rules:
   the same reason and message as for a missing one (bookings, users, the template's
   items). If the resource is visible (the public house catalogue) but the action is
   not allowed, the answer is `PERMISSION_DENIED`.
-- Lists never fail on scope: repositories take a typed scope (`BookingScope`), and page
+- Lists never fail because of what the caller cannot see: repositories take a typed
+  scope (`BookingScope`) and return only what it covers. Only asking for a scope the
+  caller may not have is refused (a non-admin listing bookings `as=any` gets 403). Page
   tokens are bound to the caller and the scope.
 - Facts a check needs from another service are snapshotted when they are immutable:
   bookings store the house owner as `host_id` (houses never change owner; a future
@@ -205,8 +211,10 @@ for adopting a real provider.
     ownership rules; jose covers the cryptography.
 13. **An `AUTH_DISABLED` or plaintext-in-production switch**: agents would use it.
 14. **Removing the request fields that used to carry identities** (`owner_id`,
-    `guest_id`, `UpdateUserRequest.email`, `CreateUser`): breaking; they are deprecated
-    and ignored now and get reserved in a later change (deprecate, then reserve).
+    `guest_id`, `UpdateUserRequest.email`) and `CreateUser`: breaking. The fields are
+    deprecated and ignored (identities come from the principal); `CreateUser` is
+    deprecated and admin-only. Both get reserved or removed in a later change
+    (deprecate, then reserve).
 
 ## Consequences
 

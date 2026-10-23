@@ -51,6 +51,7 @@ curl -s --cacert .certs/dev-cert.pem -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' -d '{"fullName":"Alice"}' https://localhost:8443/v1/users
 curl -s --cacert .certs/dev-cert.pem -H "authorization: Bearer $TOKEN" https://localhost:8443/v1/users/me
 pnpm users:grant-role <userId> admin    # roles live in user-service, never in the IdP
+pnpm users:revoke-role <userId> admin   # takes effect within the gateway's 60 s identity cache
 ```
 
 - Register each new login once (`POST /v1/users` -> 201 with the user's `id`). It needs a

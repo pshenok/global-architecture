@@ -17,7 +17,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env dist/migrate.js",
-    "grant-role": "node --env-file-if-exists=.env dist/cli/grant-role.js"
+    "grant-role": "node --env-file-if-exists=.env dist/cli/role.js grant",
+    "revoke-role": "node --env-file-if-exists=.env dist/cli/role.js revoke"
   },
   "dependencies": {
     "@ga/contracts": "workspace:*",
