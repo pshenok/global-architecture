@@ -5,10 +5,18 @@
 const registry = require('./services.json');
 
 const DB_URL = (database) => `postgresql://ga:ga@localhost:5432/${database}`;
+const CERTS = `${__dirname}/.certs`;
 
-/** Every service address, so any app can reach any service it declares in its config. */
+/** gRPC TLS between workloads (tools/dev-certs.ts): services serve it, everyone verifies it. */
+const grpcServerTls = {
+  GRPC_TLS_CERT_FILE: `${CERTS}/grpc-server.pem`,
+  GRPC_TLS_KEY_FILE: `${CERTS}/grpc-server-key.pem`,
+  GRPC_TLS_CA_FILE: `${CERTS}/grpc-ca.pem`,
+};
+
+/** Every service address (a host name: TLS certificates name hosts, not IPs). */
 const serviceUrls = Object.fromEntries(
-  registry.services.map((s) => [s.urlEnv, `127.0.0.1:${s.grpcPort}`]),
+  registry.services.map((s) => [s.urlEnv, `localhost:${s.grpcPort}`]),
 );
 
 const common = {
@@ -45,6 +53,7 @@ module.exports = {
         GRPC_PORT: String(service.grpcPort),
         DATABASE_URL: DB_URL(service.database),
         OTEL_SERVICE_NAME: service.name,
+        ...grpcServerTls,
         ...serviceUrls,
       },
     })),
@@ -59,8 +68,9 @@ module.exports = {
         GATEWAY_HOST: '127.0.0.1',
         GATEWAY_PORT: String(registry.gateway.httpsPort),
         TLS_ENABLED: 'true',
-        TLS_CERT_FILE: `${__dirname}/.certs/dev-cert.pem`,
-        TLS_KEY_FILE: `${__dirname}/.certs/dev-key.pem`,
+        TLS_CERT_FILE: `${CERTS}/dev-cert.pem`,
+        TLS_KEY_FILE: `${CERTS}/dev-key.pem`,
+        GRPC_TLS_CA_FILE: grpcServerTls.GRPC_TLS_CA_FILE,
         OTEL_SERVICE_NAME: 'gateway',
         ...serviceUrls,
       },

@@ -1,10 +1,10 @@
 import { loadProtoPackage } from '@ga/contracts/runtime';
 import {
-  credentials,
   loadPackageDefinition,
   type ServiceClientConstructor,
   type ServiceError,
 } from '@grpc/grpc-js';
+import { channelCredentials } from './tls.ts';
 
 export type DownstreamHealth =
   | 'SERVING'
@@ -12,6 +12,14 @@ export type DownstreamHealth =
   | 'SERVICE_UNKNOWN'
   | 'UNKNOWN'
   | 'UNREACHABLE';
+
+export interface HealthCheckOptions {
+  /** Service name to check; `''` (default) is the overall status. */
+  readonly service?: string;
+  readonly timeoutMs?: number;
+  /** CA bundle of the target's certificate (TLS); required for non-loopback targets. */
+  readonly caFile?: string | undefined;
+}
 
 interface HealthClient {
   check(
@@ -25,8 +33,9 @@ interface HealthClient {
 let HealthConstructor: ServiceClientConstructor | undefined;
 const clients = new Map<string, HealthClient>();
 
-function clientFor(url: string): HealthClient {
-  let client = clients.get(url);
+function clientFor(url: string, caFile: string | undefined): HealthClient {
+  const key = `${url}\n${caFile ?? ''}`;
+  let client = clients.get(key);
   if (!client) {
     const root = loadPackageDefinition(
       loadProtoPackage(['grpc/health/v1/health.proto']),
@@ -34,22 +43,26 @@ function clientFor(url: string): HealthClient {
       grpc: { health: { v1: { Health: ServiceClientConstructor } } };
     };
     HealthConstructor ??= root.grpc.health.v1.Health;
-    client = new HealthConstructor(url, credentials.createInsecure()) as unknown as HealthClient;
-    clients.set(url, client);
+    client = new HealthConstructor(url, channelCredentials(url, caFile)) as unknown as HealthClient;
+    clients.set(key, client);
   }
   return client;
 }
 
-/** Calls grpc.health.v1.Health/Check on a downstream service (`''` = overall status). */
+/** Calls grpc.health.v1.Health/Check on a downstream service. */
 export function checkGrpcHealth(
   url: string,
-  service = '',
-  timeoutMs = 1_000,
+  options: HealthCheckOptions = {},
 ): Promise<DownstreamHealth> {
+  const { service = '', timeoutMs = 1_000, caFile } = options;
   return new Promise((resolve) => {
-    clientFor(url).check({ service }, { deadline: Date.now() + timeoutMs }, (error, response) => {
-      resolve(error || !response ? 'UNREACHABLE' : response.status);
-    });
+    clientFor(url, caFile).check(
+      { service },
+      { deadline: Date.now() + timeoutMs },
+      (error, response) => {
+        resolve(error || !response ? 'UNREACHABLE' : response.status);
+      },
+    );
   });
 }
 

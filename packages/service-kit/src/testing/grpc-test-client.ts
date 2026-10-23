@@ -6,7 +6,6 @@ import {
   type StatusDetails,
 } from '@ga/contracts/runtime';
 import {
-  credentials,
   type GrpcObject,
   loadPackageDefinition,
   Metadata,
@@ -14,6 +13,7 @@ import {
   type ServiceError,
 } from '@grpc/grpc-js';
 import type { Observable } from 'rxjs';
+import { channelCredentials } from '../grpc/tls.ts';
 
 /** Turns a generated `XServiceClient` (Observable API) into a Promise API. */
 export type PromiseClient<C> = {
@@ -27,11 +27,13 @@ export type GrpcTestClient<C> = PromiseClient<C> & { close(): void };
 /**
  * A plain grpc-js client for tests and scripts, typed with the generated client
  * interface: `createGrpcTestClient<UserServiceClient>('ga.user.v1.UserService', ['ga/user/v1/user.proto'], url)`.
+ * Pass `{ caFile }` to call a TLS server (the local stack: `.certs/grpc-ca.pem`).
  */
 export function createGrpcTestClient<C>(
   service: string,
   protoFiles: readonly string[],
   url: string,
+  options: { readonly caFile?: string } = {},
 ): GrpcTestClient<C> {
   installWellKnownTypes();
   let node: unknown = loadPackageDefinition(loadProtoPackage(protoFiles));
@@ -39,7 +41,7 @@ export function createGrpcTestClient<C>(
   const Client = node as ServiceClientConstructor;
   if (typeof Client !== 'function')
     throw new Error(`service ${service} not found in ${protoFiles.join(', ')}`);
-  const client = new Client(url, credentials.createInsecure());
+  const client = new Client(url, channelCredentials(url, options.caFile));
   return new Proxy({} as GrpcTestClient<C>, {
     get(_target, property) {
       if (property === 'close') return () => client.close();

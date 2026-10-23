@@ -21,6 +21,8 @@ const BaseConfigSchema = z.object({
   TRUST_PROXY: z.stringbool().default(false),
   /** Serve /docs (Scalar) and /openapi.json. Default: on, except when NODE_ENV=production. */
   DOCS_ENABLED: z.stringbool().optional(),
+  /** CA bundle of the services' gRPC certificates; required when they are not on loopback. */
+  GRPC_TLS_CA_FILE: z.string().min(1).optional(),
   USER_SERVICE_URL: grpcTarget(),
   HOUSE_SERVICE_URL: grpcTarget(),
   BOOKING_SERVICE_URL: grpcTarget(),

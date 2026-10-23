@@ -17,6 +17,8 @@ const run = (args: string[], cwd = ROOT, env: NodeJS.ProcessEnv = process.env) =
   execFileSync(args[0] as string, args.slice(1), { cwd, env, stdio: 'inherit' });
 };
 const pm2 = (...args: string[]) => run(['pnpm', 'exec', 'pm2', ...args]);
+/** CA of the services' gRPC certificates (created by tools/dev-certs.ts). */
+const GRPC_CA = join(ROOT, '.certs/grpc-ca.pem');
 
 /** Runs each service's built migrate.js with the DATABASE_URL the stack uses (not its .env). */
 function migrateAll(): void {
@@ -38,7 +40,9 @@ async function waitUntilReady(): Promise<boolean> {
   }
 }
 
-async function poll(checkGrpcHealth: (url: string) => Promise<string>): Promise<boolean> {
+async function poll(
+  checkGrpcHealth: (url: string, options: { caFile: string }) => Promise<string>,
+): Promise<boolean> {
   const { gateway, services } = readRegistry();
   const base = `https://localhost:${gateway.httpsPort}`;
   const dispatcher = new Agent({
@@ -50,7 +54,11 @@ async function poll(checkGrpcHealth: (url: string) => Promise<string>): Promise<
     try {
       const health = await Promise.all(
         services.map(
-          async (s) => [s.name, await checkGrpcHealth(`127.0.0.1:${s.grpcPort}`)] as const,
+          async (s) =>
+            [
+              s.name,
+              await checkGrpcHealth(`localhost:${s.grpcPort}`, { caFile: GRPC_CA }),
+            ] as const,
         ),
       );
       const notServing = health.filter(([, status]) => status !== 'SERVING');
@@ -64,7 +72,7 @@ async function poll(checkGrpcHealth: (url: string) => Promise<string>): Promise<
         console.log(`  Docs     ${base}/docs`);
         console.log(`  OpenAPI  ${base}/openapi.json`);
         for (const s of services)
-          console.log(`  ${s.name.padEnd(16)} grpc://127.0.0.1:${s.grpcPort}  (${s.grpcService})`);
+          console.log(`  ${s.name.padEnd(16)} grpcs://localhost:${s.grpcPort}  (${s.grpcService})`);
         console.log('\n  pnpm stack:status | pnpm stack:logs | pnpm stack:down | pnpm test:e2e');
         return true;
       }

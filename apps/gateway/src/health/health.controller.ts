@@ -29,7 +29,8 @@ export class HealthController {
     };
     const entries = await Promise.all(
       Object.entries(targets).map(
-        async ([name, url]) => [name, await checkGrpcHealth(url)] as const,
+        async ([name, url]) =>
+          [name, await checkGrpcHealth(url, { caFile: this.config.GRPC_TLS_CA_FILE })] as const,
       ),
     );
     const dependencies: Record<string, DownstreamHealth> = Object.fromEntries(entries);

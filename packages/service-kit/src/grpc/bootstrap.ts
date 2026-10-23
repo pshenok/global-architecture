@@ -3,7 +3,7 @@ import {
   loadProtoPackage,
   reflectionPackageDefinition,
 } from '@ga/contracts/runtime';
-import type { Server } from '@grpc/grpc-js';
+import type { Server, ServerCredentials } from '@grpc/grpc-js';
 import { ReflectionService } from '@grpc/reflection';
 import type { INestMicroservice, Type } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -14,6 +14,7 @@ import { grpcServiceConfigSchema, parseConfig } from '../config/config.ts';
 import type { ServiceDefinition } from '../platform/service-definition.ts';
 import { GrpcErrorFilter } from './grpc-error.filter.ts';
 import { HealthStatus } from './health-status.ts';
+import { serverCredentials, targetHost } from './tls.ts';
 
 export interface BootstrapGrpcOptions {
   /** Listen address override (tests). Defaults to GRPC_HOST:GRPC_PORT. */
@@ -22,17 +23,19 @@ export interface BootstrapGrpcOptions {
   readonly shutdownHooks?: boolean;
 }
 
-/** Builds the Nest gRPC transport options for a service: contracts, health, reflection, limits. */
+/** Builds the Nest gRPC transport options for a service: contracts, health, reflection, limits, TLS. */
 export function grpcServerOptions(
   service: ServiceDefinition,
   url: string,
   maxMessageBytes: number,
   onServer: (server: Server) => void,
+  credentials: ServerCredentials,
 ): GrpcOptions {
   return {
     transport: Transport.GRPC,
     options: {
       url,
+      credentials,
       package: [...service.packages],
       packageDefinition: loadProtoPackage(service.protoFiles),
       onLoadPackageDefinition: (_pkg, server) => {
@@ -56,7 +59,7 @@ function isTestingModule(root: unknown): root is TestingModule {
  * Starts a gRPC service: the only bootstrap code a service's main.ts needs.
  *
  * Installs proto well-known-type wrappers, serves the service's contracts plus
- * grpc.health.v1 and server reflection, routes Nest logs through pino, maps
+ * grpc.health.v1 and server reflection over TLS (plaintext only on loopback), routes Nest logs through pino, maps
  * errors with GrpcErrorFilter (always on), enables graceful shutdown, then
  * reports SERVING once dependency checks pass.
  */
@@ -70,10 +73,16 @@ export async function bootstrapGrpcService(
   const url = options.url ?? `${env.GRPC_HOST}:${env.GRPC_PORT}`;
 
   let health: HealthStatus | undefined;
-  const transport = grpcServerOptions(service, url, env.GRPC_MAX_MESSAGE_BYTES, (server) => {
-    if (!health) throw new Error('HealthStatus not resolved before the gRPC server started');
-    health.implementation.addToServer(server);
-  });
+  const transport = grpcServerOptions(
+    service,
+    url,
+    env.GRPC_MAX_MESSAGE_BYTES,
+    (server) => {
+      if (!health) throw new Error('HealthStatus not resolved before the gRPC server started');
+      health.implementation.addToServer(server);
+    },
+    serverCredentials(env, targetHost(url)),
+  );
 
   const app = isTestingModule(root)
     ? root.createNestMicroservice<GrpcOptions>({ ...transport, bufferLogs: true })

@@ -12,6 +12,7 @@ import {
 import { type ClientGrpc, ClientProxyFactory, Transport } from '@nestjs/microservices';
 import { CONFIG } from '../config/config.ts';
 import { currentRequestId, REQUEST_ID_KEY } from '../context/request-context.ts';
+import { channelCredentials } from './tls.ts';
 
 export interface GrpcClientDefinition {
   /** DI token under which the typed client (e.g. UserServiceClient) is provided. */
@@ -88,6 +89,7 @@ class GrpcClientsLifecycle implements OnApplicationShutdown {
  *   await firstValueFrom(this.users.getUser({ id }))
  *
  * Every call gets a deadline, the current x-request-id, and retries on UNAVAILABLE.
+ * Calls use TLS when the config has GRPC_TLS_CA_FILE (required for non-loopback targets).
  * Connections are lazy, so a service starts even when its dependencies are down.
  */
 @Module({})
@@ -101,11 +103,17 @@ export class GrpcClientsModule {
         {
           provide: proxyToken,
           inject: [CONFIG],
-          useFactory: (config: Record<string, unknown>) =>
-            ClientProxyFactory.create({
+          useFactory: (config: Record<string, unknown>) => {
+            const url = definition.url(config);
+            const caFile = config.GRPC_TLS_CA_FILE;
+            return ClientProxyFactory.create({
               transport: Transport.GRPC,
               options: {
-                url: definition.url(config),
+                url,
+                credentials: channelCredentials(
+                  url,
+                  typeof caFile === 'string' ? caFile : undefined,
+                ),
                 package: pkg,
                 packageDefinition: loadProtoPackage(definition.protoFiles),
                 channelOptions: {
@@ -116,7 +124,8 @@ export class GrpcClientsModule {
                   ],
                 },
               },
-            }) as unknown as ClientGrpc,
+            }) as unknown as ClientGrpc;
+          },
         },
         {
           provide: definition.token,

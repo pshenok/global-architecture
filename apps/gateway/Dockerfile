@@ -16,5 +16,6 @@ FROM gcr.io/distroless/nodejs26-debian13:nonroot
 WORKDIR /app
 COPY --from=build /out .
 ENV NODE_ENV=production GATEWAY_HOST=0.0.0.0
+# Calls to services off loopback use TLS: mount their CA and set GRPC_TLS_CA_FILE.
 EXPOSE 8443
 CMD ["--enable-source-maps", "--import", "@ga/service-kit/telemetry", "dist/main.js"]

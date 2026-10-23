@@ -39,8 +39,16 @@ export {
   checkGrpcHealth,
   closeHealthClients,
   type DownstreamHealth,
+  type HealthCheckOptions,
 } from './grpc/health-client.ts';
 export { type HealthCheck, HealthStatus } from './grpc/health-status.ts';
+export {
+  channelCredentials,
+  type GrpcTlsConfig,
+  grpcTlsConfigSchema,
+  isLoopbackHost,
+  serverCredentials,
+} from './grpc/tls.ts';
 export { parseRequest } from './grpc/validation.ts';
 export { type HttpLoggerConfig, httpLoggerParams } from './logging/http-logger-params.ts';
 export { grpcLoggerParams, REDACT_PATHS, rpcLogLevel } from './logging/logger-params.ts';
