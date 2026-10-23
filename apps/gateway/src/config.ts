@@ -1,4 +1,4 @@
-import { grpcTarget } from '@ga/service-kit';
+import { grpcTarget, workloadIdentityConfigSchema } from '@ga/service-kit';
 import { z } from 'zod';
 
 /** Environment of the gateway, validated at boot. */
@@ -26,6 +26,7 @@ const BaseConfigSchema = z.object({
   USER_SERVICE_URL: grpcTarget(),
   HOUSE_SERVICE_URL: grpcTarget(),
   BOOKING_SERVICE_URL: grpcTarget(),
+  ...workloadIdentityConfigSchema.shape,
 });
 
 export const ConfigSchema = BaseConfigSchema.transform((config) => ({

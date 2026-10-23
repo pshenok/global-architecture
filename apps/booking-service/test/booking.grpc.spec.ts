@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
 import {
-  createGrpcTestClient,
   createTestDatabase,
   type GrpcTestClient,
   grpcError,
@@ -49,11 +48,7 @@ describe('BookingService over gRPC', () => {
           .overrideProvider(HouseCatalog)
           .useValue(new FakeHouseCatalog()),
     });
-    client = createGrpcTestClient<BookingServiceClient>(
-      'ga.booking.v1.BookingService',
-      SERVICE.protoFiles,
-      service.url,
-    );
+    client = service.client<BookingServiceClient>('ga.booking.v1.BookingService');
   });
 
   afterAll(async () => {

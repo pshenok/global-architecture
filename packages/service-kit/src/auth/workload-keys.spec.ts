@@ -67,12 +67,12 @@ describe('WorkloadIdentity', () => {
 
   it('lets only edges sign principals', async () => {
     const house = await WorkloadIdentity.load('house-service', config('house-service'));
-    expect(() =>
-      house.signPrincipal(
+    await expect(
+      house.issuePrincipal(
         { kind: 'user', userId: '01900000-0000-7000-8000-000000000001', roles: [] },
         60,
       ),
-    ).toThrow(/PRINCIPAL_ISSUERS/);
+    ).rejects.toThrow(/PRINCIPAL_ISSUERS/);
     house.onApplicationShutdown();
   });
 

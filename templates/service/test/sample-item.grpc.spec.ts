@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { SampleItemServiceClient } from '@ga/contracts/ga/sample_item/v1/sample_item';
 import {
-  createGrpcTestClient,
   createTestDatabase,
   type GrpcTestClient,
   grpcError,
@@ -32,11 +31,7 @@ describe('SampleItemService over gRPC', () => {
       service: SERVICE,
       env: { DATABASE_URL: db.url },
     });
-    client = createGrpcTestClient<SampleItemServiceClient>(
-      SERVICE.services[0] as string,
-      SERVICE.protoFiles,
-      service.url,
-    );
+    client = service.client<SampleItemServiceClient>(SERVICE.services[0] as string);
   });
 
   afterAll(async () => {

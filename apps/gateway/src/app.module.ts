@@ -1,4 +1,4 @@
-import { CONFIG, ConfigModule, httpLoggerParams } from '@ga/service-kit';
+import { CONFIG, ConfigModule, httpLoggerParams, WorkloadIdentityModule } from '@ga/service-kit';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -14,6 +14,8 @@ import { UsersController } from './users/users.controller.ts';
 @Module({
   imports: [
     ConfigModule.forRoot(ConfigSchema),
+    // The gateway's own key: signs caller assertions to the services (ADR-0004).
+    WorkloadIdentityModule.forRoot({ name: 'gateway' }),
     LoggerModule.forRootAsync({
       inject: [CONFIG],
       useFactory: (config: Config) => httpLoggerParams('gateway', config),

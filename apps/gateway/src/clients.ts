@@ -10,6 +10,7 @@ export const DownstreamClientsModule = GrpcClientsModule.register([
   {
     token: USER_SERVICE,
     service: 'ga.user.v1.UserService',
+    target: 'user-service',
     protoFiles: ['ga/user/v1/user.proto'],
     url: (config) => String(config.USER_SERVICE_URL),
     timeoutMs: 5_000,
@@ -17,6 +18,7 @@ export const DownstreamClientsModule = GrpcClientsModule.register([
   {
     token: HOUSE_SERVICE,
     service: 'ga.house.v1.HouseService',
+    target: 'house-service',
     protoFiles: ['ga/house/v1/house.proto'],
     url: (config) => String(config.HOUSE_SERVICE_URL),
     timeoutMs: 5_000,
@@ -24,6 +26,7 @@ export const DownstreamClientsModule = GrpcClientsModule.register([
   {
     token: BOOKING_SERVICE,
     service: 'ga.booking.v1.BookingService',
+    target: 'booking-service',
     protoFiles: ['ga/booking/v1/booking.proto'],
     url: (config) => String(config.BOOKING_SERVICE_URL),
     timeoutMs: 5_000,

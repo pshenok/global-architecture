@@ -27,13 +27,17 @@ export type GrpcTestClient<C> = PromiseClient<C> & { close(): void };
 /**
  * A plain grpc-js client for tests and scripts, typed with the generated client
  * interface: `createGrpcTestClient<UserServiceClient>('ga.user.v1.UserService', ['ga/user/v1/user.proto'], url)`.
- * Pass `{ caFile }` to call a TLS server (the local stack: `.certs/grpc-ca.pem`).
+ * Pass `{ caFile }` to call a TLS server (the local stack: `.certs/grpc-ca.pem`) and
+ * `{ metadata }` for the metadata of calls that pass none (e.g. `service.anonymous`).
  */
 export function createGrpcTestClient<C>(
   service: string,
   protoFiles: readonly string[],
   url: string,
-  options: { readonly caFile?: string } = {},
+  options: {
+    readonly caFile?: string;
+    readonly metadata?: () => Metadata | Promise<Metadata>;
+  } = {},
 ): GrpcTestClient<C> {
   installWellKnownTypes();
   let node: unknown = loadPackageDefinition(loadProtoPackage(protoFiles));
@@ -48,12 +52,18 @@ export function createGrpcTestClient<C>(
       if (typeof property !== 'string') return undefined;
       const method = (client as unknown as Record<string, unknown>)[property];
       if (typeof method !== 'function') return undefined;
-      return (request: unknown, metadata: Metadata = new Metadata()) =>
-        new Promise((resolve, reject) => {
-          method.call(client, request, metadata, (error: ServiceError | null, response: unknown) =>
-            error ? reject(error) : resolve(response),
+      return async (request: unknown, metadata?: Metadata) => {
+        const callMetadata = metadata ?? (await options.metadata?.()) ?? new Metadata();
+        return new Promise((resolve, reject) => {
+          method.call(
+            client,
+            request,
+            callMetadata,
+            (error: ServiceError | null, response: unknown) =>
+              error ? reject(error) : resolve(response),
           );
         });
+      };
     },
   });
 }

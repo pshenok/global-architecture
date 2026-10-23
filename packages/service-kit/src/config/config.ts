@@ -1,5 +1,6 @@
 import { type DynamicModule, Inject, Module } from '@nestjs/common';
 import { z } from 'zod';
+import { workloadIdentityConfigSchema } from '../auth/config.ts';
 import { grpcTlsConfigSchema } from '../grpc/tls.ts';
 
 /** DI token of the parsed, typed configuration object. Inject with {@link InjectConfig}. */
@@ -26,7 +27,10 @@ export const grpcServiceConfigSchema = z.object({
     .default(4 * 1024 * 1024),
   /** Pause between reporting NOT_SERVING and closing the server, so load balancers can drain. */
   SHUTDOWN_DELAY_MS: z.coerce.number().int().min(0).default(0),
+  /** Serve gRPC server reflection. Default: on, except when NODE_ENV=production. */
+  GRPC_REFLECTION: z.stringbool().optional(),
   ...grpcTlsConfigSchema.shape,
+  ...workloadIdentityConfigSchema.shape,
 });
 
 /** Variables of services that own a Postgres database. */

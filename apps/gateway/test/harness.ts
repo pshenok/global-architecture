@@ -1,4 +1,5 @@
 import { parseConfig } from '@ga/service-kit';
+import { createTestWorkloadKeys, type TestWorkloadKeys } from '@ga/service-kit/testing';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module.ts';
@@ -39,10 +40,14 @@ export interface TestGateway {
  * gRPC client tokens replaced by fakes: `createTestGateway(new Map([[USER_SERVICE, fakeUsers]]))`.
  * Clients that are not overridden get an empty object.
  */
+let keys: Promise<TestWorkloadKeys> | undefined;
+
 export async function createTestGateway(
   clients: ReadonlyMap<symbol, unknown>,
 ): Promise<TestGateway> {
-  Object.assign(process.env, TEST_ENV);
+  // One ephemeral gateway key per test process (the clients are faked, nobody verifies it).
+  keys ??= createTestWorkloadKeys(['gateway']);
+  Object.assign(process.env, TEST_ENV, (await keys).env('gateway'));
   const config = parseConfig(ConfigSchema);
   let builder = Test.createTestingModule({ imports: [AppModule] });
   for (const [token, fake] of clients) builder = builder.overrideProvider(token).useValue(fake);

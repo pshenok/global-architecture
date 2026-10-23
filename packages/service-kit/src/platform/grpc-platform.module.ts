@@ -1,10 +1,15 @@
 import { Clock, IdGenerator, UnitOfWork } from '@ga/kernel';
 import { type DynamicModule, Module, type Provider } from '@nestjs/common';
+import { APP_GUARD, DiscoveryModule } from '@nestjs/core';
 import { ClsPluginTransactional } from '@nestjs-cls/transactional';
 import { TransactionalAdapterDrizzleOrm } from '@nestjs-cls/transactional-adapter-drizzle-orm';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
 import type { z } from 'zod';
+import { AccessPolicyCheck } from '../auth/access-policy-check.ts';
+import { GrpcAuthGuard } from '../auth/grpc-auth.guard.ts';
+import { enterVerifiedCall, principalFrom } from '../auth/principal-context.ts';
+import { WorkloadIdentityModule } from '../auth/workload-identity.ts';
 import { CONFIG, ConfigModule, type GrpcServiceConfig } from '../config/config.ts';
 import { requestIdFromRpc } from '../context/request-context.ts';
 import { DatabaseModule } from '../database/database.module.ts';
@@ -25,8 +30,9 @@ export interface GrpcPlatformOptions {
 
 /**
  * Everything a gRPC service needs, in one import:
- * config, structured logging, request context, health, ids, clock and
- * (optionally) the database with transactions.
+ * config, workload identity and per-RPC authentication (GrpcAuthGuard + the
+ * @Access boot check), structured logging, request context, health, ids, clock
+ * and (optionally) the database with transactions.
  *
  *   @Module({ imports: [GrpcPlatformModule.forRoot({ service: SERVICE, config: ConfigSchema })], ... })
  */
@@ -39,6 +45,8 @@ export class GrpcPlatformModule {
       HealthStatus,
       { provide: IdGenerator, useClass: UuidV7IdGenerator },
       { provide: Clock, useClass: SystemClock },
+      { provide: APP_GUARD, useClass: GrpcAuthGuard },
+      AccessPolicyCheck,
     ];
     if (database) {
       providers.push(DbContext, { provide: UnitOfWork, useClass: DrizzleUnitOfWork });
@@ -48,13 +56,21 @@ export class GrpcPlatformModule {
       global: true,
       imports: [
         ConfigModule.forRoot(options.config),
+        WorkloadIdentityModule.forRoot({ name: options.service.name }),
+        DiscoveryModule,
         LoggerModule.forRootAsync({
           inject: [CONFIG],
           useFactory: (config: GrpcServiceConfig) => grpcLoggerParams(options.service.name, config),
         }),
         ClsModule.forRoot({
           global: true,
-          interceptor: { mount: true, generateId: true, idGenerator: requestIdFromRpc },
+          interceptor: {
+            mount: true,
+            generateId: true,
+            idGenerator: requestIdFromRpc,
+            // The auth guard ran before this interceptor; copy what it verified into CLS.
+            setup: (cls, context) => enterVerifiedCall(cls, principalFrom(context)),
+          },
           plugins: database
             ? [
                 new ClsPluginTransactional({

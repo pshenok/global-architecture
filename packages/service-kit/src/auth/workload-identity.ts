@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { IdentityActor, UserActor } from '@ga/kernel';
 import {
   type DynamicModule,
   Global,
@@ -9,6 +10,7 @@ import {
 import type { JWTVerifyGetKey } from 'jose';
 import { CONFIG } from '../config/config.ts';
 import type { WorkloadIdentityConfig } from './config.ts';
+import { actorFromClaims } from './principal-context.ts';
 import {
   CALLER_TOKEN_TTL_S,
   keySetsOf,
@@ -107,14 +109,21 @@ export class WorkloadIdentity implements OnApplicationShutdown {
     }
   }
 
-  /** Signs a user principal. Only edge workloads (PRINCIPAL_ISSUERS) may. */
-  signPrincipal(claims: PrincipalClaims, ttlSeconds: number): Promise<string> {
+  /**
+   * Signs a principal for the current request and returns it with its actor (pass both
+   * to `enterPrincipal`). Only edge workloads (PRINCIPAL_ISSUERS) may.
+   */
+  async issuePrincipal(
+    claims: PrincipalClaims,
+    ttlSeconds: number,
+  ): Promise<{ readonly token: string; readonly actor: UserActor | IdentityActor }> {
     if (!this.isEdge) {
       throw new Error(
         `workload ${this.name} is not in PRINCIPAL_ISSUERS and may not sign principals`,
       );
     }
-    return signPrincipalToken(this.signingKey, this.name, claims, ttlSeconds);
+    const token = await signPrincipalToken(this.signingKey, this.name, claims, ttlSeconds);
+    return { token, actor: actorFromClaims(claims) };
   }
 
   /** Returns the workload that signed a caller assertion addressed to this workload. */

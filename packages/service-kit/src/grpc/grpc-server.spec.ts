@@ -17,6 +17,9 @@ import { CLS_ID, ClsModule, ClsServiceManager } from 'nestjs-cls';
 import { firstValueFrom } from 'rxjs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { Access } from '../auth/access.ts';
+import { workloadIdentityConfigSchema } from '../auth/config.ts';
+import { WorkloadIdentityModule } from '../auth/workload-identity.ts';
 import { ConfigModule, grpcServiceConfigSchema } from '../config/config.ts';
 import { currentRequestId } from '../context/request-context.ts';
 import { GrpcPlatformModule } from '../platform/grpc-platform.module.ts';
@@ -38,6 +41,7 @@ const CreateUserInput = z.object({ email: z.email(), fullName: z.string().min(1)
 @Controller()
 @UserServiceControllerMethods()
 class FakeUserController implements UserServiceController {
+  @Access.public('kit test')
   createUser(request: CreateUserRequest) {
     const input = parseRequest(CreateUserInput, request);
     return {
@@ -51,6 +55,7 @@ class FakeUserController implements UserServiceController {
     };
   }
 
+  @Access.public('kit test')
   async getUser(request: GetUserRequest) {
     if (request.id === 'boom') throw new Error('secret internals');
     if (request.id === 'dependency-down') {
@@ -69,14 +74,17 @@ class FakeUserController implements UserServiceController {
     });
   }
 
+  @Access.public('kit test')
   listUsers() {
     return { users: [], nextPageToken: '' };
   }
 
+  @Access.public('kit test')
   updateUser() {
     return { user: null };
   }
 
+  @Access.public('kit test')
   deleteUser() {
     return {};
   }
@@ -99,12 +107,16 @@ const DEAD = Symbol('DEAD');
 
 @Module({
   imports: [
-    ConfigModule.forRoot(z.object({ TARGET: z.string(), DEAD_TARGET: z.string() })),
+    ConfigModule.forRoot(
+      workloadIdentityConfigSchema.extend({ TARGET: z.string(), DEAD_TARGET: z.string() }),
+    ),
+    WorkloadIdentityModule.forRoot({ name: 'gateway' }),
     ClsModule.forRoot({ global: true }),
     GrpcClientsModule.register([
       {
         token: USERS,
         service: 'ga.user.v1.UserService',
+        target: SERVICE.name,
         protoFiles: ['ga/user/v1/user.proto'],
         url: (c) => String(c.TARGET),
         timeoutMs: 300,
@@ -112,6 +124,7 @@ const DEAD = Symbol('DEAD');
       {
         token: DEAD,
         service: 'ga.user.v1.UserService',
+        target: SERVICE.name,
         protoFiles: ['ga/user/v1/user.proto'],
         url: (c) => String(c.DEAD_TARGET),
         timeoutMs: 300,
@@ -126,17 +139,13 @@ describe('gRPC server bootstrap (in-process)', () => {
   let caller: INestApplicationContext;
   let users: UserServiceClient;
   let dead: UserServiceClient;
-  const client = () =>
-    createGrpcTestClient<UserServiceClient>(
-      'ga.user.v1.UserService',
-      SERVICE.protoFiles,
-      service.url,
-    );
+  const client = () => service.client<UserServiceClient>('ga.user.v1.UserService');
 
   beforeAll(async () => {
     service = await startTestService({ module: FakeServiceModule, service: SERVICE });
     process.env.TARGET = service.url;
     process.env.DEAD_TARGET = '127.0.0.1:1';
+    Object.assign(process.env, service.keys.env('gateway'));
     caller = await NestFactory.createApplicationContext(CallerModule, { logger: false });
     users = caller.get<UserServiceClient>(USERS);
     dead = caller.get<UserServiceClient>(DEAD);

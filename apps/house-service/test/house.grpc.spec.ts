@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { HouseServiceClient } from '@ga/contracts/ga/house/v1/house';
 import {
-  createGrpcTestClient,
   createTestDatabase,
   type GrpcTestClient,
   grpcError,
@@ -33,11 +32,7 @@ describe('HouseService over gRPC', () => {
       env: { DATABASE_URL: db.url, USER_SERVICE_URL: '127.0.0.1:1' },
       override: (builder) => builder.overrideProvider(UserDirectory).useValue(users),
     });
-    client = createGrpcTestClient<HouseServiceClient>(
-      'ga.house.v1.HouseService',
-      SERVICE.protoFiles,
-      service.url,
-    );
+    client = service.client<HouseServiceClient>('ga.house.v1.HouseService');
   });
 
   afterAll(async () => {

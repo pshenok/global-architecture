@@ -1,8 +1,19 @@
+export { Access, type AccessPolicy } from './auth/access.ts';
 export {
   type WorkloadIdentityConfig,
   workloadIdentityConfigSchema,
   workloadName,
 } from './auth/config.ts';
+export {
+  currentActor,
+  currentCaller,
+  currentIdentity,
+  currentPrincipalToken,
+  currentUser,
+  enterPrincipal,
+  principalFrom,
+  type VerifiedCall,
+} from './auth/principal-context.ts';
 export {
   CALLER_METADATA_KEY,
   PRINCIPAL_MAX_TTL_S,

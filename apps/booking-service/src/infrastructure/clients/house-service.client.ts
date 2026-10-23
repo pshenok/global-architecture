@@ -7,6 +7,7 @@ export const HOUSE_SERVICE = Symbol('HOUSE_SERVICE');
 export const HouseServiceClientModule = GrpcClientsModule.register([
   {
     token: HOUSE_SERVICE,
+    target: 'house-service',
     service: 'ga.house.v1.HouseService',
     protoFiles: ['ga/house/v1/house.proto'],
     url: (config) => String(config.HOUSE_SERVICE_URL),

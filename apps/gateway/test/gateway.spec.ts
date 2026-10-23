@@ -192,7 +192,13 @@ describe('gateway (REST -> gRPC)', () => {
 });
 
 describe('gateway config', () => {
-  const env = { USER_SERVICE_URL: 'a:1', HOUSE_SERVICE_URL: 'b:1', BOOKING_SERVICE_URL: 'c:1' };
+  const env = {
+    USER_SERVICE_URL: 'a:1',
+    HOUSE_SERVICE_URL: 'b:1',
+    BOOKING_SERVICE_URL: 'c:1',
+    WORKLOAD_KEY_FILE: '/keys/gateway.jwk.json',
+    WORKLOAD_KEYS_FILE: '/keys/workload-keys.json',
+  };
 
   it('disables the docs by default in production only', () => {
     expect(parseConfig(ConfigSchema, { ...env, NODE_ENV: 'production' }).DOCS_ENABLED).toBe(false);

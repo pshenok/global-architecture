@@ -6,7 +6,7 @@ export {
   grpcError,
   type PromiseClient,
 } from './grpc-test-client.ts';
-export { startTestService, type TestService } from './start-test-service.ts';
+export { type CallOptions, startTestService, type TestService } from './start-test-service.ts';
 export {
   createTestDatabase,
   DEFAULT_TEST_DATABASE_URL,

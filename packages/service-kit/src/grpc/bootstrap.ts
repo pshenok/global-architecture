@@ -30,6 +30,7 @@ export function grpcServerOptions(
   maxMessageBytes: number,
   onServer: (server: Server) => void,
   credentials: ServerCredentials,
+  reflection = true,
 ): GrpcOptions {
   return {
     transport: Transport.GRPC,
@@ -40,6 +41,7 @@ export function grpcServerOptions(
       packageDefinition: loadProtoPackage(service.protoFiles),
       onLoadPackageDefinition: (_pkg, server) => {
         onServer(server);
+        if (!reflection) return;
         new ReflectionService(reflectionPackageDefinition(), {
           services: [...service.services, 'grpc.health.v1.Health'],
         }).addToServer(server);
@@ -59,7 +61,8 @@ function isTestingModule(root: unknown): root is TestingModule {
  * Starts a gRPC service: the only bootstrap code a service's main.ts needs.
  *
  * Installs proto well-known-type wrappers, serves the service's contracts plus
- * grpc.health.v1 and server reflection over TLS (plaintext only on loopback), routes Nest logs through pino, maps
+ * grpc.health.v1 and server reflection (off in production unless GRPC_REFLECTION=true)
+ * over TLS (plaintext only on loopback), authenticates every RPC (GrpcAuthGuard), routes Nest logs through pino, maps
  * errors with GrpcErrorFilter (always on), enables graceful shutdown, then
  * reports SERVING once dependency checks pass.
  */
@@ -82,6 +85,7 @@ export async function bootstrapGrpcService(
       health.implementation.addToServer(server);
     },
     serverCredentials(env, targetHost(url)),
+    env.GRPC_REFLECTION ?? env.NODE_ENV !== 'production',
   );
 
   const app = isTestingModule(root)

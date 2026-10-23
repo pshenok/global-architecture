@@ -13,7 +13,7 @@ import {
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
-import { parseRequest } from '@ga/service-kit';
+import { Access, parseRequest } from '@ga/service-kit';
 import { Controller } from '@nestjs/common';
 import { UserService } from '../../application/user.service.ts';
 import { toUserMessage } from './user.mapper.ts';
@@ -35,16 +35,19 @@ import {
 export class UserGrpcController implements UserServiceController {
   constructor(private readonly users: UserService) {}
 
+  @Access.public('transitional: ADR-0004 rollout')
   async createUser(request: CreateUserRequest): Promise<CreateUserResponse> {
     const input = parseRequest(CreateUserRequestSchema, request);
     return { user: toUserMessage(await this.users.create(input)) };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async getUser(request: GetUserRequest): Promise<GetUserResponse> {
     const { id } = parseRequest(GetUserRequestSchema, request);
     return { user: toUserMessage(await this.users.get(id)) };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async listUsers(request: ListUsersRequest): Promise<ListUsersResponse> {
     const { pageSize, pageToken } = parseRequest(ListUsersRequestSchema, request);
     const fingerprint = filterFingerprint({});
@@ -58,11 +61,13 @@ export class UserGrpcController implements UserServiceController {
     };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async updateUser(request: UpdateUserRequest): Promise<UpdateUserResponse> {
     const { id, ...changes } = parseRequest(UpdateUserRequestSchema, request);
     return { user: toUserMessage(await this.users.update(id, changes)) };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async deleteUser(request: DeleteUserRequest): Promise<DeleteUserResponse> {
     const { id } = parseRequest(DeleteUserRequestSchema, request);
     await this.users.delete(id);

@@ -13,7 +13,7 @@ import {
   type UpdateSampleItemResponse,
 } from '@ga/contracts/ga/sample_item/v1/sample_item';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
-import { parseRequest } from '@ga/service-kit';
+import { Access, parseRequest } from '@ga/service-kit';
 import { Controller } from '@nestjs/common';
 import { SampleItemService } from '../../application/sample-item.service.ts';
 import { toSampleItemMessage } from './sample-item.mapper.ts';
@@ -35,16 +35,19 @@ import {
 export class SampleItemGrpcController implements SampleItemServiceController {
   constructor(private readonly sampleItems: SampleItemService) {}
 
+  @Access.public('transitional: ADR-0004 rollout')
   async createSampleItem(request: CreateSampleItemRequest): Promise<CreateSampleItemResponse> {
     const input = parseRequest(CreateSampleItemRequestSchema, request);
     return { sampleItem: toSampleItemMessage(await this.sampleItems.create(input)) };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async getSampleItem(request: GetSampleItemRequest): Promise<GetSampleItemResponse> {
     const { id } = parseRequest(GetSampleItemRequestSchema, request);
     return { sampleItem: toSampleItemMessage(await this.sampleItems.get(id)) };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async listSampleItems(request: ListSampleItemsRequest): Promise<ListSampleItemsResponse> {
     const { pageSize, pageToken } = parseRequest(ListSampleItemsRequestSchema, request);
     const fingerprint = filterFingerprint({});
@@ -58,11 +61,13 @@ export class SampleItemGrpcController implements SampleItemServiceController {
     };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async updateSampleItem(request: UpdateSampleItemRequest): Promise<UpdateSampleItemResponse> {
     const { id, ...changes } = parseRequest(UpdateSampleItemRequestSchema, request);
     return { sampleItem: toSampleItemMessage(await this.sampleItems.update(id, changes)) };
   }
 
+  @Access.public('transitional: ADR-0004 rollout')
   async deleteSampleItem(request: DeleteSampleItemRequest): Promise<DeleteSampleItemResponse> {
     const { id } = parseRequest(DeleteSampleItemRequestSchema, request);
     await this.sampleItems.delete(id);
