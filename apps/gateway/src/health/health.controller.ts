@@ -18,7 +18,7 @@ const WORST: readonly KeySetState[] = ['unavailable', 'stale', 'ok'];
  */
 @ApiExcludeController()
 @SkipThrottle()
-@Public('liveness and readiness probes')
+@Public('liveness and readiness probes', { ignoreToken: true })
 @Controller()
 export class HealthController {
   constructor(

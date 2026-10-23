@@ -30,20 +30,27 @@ audience (the API's own audience, never a client id), required `kid`, `exp`, `ia
 `sub`, `nbf` honoured, `AUTH_CLOCK_TOLERANCE_S` (30 s) of skew, and ID tokens
 (`nonce`, `at_hash`, `c_hash`) refused.
 
-Provider keys are fetched in the background, not on the request path. The last good
-keys keep working for `AUTH_JWKS_MAX_STALE_S` (30 min) while refreshes fail; after that,
-and while no keys were ever loaded, requests get **503 IDENTITY_PROVIDER_UNAVAILABLE,
-never 401**, so clients do not throw valid tokens away. A token with an unknown `kid`
-triggers at most one extra fetch per `AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S`, measured from
-the previous unknown-kid fetch, so key rotation works within seconds and forged kids
-cannot hammer the provider. `/readyz` reports the provider's state but does not fail
-on it: public routes and cached keys keep working during an IdP outage.
+Provider keys are fetched by one background loop per provider: every
+`AUTH_JWKS_REFRESH_S` (5 min), and after a failure again within seconds (backoff up to
+5 s without usable keys, 30 s with). A request never starts a fetch of its own while
+the keys are unusable; it only waits for one already running. The last good keys keep
+working for `AUTH_JWKS_MAX_STALE_S` (30 min, at least twice the refresh interval) while
+refreshes fail; after that, and while no keys were ever loaded, requests get
+**503 IDENTITY_PROVIDER_UNAVAILABLE, never 401**, so clients do not throw valid tokens
+away. A token with an unknown `kid` triggers at most one extra fetch per
+`AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S`, measured from the previous unknown-kid fetch, so key
+rotation works within seconds and forged kids cannot hammer the provider. It is a 401
+only when the last fetch succeeded without that kid; while fetches fail it is a 503
+(the key may be new). `/readyz` reports the provider's state but does not fail on it:
+public routes and cached keys keep working during an IdP outage.
 
 Routes need a registered user unless they are `@Public(reason)` (health probes, the
 house catalogue) or `@AllowUnregistered()` (registration). A token sent to a public
-route is still verified (a bad one is a 401, never a silent downgrade), but it is
-neither resolved nor forwarded. 401 responses carry `WWW-Authenticate: Bearer`
-(RFC 6750).
+route is still verified (a bad one is a 401, never a silent downgrade, unless the
+provider is unavailable, which does not fail a public route), but it is neither
+resolved nor forwarded. Health probes ignore the Authorization header altogether
+(`@Public(reason, { ignoreToken: true })`). 401 responses carry
+`WWW-Authenticate: Bearer` (RFC 6750).
 
 ### 2. Platform users are separate from identity-provider logins
 
@@ -143,10 +150,13 @@ fields. Rules:
 
 ### 6. Guardrails
 
-- `pnpm lint` runs `tools/check-access.ts`: every endpoint reachable without a user is
-  listed with its reason in `security/public-endpoints.json`; no production code casts
-  to a verified actor, builds `x-ga-*` metadata or imports test helpers.
-- `.github/CODEOWNERS` covers `security/`, the kit's and the gateway's auth code.
+- `pnpm lint` runs `tools/check-access.ts`: every endpoint that does not need a signed-in
+  user (public, registration, identity and workload-only methods) is listed with its
+  reason in `security/public-endpoints.json`, and a decorator whose arguments it cannot
+  read fails; no production code casts to a verified actor, builds `x-ga-*` metadata or
+  imports test helpers.
+- `.github/CODEOWNERS` covers `security/`, the kit's auth, gRPC and platform code, the
+  gateway's auth code, the access check and itself.
 - The template's gRPC spec starts every new service with five access tests (no user,
   another user, admin, a stranger's empty list, an unlisted forwarder).
 - The gateway turns a downstream `UNAUTHENTICATED`, and `PERMISSION_DENIED` with a

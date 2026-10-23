@@ -39,11 +39,13 @@ in the controller.
 - Every `@Public` route is listed in `security/public-endpoints.json` with the same reason
   (`{ "where": "apps/gateway/src/houses/houses.controller.ts#list", "access": "public", "reason": "world-readable catalogue" }`);
   `pnpm lint` fails when the code and the list differ, and the list has code owners.
-  Write the reason inline as a single-quoted string without apostrophes: `check-access`
-  recognizes only that form, so `@Public(REASON)` or `@Public("owner's")` escapes the check.
+  Write the reason inline on the decorator's line, in any quote style: `check-access`
+  fails `@Public(REASON)`, a computed reason or a decorator that wraps `@Public`, so no
+  form escapes the check.
 - A token sent to a public route is still verified (a bad one is a 401, never a silent
-  downgrade), but it is neither resolved nor forwarded, so a public route can only call
-  `@Access.public` RPCs.
+  downgrade; during an IdP outage it is skipped instead of failing the route), but it is
+  neither resolved nor forwarded, so a public route can only call `@Access.public` RPCs.
+  Probes use `@Public(reason, { ignoreToken: true })` and never look at the header.
 - `@AllowUnregistered()` is for registration (`POST /v1/users`) only.
 - Never take the acting user's id from the body, query or path: the services take owner,
   guest and user from the principal. `me` means the signed-in user (`/v1/users/me`; the

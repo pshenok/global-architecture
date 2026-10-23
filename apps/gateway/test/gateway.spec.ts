@@ -173,6 +173,30 @@ describe('gateway (REST -> gRPC)', () => {
       expect(bad.statusCode).toBe(401);
     });
 
+    it('keeps public routes and probes up during an IdP outage; new keys get 503', async () => {
+      houses.listHouses.mockReturnValue(of({ houses: [house], nextPageToken: '' }));
+      gateway.issuer.setDown(true);
+      try {
+        await gateway.issuer.rotate(); // tokens now carry a kid the gateway has not fetched
+        const headers = await gateway.bearer('login-during-outage');
+        const catalogue = await inject({ method: 'GET', url: '/v1/houses', headers });
+        expect(catalogue.statusCode).toBe(200);
+        const me = await inject({ method: 'GET', url: '/v1/users/me', headers });
+        expect(me.statusCode).toBe(503);
+        expect(me.json().code).toBe('IDENTITY_PROVIDER_UNAVAILABLE');
+        for (const url of ['/healthz', '/readyz']) {
+          const probe = await inject({
+            method: 'GET',
+            url,
+            headers: { authorization: 'Basic not-even-bearer' },
+          });
+          expect(probe.statusCode).not.toBe(401);
+        }
+      } finally {
+        gateway.issuer.setDown(false);
+      }
+    });
+
     it('acts as the signed-in user: owner and guest never come from the body', async () => {
       let actor: unknown;
       houses.createHouse.mockImplementation(() => {
@@ -466,6 +490,16 @@ describe('gateway config', () => {
     );
     const remote = { ...env, AUTH_ISSUERS: issuers('http://idp.example/jwks.json') };
     expect(() => parseConfig(ConfigSchema, remote)).toThrow(/must use https/);
+  });
+
+  it('refuses a max-stale window shorter than two refresh intervals', () => {
+    expect(() =>
+      parseConfig(ConfigSchema, {
+        ...env,
+        AUTH_JWKS_REFRESH_S: '600',
+        AUTH_JWKS_MAX_STALE_S: '900',
+      }),
+    ).toThrow(/AUTH_JWKS_MAX_STALE_S/);
   });
 
   it('never accepts symmetric or unsigned algorithms', () => {

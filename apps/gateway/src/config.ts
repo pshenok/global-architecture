@@ -35,6 +35,13 @@ export const ConfigSchema = BaseConfigSchema.transform((config, ctx) => {
   checkIssuerUrls(config.AUTH_ISSUERS, config.NODE_ENV === 'production', (message) =>
     ctx.addIssue({ code: 'custom', message, path: ['AUTH_ISSUERS'] }),
   );
+  if (config.AUTH_JWKS_MAX_STALE_S < 2 * config.AUTH_JWKS_REFRESH_S) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'must be at least twice AUTH_JWKS_REFRESH_S, or keys expire between refreshes',
+      path: ['AUTH_JWKS_MAX_STALE_S'],
+    });
+  }
   return { ...config, DOCS_ENABLED: config.DOCS_ENABLED ?? config.NODE_ENV !== 'production' };
 });
 

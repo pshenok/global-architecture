@@ -84,15 +84,16 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
 
 ## Access guardrails
 
-- `tools/check-access.ts` runs in `pnpm lint`: every `@Access.public`, `@Public` and
-  `@AllowUnregistered` must match an entry (file#member, access, reason) in
-  `security/public-endpoints.json`, and production code may not cast to a verified actor,
+- `tools/check-access.ts` runs in `pnpm lint`: every `@Access.public`, `@Public`,
+  `@AllowUnregistered`, `@Access.identity` and `@Access.service` must match an entry
+  (file#member, access, reason) in `security/public-endpoints.json` (arguments are inline
+  literals, or lint fails), and production code may not cast to a verified actor,
   build `x-ga-caller`/`x-ga-principal` metadata or import `@ga/kernel/testing` or
   `@ga/service-kit/testing`. Extend it when
   you add a new way to reach data without a user; never weaken it.
-- `.github/CODEOWNERS` requires the platform owner's review for `security/`,
-  `packages/service-kit/src/auth/`, `apps/gateway/src/auth/`,
-  `packages/kernel/src/actor.ts` and `tools/check-access.ts`.
+- `.github/CODEOWNERS` requires the platform owner's review for `security/`, the kit's
+  `auth/`, `grpc/` and `platform/` code, `apps/gateway/src/auth/`,
+  `packages/kernel/src/actor.ts`, `tools/check-access.ts` and CODEOWNERS itself.
 - Never add a switch that disables authentication or allows plaintext gRPC off loopback;
   ADR-0004 rejects both, because agents would use them.
 

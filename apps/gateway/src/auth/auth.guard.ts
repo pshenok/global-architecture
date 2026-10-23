@@ -1,4 +1,4 @@
-import { PermissionDeniedError } from '@ga/kernel';
+import { DependencyUnavailableError, PermissionDeniedError } from '@ga/kernel';
 import { enterPrincipal, InjectConfig, WorkloadIdentity } from '@ga/service-kit';
 import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -37,12 +37,18 @@ export class AuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    if (route?.mode === 'public' && route.ignoreToken) return true;
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const token = bearerToken(request.headers.authorization);
 
     if (route?.mode === 'public') {
-      // A token that is sent must be valid; it is not used for anything else.
-      if (token) await this.verifier.verify(token);
+      // A token that is sent must be valid; it is not used for anything else, so an
+      // identity-provider outage does not take public routes down with it.
+      if (token) {
+        await this.verifier.verify(token).catch((error: unknown) => {
+          if (!(error instanceof DependencyUnavailableError)) throw error;
+        });
+      }
       return true;
     }
     if (!token) throw tokenMissing();

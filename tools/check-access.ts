@@ -1,11 +1,14 @@
 /**
  * Access guardrails (ADR-0004), run by `pnpm lint`:
- * 1. Every endpoint reachable without a signed-in user (@Access.public on a gRPC
- *    method; @Public or @AllowUnregistered at the gateway) is listed, with the same
- *    reason, in security/public-endpoints.json, which CODEOWNERS protects. Making
- *    something public is therefore always a visible, reviewed change.
- * 2. Verified actors are never forged: no `as UserActor` (or Identity/Service) casts
- *    outside the service kit and tests.
+ * 1. Every endpoint that does not need a signed-in user is listed, with the same
+ *    reason, in security/public-endpoints.json, which CODEOWNERS protects: @Access.public
+ *    and @Public (anyone), @AllowUnregistered and @Access.identity (a login without a
+ *    user), @Access.service (other workloads only). Opening one up is therefore always
+ *    a visible, reviewed change. Decorator arguments must be inline literals on the
+ *    decorator's line (any quote style); anything else fails, so it cannot hide.
+ * 2. Verified actors are never forged: no `as UserActor` / `as Actor` (also through
+ *    `as unknown as`, or `<UserActor>x`) outside the service kit and tests. `any`
+ *    is already refused by Biome (noExplicitAny).
  * 3. Identity metadata is never hand-built: the x-ga-caller / x-ga-principal keys
  *    appear only in the service kit and tests.
  * 4. Test helpers (@ga/kernel/testing, @ga/service-kit/testing) stay out of production code.
@@ -16,7 +19,7 @@ import { ROOT } from './lib.ts';
 
 interface Entry {
   readonly where: string;
-  readonly access: 'public' | 'unregistered';
+  readonly access: 'public' | 'unregistered' | 'identity' | 'service';
   readonly reason: string;
 }
 
@@ -33,8 +36,12 @@ function* sourceFiles(dir: string): Generator<string> {
   }
 }
 
+/** Specs, the test folders of apps/packages/the template, and the published test helpers. */
 const isTest = (file: string) =>
-  file.endsWith('.spec.ts') || /(^|\/)test\//.test(file) || file.includes('/testing/');
+  file.endsWith('.spec.ts') ||
+  /^(apps\/[^/]+|packages\/[^/]+|templates\/service)\/test\//.test(file) ||
+  file.startsWith('packages/service-kit/src/testing/') ||
+  file === 'packages/kernel/src/testing.ts';
 /** The service kit owns identity metadata and actor construction. */
 const isAuthCode = (file: string) =>
   file.startsWith('packages/service-kit/src/') || file === 'packages/kernel/src/testing.ts';
@@ -52,6 +59,50 @@ function memberAfter(lines: readonly string[], index: number): string {
   return '(unknown)';
 }
 
+const ACTOR_TYPES = '(?:Actor|UserActor|IdentityActor|ServiceActor)';
+const FORGED_ACTOR = new RegExp(
+  `\\bas\\s+(?:unknown\\s+as\\s+)?${ACTOR_TYPES}\\b|(?<![\\w$])<${ACTOR_TYPES}>`,
+);
+const STRING = String.raw`(['"\`])((?:(?!\1).)*)\1`;
+const PUBLIC = new RegExp(
+  String.raw`@(?:Access\.public|Public)\s*\(\s*${STRING}\s*(?:,\s*\{[^}]*\}\s*)?\)`,
+);
+const NAMES = String.raw`\[\s*((?:(['"\`])[\w-]+\2\s*,?\s*)*)\]`;
+const IDENTITY = new RegExp(
+  String.raw`@Access\.identity\s*\(\s*(?:\{\s*via\s*:\s*${NAMES}\s*\}\s*)?\)`,
+);
+const SERVICE = new RegExp(String.raw`@Access\.service\s*\(\s*${NAMES}\s*\)`);
+const names = (list: string | undefined) =>
+  (list ?? '')
+    .split(',')
+    .map((name) => name.trim().slice(1, -1))
+    .filter(Boolean)
+    .join(', ');
+
+/** The access a decorator on this line opens up, `unreadable` when it cannot be read. */
+function declaredAccess(line: string): Pick<Entry, 'access' | 'reason'> | 'unreadable' | undefined {
+  if (/@(Access\.public|Public)\s*\(/.test(line)) {
+    const match = PUBLIC.exec(line);
+    return match ? { access: 'public', reason: match[2] as string } : 'unreadable';
+  }
+  if (/@AllowUnregistered\s*\(/.test(line))
+    return { access: 'unregistered', reason: 'registration' };
+  if (/@Access\.identity\s*\(/.test(line)) {
+    const match = IDENTITY.exec(line);
+    if (!match) return 'unreadable';
+    const via = names(match[1]);
+    return {
+      access: 'identity',
+      reason: via ? `login without a user, via ${via}` : 'login without a user',
+    };
+  }
+  if (/@Access\.service\s*\(/.test(line)) {
+    const match = SERVICE.exec(line);
+    return match ? { access: 'service', reason: `workloads: ${names(match[1])}` } : 'unreadable';
+  }
+  return undefined;
+}
+
 const found: Entry[] = [];
 const problems: string[] = [];
 
@@ -65,35 +116,18 @@ for (const top of SCANNED) {
       if (isComment(line)) return;
       const at = `${file}:${index + 1}`;
       if (!isTest(file)) {
-        if (/@(Access\.public|Public)\s*\(/.test(line)) {
-          // The reason must be an inline string literal on the decorator's line, so this
-          // check can read it; a constant or a call would hide the endpoint from review.
-          const reason = /@(?:Access\.public|Public)\s*\(\s*(['"`])((?:(?!\1).)*)\1\s*\)/.exec(
-            line,
+        const declared = declaredAccess(line);
+        if (declared === 'unreadable') {
+          problems.push(
+            `${at}: write this access decorator with inline literal arguments on one line`,
           );
-          if (reason) {
-            found.push({
-              where: `${file}#${memberAfter(lines, index)}`,
-              access: 'public',
-              reason: reason[2] as string,
-            });
-          } else {
-            problems.push(
-              `${at}: write the public reason as an inline string literal on this line`,
-            );
-          }
-        }
-        if (/@AllowUnregistered\s*\(/.test(line)) {
-          found.push({
-            where: `${file}#${memberAfter(lines, index)}`,
-            access: 'unregistered',
-            reason: 'registration',
-          });
+        } else if (declared) {
+          found.push({ where: `${file}#${memberAfter(lines, index)}`, ...declared });
         }
       }
       // Tests and local dev tools (tools/) may sign tokens and build metadata on purpose.
       if (isTest(file) || isAuthCode(file) || file.startsWith('tools/')) return;
-      if (/\bas\s+(unknown\s+as\s+)?(UserActor|IdentityActor|ServiceActor)\b/.test(line)) {
+      if (FORGED_ACTOR.test(line)) {
         problems.push(
           `${at}: casts to a verified actor; take actors from currentUser() / currentActor()`,
         );
@@ -136,5 +170,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log(
-  `check-access: ${found.length} public endpoint(s), all listed; no forged actors or identity metadata`,
+  `check-access: ${found.length} endpoint(s) open without a user, all listed; no forged actors or identity metadata`,
 );

@@ -1,5 +1,5 @@
 {
-  "$comment": "Every endpoint reachable without a signed-in user (ADR-0004). tools/check-access.ts (pnpm lint) fails when the code and this list differ; changes are reviewed by the code owners of security/.",
+  "$comment": "Every endpoint that does not need a signed-in user (ADR-0004): public (anyone), unregistered and identity (a login without a user), service (other workloads only). tools/check-access.ts (pnpm lint) fails when the code and this list differ; changes are reviewed by the code owners of security/.",
   "endpoints": [
     {
       "where": "apps/gateway/src/health/health.controller.ts#HealthController",
@@ -7,12 +7,12 @@
       "reason": "liveness and readiness probes"
     },
     {
-      "where": "apps/gateway/src/houses/houses.controller.ts#list",
+      "where": "apps/gateway/src/houses/houses.controller.ts#get",
       "access": "public",
       "reason": "world-readable catalogue"
     },
     {
-      "where": "apps/gateway/src/houses/houses.controller.ts#get",
+      "where": "apps/gateway/src/houses/houses.controller.ts#list",
       "access": "public",
       "reason": "world-readable catalogue"
     },
@@ -30,6 +30,16 @@
       "where": "apps/house-service/src/transport/grpc/house.grpc-controller.ts#listHouses",
       "access": "public",
       "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/user-service/src/transport/grpc/user.grpc-controller.ts#registerUser",
+      "access": "identity",
+      "reason": "login without a user"
+    },
+    {
+      "where": "apps/user-service/src/transport/grpc/user.grpc-controller.ts#resolveIdentity",
+      "access": "identity",
+      "reason": "login without a user"
     }
   ]
 }

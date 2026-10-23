@@ -17,8 +17,10 @@ export interface IdpKeySetOptions {
   readonly timeoutMs: number;
 }
 
-const COLD_RETRY_MIN_MS = 500;
-const COLD_RETRY_MAX_MS = 5_000;
+/** After a failed fetch the loop retries with backoff: up to 5 s without usable keys, 30 s with. */
+const RETRY_MIN_MS = 500;
+const RETRY_MAX_MS = 5_000;
+const STALE_RETRY_MAX_MS = 30_000;
 
 export const identityProviderUnavailable = () =>
   new DependencyUnavailableError(
@@ -31,9 +33,15 @@ export const identityProviderUnavailable = () =>
  *
  * jose's createRemoteJWKSet waits for a reload on the request path once its cache is
  * old and fails the request when that reload fails, so an IdP outage would turn into
- * slow 401s for everyone. Instead: refresh in the background, keep the last good keys
- * for up to `maxStaleMs` (then 503, never 401), and let a token with an unknown `kid`
- * trigger at most one extra fetch per cooldown (rotation within seconds, no hammering).
+ * slow 401s for everyone. Instead:
+ * - one background loop fetches the keys: every `refreshMs`, and with a short backoff
+ *   after a failure, so it picks up a recovered provider within seconds;
+ * - the last good keys stay in use for up to `maxStaleMs`; after that requests get
+ *   503, never 401, and never start a fetch of their own (they only wait for one
+ *   that is already running);
+ * - a token with an unknown `kid` triggers at most one extra fetch per cooldown, so
+ *   rotation is picked up within seconds and forged kids cannot hammer the provider.
+ *   It is a 401 only when the last fetch succeeded without that kid; 503 otherwise.
  */
 export class IdpKeySet {
   private readonly logger = new Logger(IdpKeySet.name);
@@ -52,9 +60,9 @@ export class IdpKeySet {
     private readonly fetchJson: (url: string, timeoutMs: number) => Promise<unknown> = fetchJwks,
   ) {}
 
-  /** Starts loading (retrying fast while cold) and the periodic refresh. Does not block. */
+  /** Starts the background loop (first fetch now). Does not block. */
   start(): void {
-    void this.coldStart(COLD_RETRY_MIN_MS);
+    void this.loop(RETRY_MIN_MS);
   }
 
   stop(): void {
@@ -73,7 +81,9 @@ export class IdpKeySet {
     token: FlattenedJWSInput,
   ): Promise<CryptoKey> => {
     if (this.state === 'unavailable') {
-      await this.refresh();
+      // The background loop owns the retries: a request may wait for a fetch that is
+      // already running, but never starts one (that would let clients pace IdP calls).
+      await this.refreshing;
       if (this.state === 'unavailable') throw identityProviderUnavailable();
     }
     if (header.kid && !this.kids.has(header.kid)) {
@@ -81,6 +91,12 @@ export class IdpKeySet {
       if (now - this.lastUnknownKidRefresh >= this.options.unknownKidCooldownMs) {
         this.lastUnknownKidRefresh = now;
         await this.refresh();
+      } else {
+        await this.refreshing;
+      }
+      // Unknown to a set we could not refresh: the key may be new, so this is not a 401.
+      if (!this.kids.has(header.kid) && this.lastRefreshFailed) {
+        throw identityProviderUnavailable();
       }
     }
     return (this.local as JWTVerifyGetKey)(header, token) as Promise<CryptoKey>;
@@ -111,25 +127,16 @@ export class IdpKeySet {
     }
   }
 
-  private async coldStart(delayMs: number): Promise<void> {
+  private async loop(retryMs: number): Promise<void> {
     if (this.stopped) return;
-    if (await this.refresh()) {
-      this.schedule();
-      return;
-    }
-    this.timer = setTimeout(
-      () => void this.coldStart(Math.min(delayMs * 2, COLD_RETRY_MAX_MS)),
-      delayMs,
-    );
-    this.timer.unref();
-  }
-
-  private schedule(): void {
+    const ok = await this.refresh();
     if (this.stopped) return;
-    const jitter = 0.9 + Math.random() * 0.2;
-    this.timer = setTimeout(() => {
-      void this.refresh().then(() => this.schedule());
-    }, this.options.refreshMs * jitter);
+    const maxRetryMs = this.state === 'unavailable' ? RETRY_MAX_MS : STALE_RETRY_MAX_MS;
+    const delayMs = ok
+      ? this.options.refreshMs * (0.9 + Math.random() * 0.2)
+      : Math.min(retryMs, maxRetryMs, this.options.refreshMs);
+    const nextRetryMs = ok ? RETRY_MIN_MS : Math.min(retryMs * 2, STALE_RETRY_MAX_MS);
+    this.timer = setTimeout(() => void this.loop(nextRetryMs), delayMs);
     this.timer.unref();
   }
 }

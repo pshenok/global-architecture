@@ -62,13 +62,15 @@ git status                                   # the gate must not leave changes b
   message as a missing one; `PERMISSION_DENIED` only for visible resources and roles.
 - [ ] Lists of private data take a typed scope in the repository; page tokens are bound to
   the caller and the scope.
-- [ ] Anything reachable without a user (`@Access.public`, `@Public`, `@AllowUnregistered`)
-  is listed in `security/public-endpoints.json` with a real reason; the change goes to the
-  code owners. The reason is an inline single-quoted literal (`check-access` does not see a
-  constant or a double-quoted string).
+- [ ] Anything that does not need a signed-in user (`@Access.public`, `@Public`,
+  `@AllowUnregistered`, `@Access.identity`, `@Access.service`) is listed in
+  `security/public-endpoints.json` with a real reason; the change goes to the code owners.
+  Decorator arguments are inline literals on the decorator's line (any quote style);
+  `check-access` fails a constant, a call or a wrapper decorator instead of skipping it.
 - [ ] Tests cover the access matrix: the five template cases per resource, each role and
   owner rule, allowed and refused forwarders.
-- [ ] No casts to `UserActor`/`IdentityActor`/`ServiceActor`, no hand-built `x-ga-*`
+- [ ] No casts to `Actor`/`UserActor`/`IdentityActor`/`ServiceActor` (also not through
+  `as unknown as` or `<UserActor>`), no hand-built `x-ga-*`
   metadata, no `@ga/kernel/testing` or `@ga/service-kit/testing` in production code
   (`check-access` catches these), and no new way around the guard or TLS.
 

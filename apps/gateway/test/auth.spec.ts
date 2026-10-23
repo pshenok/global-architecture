@@ -1,5 +1,5 @@
-import { generateKeyPair, SignJWT, UnsecuredJWT } from 'jose';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { exportJWK, generateKeyPair, SignJWT, UnsecuredJWT } from 'jose';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   AccessTokenVerifier,
   bearerToken,
@@ -195,6 +195,84 @@ describe('access tokens', () => {
       );
     } finally {
       await shaky.close();
+    }
+  });
+
+  it('never fetches on the request path while the keys are unavailable', async () => {
+    let fetches = 0;
+    const set = new IdpKeySet('http://unused', options, async () => {
+      fetches += 1;
+      throw new Error('connection refused');
+    });
+    stops.push(set);
+    expect(await set.refresh()).toBe(false);
+    const verify = verifierFor([{ issuer: idp, keySet: set }]);
+    const token = await idp.token({ sub: 's1' });
+    for (let n = 0; n < 50; n += 1) {
+      expect(await reason(verify.verify(token))).toBe('IDENTITY_PROVIDER_UNAVAILABLE');
+    }
+    expect(fetches).toBe(1);
+  });
+
+  it('answers 503, not 401, for a new kid it could not fetch', async () => {
+    const shaky = await createTestIssuer();
+    try {
+      const set = keySetFor(shaky, { unknownKidCooldownMs: 60_000 });
+      const verify = verifierFor([{ issuer: shaky, keySet: set }]);
+      await set.refresh();
+      const known = await shaky.token({ sub: 's1' });
+      await shaky.rotate();
+      shaky.setDown(true);
+      const rotated = await shaky.token({ sub: 's1' });
+      // The first one spends the cooldown on a failed fetch, the second one is inside it.
+      expect(await reason(verify.verify(rotated))).toBe('IDENTITY_PROVIDER_UNAVAILABLE');
+      expect(await reason(verify.verify(rotated))).toBe('IDENTITY_PROVIDER_UNAVAILABLE');
+      await expect(verify.verify(known)).resolves.toBeDefined();
+    } finally {
+      await shaky.close();
+    }
+  });
+
+  it('stops trusting keys it could not refresh for longer than the max-stale window', async () => {
+    const shaky = await createTestIssuer();
+    try {
+      const set = keySetFor(shaky, { maxStaleMs: 60_000 });
+      const verify = verifierFor([{ issuer: shaky, keySet: set }]);
+      await set.refresh();
+      const token = await shaky.token({ sub: 's1' });
+      shaky.setDown(true);
+      await set.refresh();
+      vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 59_000 });
+      expect(set.state).toBe('stale');
+      await expect(verify.verify(token)).resolves.toBeDefined();
+      vi.setSystemTime(Date.now() + 2_000);
+      expect(set.state).toBe('unavailable');
+      expect(await reason(verify.verify(token))).toBe('IDENTITY_PROVIDER_UNAVAILABLE');
+    } finally {
+      vi.useRealTimers();
+      await shaky.close();
+    }
+  });
+
+  it('retries a failed fetch in the background within seconds', async () => {
+    const jwk = { ...(await exportJWK((await generateKeyPair('ES256')).publicKey)), kid: 'k1' };
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const set = new IdpKeySet('http://unused', options, async () => {
+        attempts += 1;
+        if (attempts < 3) throw new Error('connection refused');
+        return { keys: [jwk] };
+      });
+      set.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(set.state).toBe('unavailable');
+      await vi.advanceTimersByTimeAsync(1_600); // 500 ms, then 1 s
+      expect(attempts).toBe(3);
+      expect(set.state).toBe('ok');
+      set.stop();
+    } finally {
+      vi.useRealTimers();
     }
   });
 
