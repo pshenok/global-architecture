@@ -92,7 +92,8 @@ Every workload (the gateway and each service) has its own Ed25519 key
 (`WORKLOAD_KEY_FILE`, a secret) and trusts one public key map (`WORKLOAD_KEYS_FILE`,
 not secret). Both are re-read every `WORKLOAD_KEYS_RELOAD_S`, so keys rotate without
 restarts: a broken map keeps the last good one, and a new private key is used only once
-the map publishes its public half.
+the workload's own map publishes its public half. Other workloads may reload the map up
+to one interval later, so the runbook publishes the key everywhere before the switch.
 
 | gRPC metadata    | Signed by                                   | Says                                      | Lifetime   |
 | ---------------- | ------------------------------------------- | ----------------------------------------- | ---------- |

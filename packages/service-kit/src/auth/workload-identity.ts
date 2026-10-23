@@ -178,7 +178,10 @@ export class WorkloadIdentity implements OnApplicationShutdown {
     }
   }
 
-  /** Switches to a new private key once the map publishes it (rotation step 2). */
+  /**
+   * Switches to a new private key once this workload's map publishes it (rotation step 3).
+   * Other workloads may not have reloaded the map yet; the runbook's step 2 covers that.
+   */
   private async reloadSigningKey(): Promise<void> {
     try {
       const text = readSigningKeyText(this.config.WORKLOAD_KEY_FILE);

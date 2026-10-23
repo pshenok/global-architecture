@@ -118,8 +118,12 @@ Rotate in this order:
    (within 60 s after the file changes).
 3. Replace the workload's private key file (`WORKLOAD_KEY_FILE`). It switches on its next
    reload, without a restart, and logs `now signs with key <kid>`. A key whose public half
-   is not published yet is not used (an error is logged every reload), and a workload
-   refuses to boot with one, so a reversed order fails loudly instead of cutting it off.
+   is not in the workload's own map yet is not used (an error is logged every reload),
+   and a workload refuses to boot with one. That check sees only the signer's copy of the
+   map, not the others': once the map reaches it, it switches on its own next reload, and
+   workloads that have not reloaded the map yet refuse its calls until they do (up to
+   60 s, plus however long the file takes to reach each pod). So never skip step 2, and
+   never change the map and the private key in one rollout.
 4. 120 s after that log line (the longest token lifetime), remove the old public key. A
    workload whose own signing key disappears from the map logs an error every reload.
 
