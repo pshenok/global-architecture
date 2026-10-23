@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { type ChannelCredentials, credentials, ServerCredentials } from '@grpc/grpc-js';
 import { z } from 'zod';
 
@@ -7,6 +8,10 @@ import { z } from 'zod';
  * service that binds anything else (0.0.0.0 in containers) must present a
  * certificate, and a client that calls a non-loopback target must verify one.
  * Tokens travel in gRPC metadata, so plaintext off the machine would leak them.
+ *
+ * Certificates and the CA bundle are read once at start: renewing them means restarting
+ * (rolling) the workload, so issue them for longer than the restart cadence and roll
+ * before expiry. Give every workload its own certificate and key.
  */
 export const grpcTlsConfigSchema = z.object({
   /** PEM certificate chain this service presents. Set together with GRPC_TLS_KEY_FILE. */
@@ -19,7 +24,6 @@ export const grpcTlsConfigSchema = z.object({
 export type GrpcTlsConfig = z.output<typeof grpcTlsConfigSchema>;
 
 const LOOPBACK = /^(localhost|127(\.\d{1,3}){3}|::1|\[::1\])$/i;
-const IP_LITERAL = /^(\d{1,3}(\.\d{1,3}){3}|\[?[0-9a-f:]+\]?)$/i;
 
 export function isLoopbackHost(host: string): boolean {
   return LOOPBACK.test(host);
@@ -74,7 +78,7 @@ export function serverCredentials(config: GrpcTlsConfig, bindHost: string): Serv
  */
 export function channelCredentials(target: string, caFile: string | undefined): ChannelCredentials {
   if (caFile) {
-    if (IP_LITERAL.test(targetHost(target))) {
+    if (isIP(targetHost(target).replace(/^\[(.*)\]$/, '$1')) !== 0) {
       throw new Error(
         `cannot verify TLS for ${target}: use the host name the certificate was issued for (e.g. localhost) instead of an IP address`,
       );

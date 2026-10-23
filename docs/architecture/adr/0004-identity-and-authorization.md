@@ -99,7 +99,11 @@ only for users whose requests pass through it.
 gRPC uses TLS whenever it leaves the machine: a service refuses to bind a non-loopback
 address without `GRPC_TLS_CERT_FILE`/`GRPC_TLS_KEY_FILE`, and a client refuses a
 non-loopback target without `GRPC_TLS_CA_FILE`. The local stack runs TLS on every hop
-with a local CA (`pnpm certs`).
+with a local CA (`pnpm certs`), which gives every service the same server certificate;
+in a deployment each workload gets its own. Certificates and the CA bundle are read at
+start, so renewing them is a rolling restart, done well before they expire. Kubernetes
+native gRPC probes cannot speak TLS, so with `GRPC_HEALTH_PORT` (8081 in the images) a
+service also serves `grpc.health.v1`, and nothing else, in plaintext on that port.
 
 ### 4. Every RPC declares its access policy
 

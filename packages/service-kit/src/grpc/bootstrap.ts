@@ -62,9 +62,10 @@ function isTestingModule(root: unknown): root is TestingModule {
  *
  * Installs proto well-known-type wrappers, serves the service's contracts plus
  * grpc.health.v1 and server reflection (off in production unless GRPC_REFLECTION=true)
- * over TLS (plaintext only on loopback), authenticates every RPC (GrpcAuthGuard), routes Nest logs through pino, maps
- * errors with GrpcErrorFilter (always on), enables graceful shutdown, then
- * reports SERVING once dependency checks pass.
+ * over TLS (plaintext only on loopback), authenticates every RPC (GrpcAuthGuard), routes
+ * Nest logs through pino, maps errors with GrpcErrorFilter (always on), enables graceful
+ * shutdown, serves health alone on GRPC_HEALTH_PORT when set (plaintext, for kubelet),
+ * then reports SERVING once dependency checks pass.
  */
 export async function bootstrapGrpcService(
   root: Type<unknown> | TestingModule,
@@ -74,6 +75,9 @@ export async function bootstrapGrpcService(
   installWellKnownTypes();
   const env = parseConfig(grpcServiceConfigSchema);
   const url = options.url ?? `${env.GRPC_HOST}:${env.GRPC_PORT}`;
+  if (env.GRPC_HEALTH_PORT === env.GRPC_PORT) {
+    throw new Error('GRPC_HEALTH_PORT must differ from GRPC_PORT');
+  }
 
   let health: HealthStatus | undefined;
   const transport = grpcServerOptions(
@@ -100,7 +104,17 @@ export async function bootstrapGrpcService(
   if (options.shutdownHooks ?? true) app.enableShutdownHooks();
 
   await app.listen();
+  if (env.GRPC_HEALTH_PORT !== undefined) {
+    await healthStatus.serveProbes(env.GRPC_HOST, env.GRPC_HEALTH_PORT);
+  }
   await healthStatus.start();
-  app.get(Logger).log(`${service.name} listening on ${url} (${service.services.join(', ')})`);
+  app
+    .get(Logger)
+    .log(
+      `${service.name} listening on ${url} (${service.services.join(', ')})` +
+        (env.GRPC_HEALTH_PORT === undefined
+          ? ''
+          : `, health probes on ${env.GRPC_HOST}:${env.GRPC_HEALTH_PORT}`),
+    );
   return app;
 }

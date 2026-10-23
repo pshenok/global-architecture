@@ -97,7 +97,13 @@ describe('gRPC TLS', () => {
   it('serves and verifies TLS with the CA', async () => {
     const byName = `localhost:${url.split(':')[1]}`;
     await expect(checkGrpcHealth(byName, { caFile: certs.ca })).resolves.toBe('SERVING');
-    expect(() => channelCredentials(url, certs.ca)).toThrow(/use the host name/);
+    for (const ip of [url, '[::1]:50051', '10.0.0.7:50051']) {
+      expect(() => channelCredentials(ip, certs.ca)).toThrow(/use the host name/);
+    }
+    // Host names made of hex letters are names, not IPv6 addresses.
+    for (const name of ['cafe:50051', 'beef.internal:50051', 'add:50051']) {
+      expect(() => channelCredentials(name, certs.ca)).not.toThrow();
+    }
   });
 
   it('does not talk plaintext to a TLS server', async () => {

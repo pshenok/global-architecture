@@ -19,6 +19,11 @@ export const grpcServiceConfigSchema = z.object({
   /** Bind address. Loopback by default (safe); containers set 0.0.0.0 explicitly. */
   GRPC_HOST: z.string().min(1).default('127.0.0.1'),
   GRPC_PORT: z.coerce.number().int().min(1).max(65_535),
+  /**
+   * Optional plaintext port serving only grpc.health.v1, for Kubernetes native gRPC
+   * probes (kubelet cannot speak TLS). Status only, never another RPC.
+   */
+  GRPC_HEALTH_PORT: z.coerce.number().int().min(1).max(65_535).optional(),
   /** Max inbound/outbound gRPC message size. Keep small: big messages are a memory DoS vector. */
   GRPC_MAX_MESSAGE_BYTES: z.coerce
     .number()

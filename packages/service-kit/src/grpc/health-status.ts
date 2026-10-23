@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { Server, ServerCredentials } from '@grpc/grpc-js';
 import {
   type BeforeApplicationShutdown,
   Inject,
@@ -18,7 +19,8 @@ const CHECK_TIMEOUT_MS = 2_000;
 /**
  * Standard grpc.health.v1 status of this service (what Kubernetes gRPC probes and
  * grpc_health_probe call). NOT_SERVING until the server listens, SERVING while all
- * registered dependency checks pass, NOT_SERVING again during shutdown.
+ * registered dependency checks pass, NOT_SERVING again during shutdown. Served on the
+ * gRPC port and, with GRPC_HEALTH_PORT, alone in plaintext for kubelet (see serveProbes).
  */
 @Injectable()
 export class HealthStatus implements BeforeApplicationShutdown, OnApplicationShutdown {
@@ -28,6 +30,7 @@ export class HealthStatus implements BeforeApplicationShutdown, OnApplicationShu
   private timer: NodeJS.Timeout | undefined;
   private current: ServingStatus = 'NOT_SERVING';
   private shuttingDown = false;
+  private probeServer: Server | undefined;
 
   constructor(
     @Inject(SERVICE_DEFINITION) private readonly service: ServiceDefinition,
@@ -48,6 +51,23 @@ export class HealthStatus implements BeforeApplicationShutdown, OnApplicationShu
     await this.evaluate();
     this.timer = setInterval(() => void this.evaluate(), CHECK_INTERVAL_MS);
     this.timer.unref();
+  }
+
+  /**
+   * Serves grpc.health.v1 alone, in plaintext, on a second port: Kubernetes native gRPC
+   * probes cannot use TLS, and the gRPC port refuses plaintext off loopback. It only
+   * says SERVING or NOT_SERVING; every other RPC stays on the TLS port. Returns the port.
+   */
+  async serveProbes(host: string, port: number): Promise<number> {
+    const server = new Server();
+    this.implementation.addToServer(server);
+    const bound = await new Promise<number>((resolve, reject) => {
+      server.bindAsync(`${host}:${port}`, ServerCredentials.createInsecure(), (error, actual) =>
+        error ? reject(error) : resolve(actual),
+      );
+    });
+    this.probeServer = server;
+    return bound;
   }
 
   get status(): ServingStatus {
@@ -90,6 +110,8 @@ export class HealthStatus implements BeforeApplicationShutdown, OnApplicationShu
 
   onApplicationShutdown(): void {
     clearInterval(this.timer);
+    this.probeServer?.forceShutdown();
+    this.probeServer = undefined;
   }
 
   private set(next: ServingStatus): void {
