@@ -13,3 +13,4 @@ export {
   type TestDatabase,
   withSearchPath,
 } from './test-database.ts';
+export { createTestWorkloadKeys, type TestWorkloadKeys } from './workload-keys.ts';

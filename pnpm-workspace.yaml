@@ -56,6 +56,8 @@ catalog:
   nestjs-cls: 7.0.1
   "@nestjs-cls/transactional": 4.0.1
   "@nestjs-cls/transactional-adapter-drizzle-orm": 2.0.1
+  # auth (JWS signing and verification: IdP tokens, workload and principal tokens)
+  jose: 6.2.13
   # validation, logging
   zod: 4.6.7
   pino: 10.4.0

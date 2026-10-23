@@ -47,6 +47,7 @@
     "drizzle-orm": "catalog:",
     "grpc-health-check": "catalog:",
     "import-in-the-middle": "catalog:",
+    "jose": "catalog:",
     "nestjs-cls": "catalog:",
     "nestjs-pino": "catalog:",
     "pg": "catalog:",

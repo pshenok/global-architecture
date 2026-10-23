@@ -8,6 +8,12 @@ const DB_URL = (database) => `postgresql://ga:ga@localhost:5432/${database}`;
 const CERTS = `${__dirname}/.certs`;
 
 /** gRPC TLS between workloads (tools/dev-certs.ts): services serve it, everyone verifies it. */
+/** Workload identity (tools/dev-keys.ts): each app signs with its own key, trusts the map. */
+const workloadKeys = (name) => ({
+  WORKLOAD_KEY_FILE: `${CERTS}/workloads/${name}.jwk.json`,
+  WORKLOAD_KEYS_FILE: `${CERTS}/workload-keys.json`,
+});
+
 const grpcServerTls = {
   GRPC_TLS_CERT_FILE: `${CERTS}/grpc-server.pem`,
   GRPC_TLS_KEY_FILE: `${CERTS}/grpc-server-key.pem`,
@@ -54,6 +60,7 @@ module.exports = {
         DATABASE_URL: DB_URL(service.database),
         OTEL_SERVICE_NAME: service.name,
         ...grpcServerTls,
+        ...workloadKeys(service.name),
         ...serviceUrls,
       },
     })),
@@ -71,6 +78,7 @@ module.exports = {
         TLS_CERT_FILE: `${CERTS}/dev-cert.pem`,
         TLS_KEY_FILE: `${CERTS}/dev-key.pem`,
         GRPC_TLS_CA_FILE: grpcServerTls.GRPC_TLS_CA_FILE,
+        ...workloadKeys(registry.gateway.name),
         OTEL_SERVICE_NAME: 'gateway',
         ...serviceUrls,
       },

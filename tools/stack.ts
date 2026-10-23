@@ -1,6 +1,6 @@
 /**
  * Local stack lifecycle (PM2 + local Postgres).
- *   pnpm stack:up     build -> .env files -> certs -> db:setup -> migrations -> PM2 -> wait until ready
+ *   pnpm stack:up     build -> .env files -> certs + workload keys -> db:setup -> migrations -> PM2 -> wait until ready
  *   pnpm stack:down   stop and remove the PM2 processes
  *   pnpm db:migrate   apply every service's migrations (DATABASE_URL from services.json)
  */
@@ -100,6 +100,7 @@ switch (command) {
     const created = ensureEnvFiles();
     if (created.length > 0) console.log(`created ${created.join(', ')} from .env.example`);
     run([process.execPath, 'tools/dev-certs.ts']);
+    run([process.execPath, 'tools/dev-keys.ts']);
     run([process.execPath, 'tools/db-setup.ts']);
     migrateAll();
     pm2('startOrReload', 'ecosystem.config.cjs', '--update-env');

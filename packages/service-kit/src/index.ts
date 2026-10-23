@@ -1,4 +1,21 @@
 export {
+  type WorkloadIdentityConfig,
+  workloadIdentityConfigSchema,
+  workloadName,
+} from './auth/config.ts';
+export {
+  CALLER_METADATA_KEY,
+  PRINCIPAL_MAX_TTL_S,
+  PRINCIPAL_METADATA_KEY,
+  type PrincipalClaims,
+  TokenError,
+} from './auth/tokens.ts';
+export {
+  WORKLOAD_NAME,
+  WorkloadIdentity,
+  WorkloadIdentityModule,
+} from './auth/workload-identity.ts';
+export {
   CONFIG,
   ConfigModule,
   type DatabaseConfig,
