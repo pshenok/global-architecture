@@ -58,9 +58,9 @@ describe('User', () => {
     });
   });
 
-  it('treats a case-only email change as no change', () => {
+  it('treats an unchanged name as no change', () => {
     const user = User.create({ id: 'u1', email: 'a@b.io', fullName: 'Ann' }, now);
-    user.update({ email: 'A@B.IO' }, later);
+    user.update({ fullName: ' Ann ' }, later);
     expect(user.updatedAt).toEqual(now);
   });
 });

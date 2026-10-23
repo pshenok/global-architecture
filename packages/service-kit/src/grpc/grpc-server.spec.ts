@@ -212,6 +212,7 @@ describe('gRPC server bootstrap (in-process)', () => {
     const cls = ClsServiceManager.getClsService();
     const response = await cls.run(async () => {
       cls.set(CLS_ID, 'req-123');
+      // oxlint-disable-next-line typescript/no-deprecated -- any RPC of the fake service will do
       return firstValueFrom(users.createUser({ email: 'c@d.io', fullName: 'Cid' }));
     });
     expect(response.user?.fullName).toBe('req-123');

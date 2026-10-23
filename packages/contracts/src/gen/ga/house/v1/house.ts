@@ -42,6 +42,11 @@ export interface Address {
 }
 
 export interface CreateHouseRequest {
+  /**
+   * Deprecated and ignored: the owner is the calling user (ADR-0004). To be reserved.
+   *
+   * @deprecated
+   */
   ownerId: string;
   /** 1..200 characters. */
   title: string;
@@ -119,37 +124,44 @@ export const GA_HOUSE_V1_PACKAGE_NAME = "ga.house.v1";
 
 export interface HouseServiceClient {
   /**
-   * CreateHouse lists a new house for an existing owner.
-   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (owner does not exist),
-   * UNAVAILABLE (user-service unreachable).
+   * CreateHouse lists a new house owned by the calling user.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (the owner's account is gone),
+   * UNAVAILABLE (user-service unreachable), UNAUTHENTICATED, PERMISSION_DENIED.
    */
 
   createHouse(request: CreateHouseRequest, metadata?: Metadata): Observable<CreateHouseResponse>;
 
   /**
    * GetHouse returns one house.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * Access: public (world-readable catalogue).
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED (no caller assertion).
    */
 
   getHouse(request: GetHouseRequest, metadata?: Metadata): Observable<GetHouseResponse>;
 
   /**
    * ListHouses pages through houses, newest first, with optional filters.
-   * Errors: INVALID_ARGUMENT.
+   * Access: public (world-readable catalogue).
+   * Errors: INVALID_ARGUMENT, UNAUTHENTICATED (no caller assertion).
    */
 
   listHouses(request: ListHousesRequest, metadata?: Metadata): Observable<ListHousesResponse>;
 
   /**
-   * UpdateHouse changes only the fields that are set.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * UpdateHouse changes only the fields that are set. Owner or admin only.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED (HOUSE_PERMISSION_DENIED),
+   * UNAUTHENTICATED.
    */
 
   updateHouse(request: UpdateHouseRequest, metadata?: Metadata): Observable<UpdateHouseResponse>;
 
   /**
-   * DeleteHouse removes a house.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * DeleteHouse removes a house. Owner or admin only.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED (HOUSE_PERMISSION_DENIED),
+   * UNAUTHENTICATED.
    */
 
   deleteHouse(request: DeleteHouseRequest, metadata?: Metadata): Observable<DeleteHouseResponse>;
@@ -159,9 +171,10 @@ export interface HouseServiceClient {
 
 export interface HouseServiceController {
   /**
-   * CreateHouse lists a new house for an existing owner.
-   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (owner does not exist),
-   * UNAVAILABLE (user-service unreachable).
+   * CreateHouse lists a new house owned by the calling user.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (the owner's account is gone),
+   * UNAVAILABLE (user-service unreachable), UNAUTHENTICATED, PERMISSION_DENIED.
    */
 
   createHouse(
@@ -171,7 +184,8 @@ export interface HouseServiceController {
 
   /**
    * GetHouse returns one house.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * Access: public (world-readable catalogue).
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED (no caller assertion).
    */
 
   getHouse(
@@ -181,7 +195,8 @@ export interface HouseServiceController {
 
   /**
    * ListHouses pages through houses, newest first, with optional filters.
-   * Errors: INVALID_ARGUMENT.
+   * Access: public (world-readable catalogue).
+   * Errors: INVALID_ARGUMENT, UNAUTHENTICATED (no caller assertion).
    */
 
   listHouses(
@@ -190,8 +205,10 @@ export interface HouseServiceController {
   ): Promise<ListHousesResponse> | Observable<ListHousesResponse> | ListHousesResponse;
 
   /**
-   * UpdateHouse changes only the fields that are set.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * UpdateHouse changes only the fields that are set. Owner or admin only.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED (HOUSE_PERMISSION_DENIED),
+   * UNAUTHENTICATED.
    */
 
   updateHouse(
@@ -200,8 +217,10 @@ export interface HouseServiceController {
   ): Promise<UpdateHouseResponse> | Observable<UpdateHouseResponse> | UpdateHouseResponse;
 
   /**
-   * DeleteHouse removes a house.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * DeleteHouse removes a house. Owner or admin only.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED (HOUSE_PERMISSION_DENIED),
+   * UNAUTHENTICATED.
    */
 
   deleteHouse(

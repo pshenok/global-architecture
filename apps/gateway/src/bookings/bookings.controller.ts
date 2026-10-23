@@ -1,5 +1,4 @@
 import { BookingParty, type BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
-import { currentUser } from '@ga/service-kit';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
@@ -51,9 +50,10 @@ export class BookingsController {
     @Body({ schema: CreateBookingBody }) body: z.output<typeof CreateBookingBody>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const request = { ...body, guestId: currentUser().userId };
+    // guest_id is deprecated: booking-service takes the guest from the forwarded principal.
     const view = toBookingView(
-      (await firstValueFrom(this.bookings.createBooking(request))).booking,
+      // oxlint-disable-next-line typescript/no-deprecated -- the generated type requires it until the field is reserved
+      (await firstValueFrom(this.bookings.createBooking({ ...body, guestId: '' }))).booking,
     );
     void reply.header('location', `/v1/bookings/${view.id}`);
     return view;
@@ -64,14 +64,7 @@ export class BookingsController {
   @ApiResponse({ status: 200, standardSchema: BookingPage })
   async list(@Query({ schema: ListBookingsQuery }) query: z.output<typeof ListBookingsQuery>) {
     const { as, ...rest } = query;
-    const page = await firstValueFrom(
-      this.bookings.listBookings({
-        ...rest,
-        party: PARTY[as],
-        // Transitional (ADR-0004 rollout): booking-service does not scope by party yet.
-        ...(as === 'guest' ? { guestId: currentUser().userId } : {}),
-      }),
-    );
+    const page = await firstValueFrom(this.bookings.listBookings({ ...rest, party: PARTY[as] }));
     return {
       items: page.bookings.map(toBookingView),
       nextPageToken: nextToken(page.nextPageToken),

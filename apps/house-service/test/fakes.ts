@@ -82,12 +82,18 @@ export class InMemoryHouseRepository extends HouseRepository {
 
 export const OWNER_ID = '01900000-0000-7000-8000-0000000000aa';
 
+/** Use-case input of CreateHouse (the owner is the acting user). */
 export const houseInput = (overrides: Record<string, unknown> = {}) => ({
-  ownerId: OWNER_ID,
   title: 'Sea view loft',
   description: 'Two rooms by the sea',
   address: { line1: '1 Beach St', city: 'Odesa', countryCode: 'UA' },
   nightlyPrice: { currencyCode: 'USD', amountMinor: 12_000 },
   maxGuests: 4,
   ...overrides,
+});
+
+/** gRPC CreateHouseRequest; owner_id is deprecated and ignored (the caller is the owner). */
+export const houseRequest = (overrides: Record<string, unknown> = {}) => ({
+  ownerId: '',
+  ...houseInput(overrides),
 });

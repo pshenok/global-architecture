@@ -28,6 +28,8 @@ export const bookings = pgTable(
     houseId: uuid('house_id').notNull(),
     /** user-service id. */
     guestId: uuid('guest_id').notNull(),
+    /** user-service id of the house owner, snapshotted at booking time (owners never change). */
+    hostId: uuid('host_id').notNull(),
     checkIn: date('check_in', { mode: 'string' }).notNull(),
     checkOut: date('check_out', { mode: 'string' }).notNull(),
     guests: integer('guests').notNull(),
@@ -42,6 +44,7 @@ export const bookings = pgTable(
     // (filter, id) indexes serve the filtered keyset lists: WHERE house_id = $1 AND id < $2 ORDER BY id DESC
     index('bookings_house_id_id_idx').on(table.houseId, table.id),
     index('bookings_guest_id_id_idx').on(table.guestId, table.id),
+    index('bookings_host_id_id_idx').on(table.hostId, table.id),
     check('bookings_dates_check', sql`${table.checkIn} < ${table.checkOut}`),
     check('bookings_status_check', sql`${table.status} in ('CONFIRMED', 'CANCELLED')`),
     check('bookings_guests_check', sql`${table.guests} > 0`),

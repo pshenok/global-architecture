@@ -2,6 +2,10 @@
  * Creates the local Postgres role and every database in services.json, plus the
  * test database. Idempotent. Needs a superuser connection:
  *   PG_ADMIN_URL (default postgresql://$USER@localhost:5432/postgres)
+ *
+ *   pnpm db:setup --reset ga_booking [...] --yes
+ *     drops and recreates the named local databases first (dev data only; refused
+ *     unless PG_ADMIN_URL points at this machine and NODE_ENV is not production)
  */
 import pg from 'pg';
 import { ensureEnvFiles } from './env-files.ts';
@@ -10,9 +14,28 @@ import { DEFAULT_PG_ADMIN_URL, readRegistry, TEST_DATABASE } from './lib.ts';
 for (const file of ensureEnvFiles()) console.log(`created ${file} from .env.example`);
 
 const adminUrl = process.env.PG_ADMIN_URL ?? DEFAULT_PG_ADMIN_URL;
+const args = process.argv.slice(2);
+const toReset = args.includes('--reset') ? args.filter((arg) => !arg.startsWith('--')) : [];
+if (toReset.length > 0) {
+  const host = new URL(adminUrl).hostname;
+  const known = new Set([...readRegistry().services.map((s) => s.database), TEST_DATABASE]);
+  if (process.env.NODE_ENV === 'production') throw new Error('--reset is refused in production');
+  if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
+    throw new Error(`--reset only works on a local Postgres, not ${host}`);
+  }
+  if (!args.includes('--yes')) throw new Error(`--reset drops ${toReset.join(', ')}: add --yes`);
+  for (const name of toReset) {
+    if (!known.has(name)) throw new Error(`--reset: ${name} is not a database of this repository`);
+  }
+}
+
 const client = new pg.Client({ connectionString: adminUrl });
 await client.connect();
 try {
+  for (const name of toReset) {
+    await client.query(`drop database if exists "${name}" with (force)`);
+    console.log(`dropped database ${name}`);
+  }
   const role = await client.query("select 1 from pg_roles where rolname = 'ga'");
   if (role.rowCount === 0) {
     await client.query("create role ga login password 'ga' createdb");

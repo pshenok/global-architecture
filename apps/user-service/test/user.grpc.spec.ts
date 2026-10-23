@@ -28,6 +28,7 @@ describe('UserService over gRPC', () => {
       module: AppModule,
       service: SERVICE,
       env: { DATABASE_URL: db.url },
+      callers: ['house-service', 'booking-service', 'payment-service'],
     });
     client = service.client<UserServiceClient>('ga.user.v1.UserService');
   });
@@ -40,62 +41,130 @@ describe('UserService over gRPC', () => {
 
   beforeEach(() => db.truncate('users'));
 
-  it('registers, reads, updates and deletes a user', async () => {
-    const { user } = await client.createUser({ email: 'Ann@Example.com', fullName: 'Ann' });
-    expect(user).toMatchObject({ email: 'ann@example.com', fullName: 'Ann' });
-    const id = user?.id as string;
+  const ADMIN = '01900000-0000-7000-8000-00000000000a';
+  const issuer = 'https://idp.example';
+  const register = async (subject: string, email: string | null = null) =>
+    (
+      await client.registerUser(
+        { fullName: subject },
+        await service.asIdentity({ issuer, subject, email }),
+      )
+    ).user?.id as string;
+
+  it('lets a user read, rename and delete itself; the email belongs to the IdP', async () => {
+    const id = await register('ann', 'Ann@Example.com');
     expect(id).toMatch(/^[0-9a-f-]{8}-[0-9a-f]{4}-7/);
-
-    const updated = await client.updateUser({ id, fullName: 'Ann Lee' });
+    const self = await service.as(id);
+    await expect(client.getUser({ id }, self)).resolves.toMatchObject({
+      user: { email: 'ann@example.com', fullName: 'ann', roles: [] },
+    });
+    const updated = await client.updateUser(
+      // oxlint-disable-next-line typescript/no-deprecated -- proves the deprecated field is ignored
+      { id, fullName: 'Ann Lee', email: 'x@evil.example' },
+      self,
+    );
     expect(updated.user).toMatchObject({ email: 'ann@example.com', fullName: 'Ann Lee' });
-
-    await client.deleteUser({ id });
-    expect((await grpcError(client.getUser({ id }))).code).toBe(status.NOT_FOUND);
+    await client.deleteUser({ id }, self);
+    expect(
+      (await grpcError(client.getUser({ id }, await service.as(ADMIN, { roles: ['admin'] })))).code,
+    ).toBe(status.NOT_FOUND);
   });
 
-  it('returns ALREADY_EXISTS with reason USER_EMAIL_TAKEN for a duplicate email', async () => {
-    await client.createUser({ email: 'ann@example.com', fullName: 'Ann' });
+  it('hides users from other users, and shows them to admins', async () => {
+    const id = await register('ann');
+    const stranger = await service.as(USER_ID);
+    for (const call of [
+      async () => client.getUser({ id }, stranger),
+      async () => client.updateUser({ id, fullName: 'Hacked' }, stranger),
+      async () => client.deleteUser({ id }, stranger),
+    ]) {
+      const error = await grpcError(call());
+      expect(error.code).toBe(status.NOT_FOUND);
+      expect(error.details?.errorInfo?.reason).toBe('USER_NOT_FOUND');
+    }
+    await expect(
+      client.getUser({ id }, await service.as(ADMIN, { roles: ['admin'] })),
+    ).resolves.toBeDefined();
+  });
+
+  it('accepts the acting user forwarded by house-service and booking-service only', async () => {
+    const id = await register('host');
+    for (const caller of ['house-service', 'booking-service']) {
+      await expect(client.getUser({ id }, await service.as(id, { caller }))).resolves.toBeDefined();
+    }
     const error = await grpcError(
-      client.createUser({ email: 'ANN@example.com', fullName: 'Other' }),
+      client.getUser({ id }, await service.as(id, { caller: 'payment-service' })),
     );
-    expect(error.code).toBe(status.ALREADY_EXISTS);
-    expect(error.details?.errorInfo).toMatchObject({
+    expect(error).toMatchObject({ code: status.PERMISSION_DENIED });
+    expect(error.details?.errorInfo?.reason).toBe('CALLER_NOT_ALLOWED');
+  });
+
+  it('pages users newest first for admins only', async () => {
+    for (const n of ['a', 'b', 'c']) await register(n);
+    const admin = await service.as(ADMIN, { roles: ['admin'] });
+    const first = await client.listUsers({ pageSize: 2, pageToken: '' }, admin);
+    expect(first.users.map((u) => u.fullName)).toEqual(['c', 'b']);
+    const second = await client.listUsers({ pageSize: 2, pageToken: first.nextPageToken }, admin);
+    expect(second.users.map((u) => u.fullName)).toEqual(['a']);
+    expect(second.nextPageToken).toBe('');
+    const denied = await grpcError(
+      client.listUsers({ pageSize: 2, pageToken: '' }, await service.as(USER_ID)),
+    );
+    expect(denied.code).toBe(status.PERMISSION_DENIED);
+    expect(denied.details?.errorInfo?.reason).toBe('ADMIN_ROLE_REQUIRED');
+  });
+
+  it('keeps the deprecated CreateUser for admins, with its validation and email rule', async () => {
+    const admin = await service.as(ADMIN, { roles: ['admin'] });
+    await client.createUser({ email: 'ann@example.com', fullName: 'Ann' }, admin);
+    const taken = await grpcError(
+      client.createUser({ email: 'ANN@example.com', fullName: 'Other' }, admin),
+    );
+    expect(taken.code).toBe(status.ALREADY_EXISTS);
+    expect(taken.details?.errorInfo).toMatchObject({
       reason: 'USER_EMAIL_TAKEN',
       domain: 'user-service',
     });
+    const invalid = await grpcError(client.createUser({ email: 'nope', fullName: '' }, admin));
+    expect(invalid.code).toBe(status.INVALID_ARGUMENT);
+    expect(invalid.details?.fieldViolations?.map((v) => v.field)).toEqual(['email', 'fullName']);
+    const denied = await grpcError(
+      client.createUser({ email: 'b@example.com', fullName: 'B' }, await service.as(USER_ID)),
+    );
+    expect(denied.details?.errorInfo?.reason).toBe('ADMIN_ROLE_REQUIRED');
+  });
+
+  it('keeps concurrent registrations of one email by different logins race-free', async () => {
+    const outcomes = await Promise.all(
+      Array.from({ length: 5 }, async (_, n) => {
+        const metadata = await service.asIdentity({
+          issuer,
+          subject: `racer-${n}`,
+          email: 'race@example.com',
+        });
+        return grpcError(client.registerUser({ fullName: 'Racer' }, metadata)).catch(
+          () => 'registered' as const,
+        );
+      }),
+    );
+    expect(outcomes.filter((o) => o === 'registered')).toHaveLength(1);
+    for (const outcome of outcomes.filter((o) => o !== 'registered')) {
+      expect(outcome).toMatchObject({
+        code: status.ALREADY_EXISTS,
+        details: { errorInfo: { reason: 'USER_EMAIL_TAKEN' } },
+      });
+    }
   });
 
   it('returns INVALID_ARGUMENT with field violations', async () => {
-    const error = await grpcError(client.createUser({ email: 'nope', fullName: '' }));
-    expect(error.code).toBe(status.INVALID_ARGUMENT);
-    expect(error.details?.fieldViolations?.map((v) => v.field)).toEqual(['email', 'fullName']);
-  });
-
-  it('keeps concurrent registrations of one email race-free', async () => {
-    const results = await Promise.allSettled(
-      Array.from({ length: 5 }, () =>
-        client.createUser({ email: 'race@example.com', fullName: 'Racer' }),
-      ),
+    const error = await grpcError(
+      client.registerUser({ fullName: '' }, await service.asIdentity({ issuer, subject: 'x' })),
     );
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-    expect(
-      rejected.every((r) => (r.reason as { code: number }).code === status.ALREADY_EXISTS),
-    ).toBe(true);
-  });
-
-  it('pages newest first with opaque tokens', async () => {
-    for (const n of ['a', 'b', 'c']) await client.createUser({ email: `${n}@x.io`, fullName: n });
-    const first = await client.listUsers({ pageSize: 2, pageToken: '' });
-    expect(first.users.map((u) => u.fullName)).toEqual(['c', 'b']);
-    const second = await client.listUsers({ pageSize: 2, pageToken: first.nextPageToken });
-    expect(second.users.map((u) => u.fullName)).toEqual(['a']);
-    expect(second.nextPageToken).toBe('');
+    expect(error.code).toBe(status.INVALID_ARGUMENT);
+    expect(error.details?.fieldViolations?.map((v) => v.field)).toEqual(['fullName']);
   });
 
   describe('registration (identity principals)', () => {
-    const issuer = 'https://idp.example';
-
     it('registers the calling identity and resolves it to its user', async () => {
       const { user } = await client.registerUser(
         { fullName: 'Reg' },
@@ -137,10 +206,10 @@ describe('UserService over gRPC', () => {
 
     it('accepts only identity principals', async () => {
       for (const call of [
-        client.registerUser({ fullName: 'X' }, await service.as(USER_ID)),
-        client.resolveIdentity({}, await service.as(USER_ID)),
+        async () => client.registerUser({ fullName: 'X' }, await service.as(USER_ID)),
+        async () => client.resolveIdentity({}, await service.as(USER_ID)),
       ]) {
-        const error = await grpcError(call);
+        const error = await grpcError(call());
         expect(error.code).toBe(status.PERMISSION_DENIED);
         expect(error.details?.errorInfo?.reason).toBe('IDENTITY_PRINCIPAL_REQUIRED');
       }

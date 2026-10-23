@@ -16,7 +16,7 @@ import {
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
-import { Access, currentIdentity, parseRequest } from '@ga/service-kit';
+import { Access, currentIdentity, currentUser, parseRequest } from '@ga/service-kit';
 import { Controller } from '@nestjs/common';
 import { UserService } from '../../application/user.service.ts';
 import { toUserMessage } from './user.mapper.ts';
@@ -51,23 +51,25 @@ export class UserGrpcController implements UserServiceController {
     return { userId, roles: [...roles] };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  /** Deprecated: users register themselves (RegisterUser). */
+  @Access.admin()
   async createUser(request: CreateUserRequest): Promise<CreateUserResponse> {
     const input = parseRequest(CreateUserRequestSchema, request);
-    return { user: toUserMessage(await this.users.create(input)) };
+    return { user: toUserMessage(await this.users.create(currentUser(), input)) };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  /** house-service and booking-service look up the acting user's own account. */
+  @Access.user({ via: ['house-service', 'booking-service'] })
   async getUser(request: GetUserRequest): Promise<GetUserResponse> {
     const { id } = parseRequest(GetUserRequestSchema, request);
-    return { user: toUserMessage(await this.users.get(id)) };
+    return { user: toUserMessage(await this.users.get(currentUser(), id)) };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.admin()
   async listUsers(request: ListUsersRequest): Promise<ListUsersResponse> {
     const { pageSize, pageToken } = parseRequest(ListUsersRequestSchema, request);
     const fingerprint = filterFingerprint({});
-    const page = await this.users.list({
+    const page = await this.users.list(currentUser(), {
       limit: resolvePageSize(pageSize),
       after: decodePageToken(pageToken, fingerprint),
     });
@@ -77,16 +79,16 @@ export class UserGrpcController implements UserServiceController {
     };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.user()
   async updateUser(request: UpdateUserRequest): Promise<UpdateUserResponse> {
     const { id, ...changes } = parseRequest(UpdateUserRequestSchema, request);
-    return { user: toUserMessage(await this.users.update(id, changes)) };
+    return { user: toUserMessage(await this.users.update(currentUser(), id, changes)) };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.user()
   async deleteUser(request: DeleteUserRequest): Promise<DeleteUserResponse> {
     const { id } = parseRequest(DeleteUserRequestSchema, request);
-    await this.users.delete(id);
+    await this.users.delete(currentUser(), id);
     return {};
   }
 }

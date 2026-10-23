@@ -5,6 +5,7 @@ import {
   type Page,
   type PageRequest,
   UnitOfWork,
+  type UserActor,
 } from '@ga/kernel';
 import { Injectable } from '@nestjs/common';
 import { houseNotFound, ownerNotFound } from '../domain/house.errors.ts';
@@ -13,7 +14,6 @@ import { type Address, House, type HouseChanges } from '../domain/house.ts';
 import { UserDirectory } from './ports/user-directory.ts';
 
 export interface CreateHouseInput {
-  readonly ownerId: string;
   readonly title: string;
   readonly description: string;
   readonly address: Address;
@@ -32,10 +32,16 @@ export class HouseService {
     private readonly unitOfWork: UnitOfWork,
   ) {}
 
-  /** Validates the house first (cheap), then asks user-service whether the owner exists. */
-  async create(input: CreateHouseInput): Promise<House> {
-    const house = House.create({ id: this.ids.newId(), ...input }, this.clock.now());
-    if (!(await this.users.exists(input.ownerId))) throw ownerNotFound(input.ownerId);
+  /**
+   * Lists a house owned by the acting user. Validates the house first (cheap), then asks
+   * user-service whether the owner's account still exists.
+   */
+  async create(actor: UserActor, input: CreateHouseInput): Promise<House> {
+    const house = House.create(
+      { id: this.ids.newId(), ownerId: actor.userId, ...input },
+      this.clock.now(),
+    );
+    if (!(await this.users.exists(actor.userId))) throw ownerNotFound(actor.userId);
     await this.houses.insert(house);
     return house;
   }
@@ -50,18 +56,24 @@ export class HouseService {
     return this.houses.list(filter, page);
   }
 
-  update(id: string, changes: HouseChanges): Promise<House> {
+  update(actor: UserActor, id: string, changes: HouseChanges): Promise<House> {
     return this.unitOfWork.run(async () => {
       const house = await this.houses.findById(id, { forUpdate: true });
       if (!house) throw houseNotFound(id);
+      house.assertManageableBy(actor);
       house.update(changes, this.clock.now());
       await this.houses.update(house);
       return house;
     });
   }
 
-  async delete(id: string): Promise<void> {
-    const deleted = await this.houses.delete(id);
-    if (!deleted) throw houseNotFound(id);
+  /** Checks ownership under the row lock, so an ownership check and the delete cannot interleave. */
+  delete(actor: UserActor, id: string): Promise<void> {
+    return this.unitOfWork.run(async () => {
+      const house = await this.houses.findById(id, { forUpdate: true });
+      if (!house) throw houseNotFound(id);
+      house.assertManageableBy(actor);
+      await this.houses.delete(id);
+    });
   }
 }

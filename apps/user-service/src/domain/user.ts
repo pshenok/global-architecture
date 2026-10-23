@@ -11,8 +11,8 @@ export interface UserState {
   readonly updatedAt: Date;
 }
 
+/** What a user may change; the email belongs to the identity provider. */
 export interface UserChanges {
-  readonly email?: string | undefined;
   readonly fullName?: string | undefined;
 }
 
@@ -90,11 +90,10 @@ export class User {
 
   /** Applies the given changes; fields left undefined stay as they are. */
   update(changes: UserChanges, now: Date): void {
-    const email = changes.email === undefined ? this.state.email : normalizeEmail(changes.email);
     const fullName =
       changes.fullName === undefined ? this.state.fullName : normalizeFullName(changes.fullName);
-    if (email === this.state.email && fullName === this.state.fullName) return;
-    this.state = { ...this.state, email, fullName, updatedAt: now };
+    if (fullName === this.state.fullName) return;
+    this.state = { ...this.state, fullName, updatedAt: now };
   }
 
   /** A user's account is visible to the user and to admins only. */

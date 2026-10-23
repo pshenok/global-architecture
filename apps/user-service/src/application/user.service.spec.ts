@@ -1,5 +1,5 @@
-import { ConflictError, NotFoundError } from '@ga/kernel';
-import { identityActor } from '@ga/kernel/testing';
+import { ConflictError, NotFoundError, PermissionDeniedError } from '@ga/kernel';
+import { adminActor, identityActor, userActor } from '@ga/kernel/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FixedClock,
@@ -53,35 +53,64 @@ describe('UserService', () => {
     await expect(service.resolve(ann)).rejects.toMatchObject({ reason: 'USER_NOT_REGISTERED' });
   });
 
-  it('registers and reads back a user', async () => {
-    const user = await service.create({ email: 'Ann@Example.com', fullName: 'Ann' });
-    await expect(service.get(user.id)).resolves.toMatchObject({ email: 'ann@example.com' });
+  const admin = adminActor('01900000-0000-7000-8000-00000000000a');
+
+  it('shows a user to itself and to admins only', async () => {
+    const user = await service.register(ann, { fullName: 'Ann' });
+    const self = userActor(user.id);
+    await expect(service.get(self, user.id)).resolves.toMatchObject({ email: 'ann@example.com' });
+    await expect(service.get(admin, user.id)).resolves.toBeDefined();
+    await expect(service.get(userActor('someone-else'), user.id)).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
   });
 
-  it('rejects an email that is already registered, regardless of case', async () => {
-    await service.create({ email: 'ann@example.com', fullName: 'Ann' });
+  it('lets admins create users without a login (deprecated) and list users', async () => {
+    await service.create(admin, { email: 'ann@example.com', fullName: 'Ann' });
     await expect(
-      service.create({ email: 'ANN@example.com', fullName: 'Other' }),
+      service.create(admin, { email: 'ANN@example.com', fullName: 'Other' }),
     ).rejects.toBeInstanceOf(ConflictError);
+    await expect(
+      service.create(userActor('u1'), { email: 'x@example.com', fullName: 'X' }),
+    ).rejects.toBeInstanceOf(PermissionDeniedError);
+    await expect(service.list(userActor('u1'), { limit: 2, after: null })).rejects.toBeInstanceOf(
+      PermissionDeniedError,
+    );
   });
 
   it('pages newest first', async () => {
-    for (const n of ['a', 'b', 'c']) await service.create({ email: `${n}@x.io`, fullName: n });
-    const first = await service.list({ limit: 2, after: null });
+    for (const n of ['a', 'b', 'c'])
+      await service.create(admin, { email: `${n}@x.io`, fullName: n });
+    const first = await service.list(admin, { limit: 2, after: null });
     expect(first.items.map((u) => u.fullName)).toEqual(['c', 'b']);
-    const second = await service.list({ limit: 2, after: first.nextAfter });
+    const second = await service.list(admin, { limit: 2, after: first.nextAfter });
     expect(second.items.map((u) => u.fullName)).toEqual(['a']);
   });
 
-  it('updates with a new timestamp', async () => {
-    const user = await service.create({ email: 'a@x.io', fullName: 'A' });
+  it('updates with a new timestamp, for the user itself or an admin', async () => {
+    const user = await service.register(ann, { fullName: 'A' });
     clock.advance(1_000);
-    const updated = await service.update(user.id, { fullName: 'Ann' });
+    const updated = await service.update(userActor(user.id), user.id, { fullName: 'Ann' });
     expect(updated.updatedAt.getTime()).toBe(user.createdAt.getTime() + 1_000);
+    await expect(
+      service.update(userActor('someone-else'), user.id, { fullName: 'Hacked' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.update(admin, user.id, { fullName: 'By admin' })).resolves.toMatchObject({
+      fullName: 'By admin',
+    });
+  });
+
+  it('deletes a user and its login, for the user itself only (or an admin)', async () => {
+    const user = await service.register(ann, { fullName: 'Ann' });
+    await expect(service.delete(userActor('someone-else'), user.id)).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+    await service.delete(userActor(user.id), user.id);
+    await expect(service.resolve(ann)).rejects.toMatchObject({ reason: 'USER_NOT_REGISTERED' });
   });
 
   it('reports NOT_FOUND for unknown ids', async () => {
-    await expect(service.get('missing')).rejects.toBeInstanceOf(NotFoundError);
-    await expect(service.delete('missing')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.get(admin, 'missing')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.delete(admin, 'missing')).rejects.toBeInstanceOf(NotFoundError);
   });
 });

@@ -78,6 +78,11 @@ export interface ListUsersResponse {
 
 export interface UpdateUserRequest {
   id: string;
+  /**
+   * Deprecated and ignored: the identity provider owns the email (ADR-0004). To be reserved.
+   *
+   * @deprecated
+   */
   email?: string | null | undefined;
   fullName?: string | null | undefined;
 }
@@ -121,36 +126,46 @@ export interface UserServiceClient {
   resolveIdentity(request: ResolveIdentityRequest, metadata?: Metadata): Observable<ResolveIdentityResponse>;
 
   /**
-   * CreateUser registers a new user.
-   * Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
+   * CreateUser creates a user without a login. Deprecated: users register
+   * themselves with RegisterUser.
+   * Access: admin.
+   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), PERMISSION_DENIED.
+   *
+   * @deprecated
    */
 
   createUser(request: CreateUserRequest, metadata?: Metadata): Observable<CreateUserResponse>;
 
   /**
-   * GetUser returns one user.
-   * Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND.
+   * GetUser returns the caller's own user (any user, for admins).
+   * Access: user, also forwarded by house-service and booking-service.
+   * Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND (also for users the caller
+   * may not see), UNAUTHENTICATED, PERMISSION_DENIED.
    */
 
   getUser(request: GetUserRequest, metadata?: Metadata): Observable<GetUserResponse>;
 
   /**
    * ListUsers pages through users, newest first.
-   * Errors: INVALID_ARGUMENT (bad page_size or page_token).
+   * Access: admin.
+   * Errors: INVALID_ARGUMENT (bad page_size or page_token), PERMISSION_DENIED
+   * (ADMIN_ROLE_REQUIRED), UNAUTHENTICATED.
    */
 
   listUsers(request: ListUsersRequest, metadata?: Metadata): Observable<ListUsersResponse>;
 
   /**
-   * UpdateUser changes only the fields that are set.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (email taken).
+   * UpdateUser changes only the fields that are set. Self or admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
    */
 
   updateUser(request: UpdateUserRequest, metadata?: Metadata): Observable<UpdateUserResponse>;
 
   /**
-   * DeleteUser removes a user.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * DeleteUser removes a user and its logins. Self or admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
    */
 
   deleteUser(request: DeleteUserRequest, metadata?: Metadata): Observable<DeleteUserResponse>;
@@ -187,8 +202,10 @@ export interface UserServiceController {
   ): Promise<ResolveIdentityResponse> | Observable<ResolveIdentityResponse> | ResolveIdentityResponse;
 
   /**
-   * CreateUser registers a new user.
-   * Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
+   * CreateUser creates a user without a login. Deprecated: users register
+   * themselves with RegisterUser.
+   * Access: admin.
+   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), PERMISSION_DENIED.
    */
 
   createUser(
@@ -197,8 +214,10 @@ export interface UserServiceController {
   ): Promise<CreateUserResponse> | Observable<CreateUserResponse> | CreateUserResponse;
 
   /**
-   * GetUser returns one user.
-   * Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND.
+   * GetUser returns the caller's own user (any user, for admins).
+   * Access: user, also forwarded by house-service and booking-service.
+   * Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND (also for users the caller
+   * may not see), UNAUTHENTICATED, PERMISSION_DENIED.
    */
 
   getUser(
@@ -208,7 +227,9 @@ export interface UserServiceController {
 
   /**
    * ListUsers pages through users, newest first.
-   * Errors: INVALID_ARGUMENT (bad page_size or page_token).
+   * Access: admin.
+   * Errors: INVALID_ARGUMENT (bad page_size or page_token), PERMISSION_DENIED
+   * (ADMIN_ROLE_REQUIRED), UNAUTHENTICATED.
    */
 
   listUsers(
@@ -217,8 +238,9 @@ export interface UserServiceController {
   ): Promise<ListUsersResponse> | Observable<ListUsersResponse> | ListUsersResponse;
 
   /**
-   * UpdateUser changes only the fields that are set.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (email taken).
+   * UpdateUser changes only the fields that are set. Self or admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
    */
 
   updateUser(
@@ -227,8 +249,9 @@ export interface UserServiceController {
   ): Promise<UpdateUserResponse> | Observable<UpdateUserResponse> | UpdateUserResponse;
 
   /**
-   * DeleteUser removes a user.
-   * Errors: INVALID_ARGUMENT, NOT_FOUND.
+   * DeleteUser removes a user and its logins. Self or admin.
+   * Access: user.
+   * Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
    */
 
   deleteUser(

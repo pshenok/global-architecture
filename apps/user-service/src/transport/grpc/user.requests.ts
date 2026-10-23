@@ -16,9 +16,9 @@ export const ListUsersRequestSchema = z.object({
   pageToken: z.string().max(512),
 });
 
+/** `email` is deprecated and ignored: the identity provider owns it. */
 export const UpdateUserRequestSchema = z.object({
   id,
-  email: email.optional(),
   fullName: fullName.optional(),
 });
 

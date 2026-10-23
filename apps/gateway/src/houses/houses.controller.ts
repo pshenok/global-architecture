@@ -1,5 +1,4 @@
 import type { HouseServiceClient } from '@ga/contracts/ga/house/v1/house';
-import { currentUser } from '@ga/service-kit';
 import {
   Body,
   Controller,
@@ -50,8 +49,11 @@ export class HousesController {
     @Body({ schema: CreateHouseBody }) body: z.output<typeof CreateHouseBody>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const request = { ...body, ownerId: currentUser().userId };
-    const view = toHouseView((await firstValueFrom(this.houses.createHouse(request))).house);
+    // owner_id is deprecated: house-service takes the owner from the forwarded principal.
+    const view = toHouseView(
+      // oxlint-disable-next-line typescript/no-deprecated -- the generated type requires it until the field is reserved
+      (await firstValueFrom(this.houses.createHouse({ ...body, ownerId: '' }))).house,
+    );
     void reply.header('location', `/v1/houses/${view.id}`);
     return view;
   }

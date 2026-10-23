@@ -7,19 +7,25 @@ import "google/protobuf/timestamp.proto";
 
 // BookingService owns reservations of houses by guests.
 service BookingService {
-  // CreateBooking reserves a house for a date range.
-  // Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest or house missing,
+  // CreateBooking reserves a house for a date range; the calling user is the guest.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, FAILED_PRECONDITION (guest account or house missing,
   // too many guests), ALREADY_EXISTS (dates overlap an active booking),
-  // UNAVAILABLE (a dependency is unreachable).
+  // UNAVAILABLE (a dependency is unreachable), UNAUTHENTICATED, PERMISSION_DENIED.
   rpc CreateBooking(CreateBookingRequest) returns (CreateBookingResponse);
-  // GetBooking returns one booking.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  // GetBooking returns one booking to its guest, its host or an admin.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND (also for bookings the caller may not see),
+  // UNAUTHENTICATED.
   rpc GetBooking(GetBookingRequest) returns (GetBookingResponse);
-  // ListBookings pages through bookings, newest first, with optional filters.
-  // Errors: INVALID_ARGUMENT.
+  // ListBookings pages through the caller's bookings (see party), newest first.
+  // Access: user (BOOKING_PARTY_ANY: admins).
+  // Errors: INVALID_ARGUMENT, PERMISSION_DENIED (ADMIN_ROLE_REQUIRED), UNAUTHENTICATED.
   rpc ListBookings(ListBookingsRequest) returns (ListBookingsResponse);
-  // CancelBooking cancels a confirmed booking and frees its dates.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND, FAILED_PRECONDITION (already cancelled).
+  // CancelBooking cancels a confirmed booking and frees its dates. Guest, host or admin.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND (also for bookings the caller may not see),
+  // FAILED_PRECONDITION (already cancelled), UNAUTHENTICATED.
   rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse);
 }
 
@@ -68,7 +74,8 @@ enum BookingParty {
 
 message CreateBookingRequest {
   string house_id = 1;
-  string guest_id = 2;
+  // Deprecated and ignored: the guest is the calling user (ADR-0004). To be reserved.
+  string guest_id = 2 [deprecated = true];
   string check_in = 3;
   string check_out = 4;
   // 1..50 and at most the house max_guests.
@@ -91,7 +98,8 @@ message ListBookingsRequest {
   // 1..100, defaults to 20 when 0.
   int32 page_size = 1;
   string page_token = 2;
-  optional string guest_id = 3;
+  // Deprecated and ignored: party scopes the list to the caller (ADR-0004). To be reserved.
+  optional string guest_id = 3 [deprecated = true];
   optional string house_id = 4;
   // Whose bookings to list; the caller's own as guest by default.
   BookingParty party = 5;

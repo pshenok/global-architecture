@@ -17,20 +17,30 @@ service UserService {
   // Access: identity (the gateway resolves every authenticated request).
   // Errors: NOT_FOUND (USER_NOT_REGISTERED), UNAUTHENTICATED, PERMISSION_DENIED.
   rpc ResolveIdentity(ResolveIdentityRequest) returns (ResolveIdentityResponse);
-  // CreateUser registers a new user.
-  // Errors: INVALID_ARGUMENT (validation), ALREADY_EXISTS (email taken).
-  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
-  // GetUser returns one user.
-  // Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND.
+  // CreateUser creates a user without a login. Deprecated: users register
+  // themselves with RegisterUser.
+  // Access: admin.
+  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), PERMISSION_DENIED.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+    option deprecated = true;
+  }
+  // GetUser returns the caller's own user (any user, for admins).
+  // Access: user, also forwarded by house-service and booking-service.
+  // Errors: INVALID_ARGUMENT (malformed id), NOT_FOUND (also for users the caller
+  // may not see), UNAUTHENTICATED, PERMISSION_DENIED.
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
   // ListUsers pages through users, newest first.
-  // Errors: INVALID_ARGUMENT (bad page_size or page_token).
+  // Access: admin.
+  // Errors: INVALID_ARGUMENT (bad page_size or page_token), PERMISSION_DENIED
+  // (ADMIN_ROLE_REQUIRED), UNAUTHENTICATED.
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
-  // UpdateUser changes only the fields that are set.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS (email taken).
+  // UpdateUser changes only the fields that are set. Self or admin.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
   rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
-  // DeleteUser removes a user.
-  // Errors: INVALID_ARGUMENT, NOT_FOUND.
+  // DeleteUser removes a user and its logins. Self or admin.
+  // Access: user.
+  // Errors: INVALID_ARGUMENT, NOT_FOUND, UNAUTHENTICATED.
   rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
 }
 
@@ -96,7 +106,8 @@ message ListUsersResponse {
 
 message UpdateUserRequest {
   string id = 1;
-  optional string email = 2;
+  // Deprecated and ignored: the identity provider owns the email (ADR-0004). To be reserved.
+  optional string email = 2 [deprecated = true];
   optional string full_name = 3;
 }
 

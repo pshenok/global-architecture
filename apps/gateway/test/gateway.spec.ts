@@ -192,9 +192,8 @@ describe('gateway (REST -> gRPC)', () => {
         },
       });
       expect(response.statusCode).toBe(201);
-      expect(houses.createHouse).toHaveBeenCalledWith(
-        expect.objectContaining({ ownerId: USER_ID }),
-      );
+      // The body's ownerId is dropped; house-service takes the owner from the principal.
+      expect(houses.createHouse).toHaveBeenCalledWith(expect.objectContaining({ ownerId: '' }));
       expect(actor).toMatchObject({ kind: 'user', userId: USER_ID, roles: [] });
     });
 

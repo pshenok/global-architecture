@@ -44,7 +44,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@ga/contracts": "workspace:*",
     "@ga/service-kit": "workspace:*",
+    "@grpc/grpc-js": "catalog:",
     "@swc/cli": "catalog:",
     "@swc/core": "catalog:",
     "@types/node": "catalog:",

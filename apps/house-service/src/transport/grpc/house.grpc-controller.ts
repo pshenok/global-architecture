@@ -13,7 +13,7 @@ import {
   type UpdateHouseResponse,
 } from '@ga/contracts/ga/house/v1/house';
 import { decodePageToken, encodePageToken, filterFingerprint, resolvePageSize } from '@ga/kernel';
-import { Access, parseRequest } from '@ga/service-kit';
+import { Access, currentUser, parseRequest } from '@ga/service-kit';
 import { Controller } from '@nestjs/common';
 import { HouseService } from '../../application/house.service.ts';
 import { toHouseMessage } from './house.mapper.ts';
@@ -31,19 +31,19 @@ import {
 export class HouseGrpcController implements HouseServiceController {
   constructor(private readonly houses: HouseService) {}
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.user()
   async createHouse(request: CreateHouseRequest): Promise<CreateHouseResponse> {
     const input = parseRequest(CreateHouseRequestSchema, request);
-    return { house: toHouseMessage(await this.houses.create(input)) };
+    return { house: toHouseMessage(await this.houses.create(currentUser(), input)) };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.public('world-readable catalogue')
   async getHouse(request: GetHouseRequest): Promise<GetHouseResponse> {
     const { id } = parseRequest(GetHouseRequestSchema, request);
     return { house: toHouseMessage(await this.houses.get(id)) };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.public('world-readable catalogue')
   async listHouses(request: ListHousesRequest): Promise<ListHousesResponse> {
     const { pageSize, pageToken, ownerId, city } = parseRequest(ListHousesRequestSchema, request);
     const filter = { ownerId, city };
@@ -58,16 +58,16 @@ export class HouseGrpcController implements HouseServiceController {
     };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.user()
   async updateHouse(request: UpdateHouseRequest): Promise<UpdateHouseResponse> {
     const { id, ...changes } = parseRequest(UpdateHouseRequestSchema, request);
-    return { house: toHouseMessage(await this.houses.update(id, changes)) };
+    return { house: toHouseMessage(await this.houses.update(currentUser(), id, changes)) };
   }
 
-  @Access.public('transitional: ADR-0004 rollout')
+  @Access.user()
   async deleteHouse(request: DeleteHouseRequest): Promise<DeleteHouseResponse> {
     const { id } = parseRequest(DeleteHouseRequestSchema, request);
-    await this.houses.delete(id);
+    await this.houses.delete(currentUser(), id);
     return {};
   }
 }

@@ -1,12 +1,16 @@
 import {
+  type Actor,
+  adminRoleRequired,
   Clock,
   ConflictError,
   type IdentityActor,
   IdGenerator,
+  isAdmin,
   type Page,
   type PageRequest,
   type Role,
   UnitOfWork,
+  type UserActor,
 } from '@ga/kernel';
 import { Injectable } from '@nestjs/common';
 import { userAlreadyRegistered, userNotFound, userNotRegistered } from '../domain/user.errors.ts';
@@ -62,36 +66,43 @@ export class UserService {
     return { userId: user.id, roles: user.roles };
   }
 
-  /** Transitional (ADR-0004 rollout): registration without an identity. */
-  async create(input: { email: string; fullName: string }): Promise<User> {
+  /** Deprecated (CreateUser): an admin creates a user that has no login. */
+  async create(actor: UserActor, input: { email: string; fullName: string }): Promise<User> {
+    if (!isAdmin(actor)) throw adminRoleRequired();
     const user = User.create({ id: this.ids.newId(), ...input }, this.clock.now());
     await this.users.insert(user);
     return user;
   }
 
-  async get(id: string): Promise<User> {
+  /** Users see themselves, admins see everyone; to anyone else a user does not exist. */
+  async get(actor: Actor, id: string): Promise<User> {
     const user = await this.users.findById(id);
-    if (!user) throw userNotFound(id);
+    if (!user?.isVisibleTo(actor)) throw userNotFound(id);
     return user;
   }
 
-  list(page: PageRequest): Promise<Page<User>> {
+  async list(actor: UserActor, page: PageRequest): Promise<Page<User>> {
+    if (!isAdmin(actor)) throw adminRoleRequired();
     return this.users.list(page);
   }
 
   /** Read-modify-write under a row lock, so concurrent partial updates never lose each other's changes. */
-  update(id: string, changes: UserChanges): Promise<User> {
+  update(actor: UserActor, id: string, changes: UserChanges): Promise<User> {
     return this.unitOfWork.run(async () => {
       const user = await this.users.findById(id, { forUpdate: true });
-      if (!user) throw userNotFound(id);
+      if (!user?.isVisibleTo(actor)) throw userNotFound(id);
       user.update(changes, this.clock.now());
       await this.users.update(user);
       return user;
     });
   }
 
-  async delete(id: string): Promise<void> {
-    const deleted = await this.users.delete(id);
-    if (!deleted) throw userNotFound(id);
+  /** Deletes the account and its logins. Its houses and bookings stay (ADR-0005 cleanup). */
+  delete(actor: UserActor, id: string): Promise<void> {
+    return this.unitOfWork.run(async () => {
+      const user = await this.users.findById(id, { forUpdate: true });
+      if (!user?.isVisibleTo(actor)) throw userNotFound(id);
+      await this.users.delete(id);
+    });
   }
 }

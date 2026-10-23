@@ -402,9 +402,15 @@ importers:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.6.2
+      '@ga/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@ga/service-kit':
         specifier: workspace:*
         version: link:packages/service-kit
+      '@grpc/grpc-js':
+        specifier: 'catalog:'
+        version: 1.14.6
       '@swc/cli':
         specifier: 'catalog:'
         version: 0.8.1(@swc/core@1.16.18)(chokidar@5.0.0)(supports-color@7.2.0)

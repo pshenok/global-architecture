@@ -14,8 +14,8 @@ const MoneySchema = z.object({
   amountMinor: z.number().int().positive(),
 });
 
+/** `owner_id` is deprecated and ignored: the owner is the calling user. */
 export const CreateHouseRequestSchema = z.object({
-  ownerId: id,
   title: z.string().trim().min(1).max(200),
   description: z.string().max(5000),
   address: AddressSchema,

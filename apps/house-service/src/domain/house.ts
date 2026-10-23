@@ -1,4 +1,5 @@
-import { type Money, money, ValidationError } from '@ga/kernel';
+import { type Actor, isAdmin, type Money, money, ValidationError } from '@ga/kernel';
+import { housePermissionDenied } from './house.errors.ts';
 
 export interface Address {
   readonly line1: string;
@@ -107,6 +108,12 @@ export class House {
 
   static restore(state: HouseState): House {
     return new House({ ...state });
+  }
+
+  /** Only the owner, or an admin, may change or delete a house. */
+  assertManageableBy(actor: Actor): void {
+    const isOwner = actor.kind === 'user' && actor.userId === this.state.ownerId;
+    if (!isOwner && !isAdmin(actor)) throw housePermissionDenied(this.state.id);
   }
 
   get id(): string {
