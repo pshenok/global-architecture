@@ -72,7 +72,11 @@ export class AccessPolicyCheck implements OnModuleInit {
         throw new Error(`@Access must be on methods, not on ${metatype.name}`);
       }
       const prototype = Object.getPrototypeOf(instance) as Record<string, unknown>;
-      for (const name of this.scanner.getAllMethodNames(prototype)) {
+      const names = this.scanner.getAllMethodNames(prototype);
+      const methods = new Set(names.map((name) => prototype[name]));
+      const bound = new Map<object, AccessPolicy>();
+      const shared = new Set<object>();
+      for (const name of names) {
         const handler = prototype[name];
         if (typeof handler !== 'function' || !Reflect.hasMetadata(PATTERN_METADATA, handler))
           continue;
@@ -82,11 +86,19 @@ export class AccessPolicyCheck implements OnModuleInit {
         if (!policy) undeclared.push(member);
         else {
           this.policies.set(handler, policy);
-          // Nest calls instance[name]: a method bound in the constructor is another function.
-          const bound = (instance as Record<string, unknown>)[name];
-          if (typeof bound === 'function') this.policies.set(bound, policy);
+          // Nest calls instance[name]: a method bound in the constructor is a new function.
+          // Another method put there (an alias) keeps its own policy, never this one.
+          const copy = (instance as Record<string, unknown>)[name];
+          if (typeof copy === 'function' && !methods.has(copy)) {
+            if (bound.has(copy)) shared.add(copy);
+            bound.set(copy, policy);
+          }
         }
         if (opened) open.push({ member, ...opened });
+      }
+      // A copy that two methods share stays unknown: the guard refuses it (fail closed).
+      for (const [copy, policy] of bound) {
+        if (!this.policies.has(copy) && !shared.has(copy)) this.policies.set(copy, policy);
       }
     }
     if (undeclared.length > 0) {

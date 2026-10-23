@@ -4,6 +4,7 @@ import {
   UserServiceControllerMethods,
 } from '@ga/contracts/ga/user/v1/user';
 import { Controller, Module } from '@nestjs/common';
+import { type DiscoveryService, MetadataScanner } from '@nestjs/core';
 import { describe, expect, it } from 'vitest';
 import { grpcServiceConfigSchema } from '../config/config.ts';
 import { GrpcPlatformModule } from '../platform/grpc-platform.module.ts';
@@ -137,6 +138,30 @@ class GuardedController implements UserServiceController {
   }
 }
 
+/** Methods replaced in the constructor: a bound copy, an alias and a shared copy. */
+class RewiredController extends GuardedController {
+  constructor() {
+    super();
+    this.getUser = this.getUser.bind(this);
+    this.registerUser = this.updateUser;
+    const shared = this.listUsers.bind(this);
+    this.listUsers = shared;
+    this.deleteUser = shared;
+  }
+}
+
+/** The policies AccessPolicyCheck records for one controller instance. */
+function recordOf(instance: object): AccessPolicyCheck {
+  const check = new AccessPolicyCheck(
+    {
+      getControllers: () => [{ instance, metatype: instance.constructor }],
+    } as unknown as DiscoveryService,
+    new MetadataScanner(),
+  );
+  check.onModuleInit();
+  return check;
+}
+
 const moduleWith = (controller: new (...args: never[]) => unknown) => {
   @Module({
     imports: [
@@ -171,6 +196,7 @@ describe('@Access boot check', () => {
       service: SERVICE,
     });
     const handler = GuardedController.prototype.getUser as object;
+    const declared: unknown = Reflect.getMetadata(ACCESS_POLICY, handler);
     try {
       expect(service.app.get(AccessPolicyCheck).open).toEqual([
         {
@@ -192,9 +218,21 @@ describe('@Access boot check', () => {
       users.close();
       expect(error.details?.errorInfo?.reason).toBe('PRINCIPAL_MISSING');
     } finally {
-      Reflect.deleteMetadata(ACCESS_POLICY, handler);
+      // Put the class back as declared: other tests use it too.
+      Reflect.defineMetadata(ACCESS_POLICY, declared, handler);
       await service.close();
     }
+  });
+
+  it('knows bound handlers, keeps aliases to their own policy, refuses shared copies', () => {
+    const controller = new RewiredController();
+    const check = recordOf(controller);
+    expect(check.policyOf(controller.getUser)).toMatchObject({ kind: 'user' });
+    expect(check.policyOf(GuardedController.prototype.updateUser)).toMatchObject({ kind: 'user' });
+    expect(check.policyOf(GuardedController.prototype.registerUser)).toMatchObject({
+      kind: 'identity',
+    });
+    expect(check.policyOf(controller.listUsers)).toBeUndefined();
   });
 
   it('rejects policies that cannot work', () => {

@@ -92,26 +92,32 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
   (`file#Class.method` or `file#Class`, access, reason) in
   `security/public-endpoints.json`; the decorators may appear only as decorators on a
   method or class with inline literal arguments, and their metadata not at all.
-  Production code may not produce a value of an actor type outside the kit (assertions
-  or predicates to types holding an actor, `never` or type-parameter types, spreads,
-  calls returning an actor their declaration does not promise, constructor injection,
-  overloads, ambient declarations), use `@ts-ignore`-style comments or suppress the
-  any-rules, build `x-ga-caller`/`x-ga-principal` metadata, reach a test helper, load a
-  module by a computed path or `createRequire` (three platform files are allowed by name),
-  use `Reflect`, or (gateway) add routes or middleware outside controllers. Every
-  production file must be a `.ts` file in a tsconfig project (`.d.ts` only in the kit). The API is marked unstable: after a TypeScript bump run `pnpm lint`
-  and adapt the script if the API moved. Extend it when you add a new way to reach data
+  Production code may not produce a value of an actor type outside the kit (see the
+  script's header for the list: assertions, predicates, literals, calls and reads their
+  declarations do not promise, definite fields, injected, request or callback
+  parameters, overloads, ambient declarations, augmentations), use `@ts-ignore`-style
+  comments or suppress the any-rules, build `x-ga-caller`/`x-ga-principal` metadata,
+  reach a test helper, load a module by a computed path or `createRequire` (three
+  platform files are allowed by name), use `Reflect`, or (gateway) reach the raw server,
+  Nest middleware or Nest's registries outside `bootstrap.ts` and `http/openapi.ts`.
+  Every production file must be a `.ts` file in a tsconfig project (`.d.ts` only in the
+  kit). The script checks its own probes on every run (`apps/*/test/access-probes`: a
+  line marked `// refused` must be refused, no other line); when a review finds a new
+  way around a rule, add a probe line, then the rule. The API is marked unstable: after a
+  TypeScript bump run `pnpm lint` and adapt the script if the API moved. Extend it when
+  you add a new way to reach data
   without a user; never weaken it.
 - What runs is what the tests check: `AccessPolicyCheck` (services) and `AuthRoutes`
   (gateway) record the policies at boot, per controller and handler, and the guards
   enforce that record. `startTestService` in each service's own package and
   `createTestGateway` fail when the recorded open methods or routes differ from the list
-  (found from the kit's own place, never the working directory); `createTestGateway` also
-  fails on routes, hooks, plugins or middleware added by any gateway file but
-  `bootstrap.ts` and `http/openapi.ts`, and on Nest middleware other than logging and the
-  request context.
-- Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument` (outside
-  tests) keep `any` from turning request data into an actor.
+  (found from the kit's own place, never the working directory). Once Fastify is ready,
+  `createTestGateway` also fails on routes, hooks, plugins, handlers or middleware added
+  by code other than packages, `bootstrap.ts` and `http/openapi.ts` (attributed to the
+  calling code; an unknown caller is refused); `test/harness.spec.ts` shows each case.
+- Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument/-member-access/-call`
+  (outside tests) keep `any` from turning request data into an actor or reaching the
+  raw server.
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the whole
   service kit, `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
   `http/openapi.ts` and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and

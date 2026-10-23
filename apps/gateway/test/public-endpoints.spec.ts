@@ -58,6 +58,31 @@ class BoundController {
   list() {}
 }
 
+@Controller('alias')
+class AliasController {
+  constructor() {
+    // An alias, not a bound copy: the secret handler must keep its own mode.
+    this.list = this.secret;
+    const shared = this.first.bind(this);
+    this.first = shared;
+    this.second = shared;
+  }
+
+  @Get('secret')
+  secret() {}
+
+  @Get()
+  @Open('catalogue')
+  list() {}
+
+  @Get('first')
+  @Open('first')
+  first() {}
+
+  @Get('second')
+  second() {}
+}
+
 /** AuthRoutes over these controllers, as the gateway builds it at boot. */
 function recordOf(...types: Type[]): AuthRoutes {
   const controllers = types.map((type) => ({ metatype: type, instance: new type() }));
@@ -89,6 +114,25 @@ describe('AuthRoutes', () => {
     routes.onModuleInit();
     expect(routes.routeOf(BoundController, controller.list)).toMatchObject({ mode: 'public' });
     expect(routes.routeOf(BoundController, () => undefined)).toBe('unknown');
+  });
+});
+
+describe('AuthRoutes with methods replaced in the constructor', () => {
+  it('never gives a handler the mode of the route it was aliased to', () => {
+    const routes = recordOf(AliasController);
+    expect(routes.routeOf(AliasController, AliasController.prototype.secret)).toBeUndefined();
+  });
+
+  it('refuses a bound copy two routes share', () => {
+    const controller = new AliasController();
+    const routes = new AuthRoutes(
+      {
+        getControllers: () => [{ metatype: AliasController, instance: controller }],
+      } as unknown as DiscoveryService,
+      new Reflector(),
+    );
+    routes.onModuleInit();
+    expect(routes.routeOf(AliasController, controller.first)).toBe('unknown');
   });
 });
 

@@ -5,7 +5,8 @@ import {
   expectListedOpenEndpoints,
   type TestWorkloadKeys,
 } from '@ga/service-kit/testing';
-import { ModulesContainer } from '@nestjs/core';
+import type { Type } from '@nestjs/common';
+import { MiddlewareBuilder } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module.ts';
@@ -80,22 +81,46 @@ export interface TestGateway {
   close(): Promise<void>;
 }
 
-/** Modules that mount Nest middleware: request logging and the request context only. */
-const MIDDLEWARE_MODULES = new Set(['LoggerModule', 'ClsRootModule']);
 /** Gateway files allowed to add routes, hooks and middleware outside controllers. */
 const RAW_HTTP_FILES = new Set(['src/bootstrap.ts', 'src/http/openapi.ts']);
 /** Routes outside controllers: the OpenAPI document, and CORS preflight when CORS is on. */
 const NON_CONTROLLER_ROUTES = new Set(['GET /openapi.json', 'HEAD /openapi.json', 'OPTIONS *']);
+const GATEWAY_FILE = /\/apps\/gateway\/(src\/[^:)]+\.ts)/;
 
-/** Who registered something: the gateway source file on the call stack, `nest` or `library`. */
-function registeredBy(): string {
+/** Stack frames above the caller, this file and Node's own frames left out. */
+function callers(): string[] {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 100;
   const stack = new Error().stack ?? '';
   Error.stackTraceLimit = limit;
-  if (stack.includes('/@nestjs/core/router/')) return 'nest';
-  const own = /\/apps\/gateway\/(src\/[^:)]+\.ts)/.exec(stack);
-  return own?.[1] ?? 'library';
+  return stack
+    .split('\n')
+    .slice(1)
+    .filter((frame) => !frame.includes('/apps/gateway/test/harness.ts'))
+    .filter((frame) => !frame.includes('node:internal') && !frame.includes('(native)'));
+}
+
+/**
+ * Who called a registration method: the gateway source file that called it, `library`
+ * when a package did, or `unknown` when nothing can be named (a call scheduled from a
+ * microtask, for instance), which counts as a gateway file other than the allowed two.
+ */
+function caller(): string {
+  const first = callers()[0] ?? '';
+  const own = GATEWAY_FILE.exec(first);
+  if (own) return own[1] as string;
+  return first.includes('/node_modules/') ? 'library' : 'unknown';
+}
+
+/** Who registered a route: Nest's router, a gateway file anywhere on the stack, or else. */
+function routeOwner(): string {
+  const frames = callers();
+  if (frames.some((frame) => frame.includes('/@nestjs/core/router/'))) return 'nest';
+  for (const frame of frames) {
+    const own = GATEWAY_FILE.exec(frame);
+    if (own) return own[1] as string;
+  }
+  return frames.some((frame) => frame.includes('/node_modules/')) ? 'library' : 'unknown';
 }
 
 /** What the HTTP server got besides controller routes while the gateway started. */
@@ -104,56 +129,69 @@ interface Registrations {
   readonly hooks: { readonly what: string; readonly by: string }[];
 }
 
-/** Records every route, hook, plugin and middleware the adapter gets, and who added it. */
+/** The gateway being created; Nest middleware (consumer.apply) is recorded into it. */
+let recording: Registrations | undefined;
+const apply = MiddlewareBuilder.prototype.apply;
+MiddlewareBuilder.prototype.apply = function (this: MiddlewareBuilder, ...middleware) {
+  recording?.hooks.push({ what: 'Nest middleware (consumer.apply)', by: caller() });
+  return apply.apply(this, middleware);
+};
+
+/** Wraps `target[name]` so each call is recorded with the code that made it. */
+function track(target: object, name: string, into: Registrations): void {
+  const original = (target as Record<string, unknown>)[name];
+  if (typeof original !== 'function') return;
+  (target as Record<string, unknown>)[name] = function (this: unknown, ...args: unknown[]) {
+    into.hooks.push({ what: `${name}(${String(args[0])})`, by: caller() });
+    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+  };
+}
+
+/** Records every route, hook, plugin, handler and middleware the server gets, and who added it. */
 function recordRegistrations(adapter: ReturnType<typeof createAdapter>): Registrations {
   const registrations: Registrations = { routes: [], hooks: [] };
   const fastify = adapter.getInstance();
   fastify.addHook('onRoute', (route: { method: string | string[]; url: string }) => {
-    const by = registeredBy();
+    const by = routeOwner();
     for (const verb of [route.method].flat()) {
       registrations.routes.push({ route: `${verb} ${route.url}`, by });
     }
   });
-  const track = <T extends object>(target: T, name: string) => {
-    const original = (target as Record<string, unknown>)[name];
-    if (typeof original !== 'function') return;
-    (target as Record<string, unknown>)[name] = function (this: unknown, ...args: unknown[]) {
-      registrations.hooks.push({ what: `${name}(${String(args[0])})`, by: registeredBy() });
-      return (original as (...rest: unknown[]) => unknown).apply(this, args);
-    };
+  for (const name of ['addHook', 'register', 'setNotFoundHandler', 'setErrorHandler']) {
+    track(fastify, name, registrations);
+  }
+  track(adapter, 'use', registrations);
+  // @fastify/middie adds the instance's own `use` while Nest starts: wrap it on arrival.
+  const decorate = fastify.decorate;
+  (fastify as unknown as Record<string, unknown>).decorate = function (
+    this: unknown,
+    ...args: unknown[]
+  ) {
+    const result: unknown = Reflect.apply(decorate, this, args);
+    if (args[0] === 'use') track(fastify, 'use', registrations);
+    return result;
   };
-  track(fastify, 'addHook');
-  track(fastify, 'register');
-  track(adapter, 'use');
   return registrations;
 }
 
 /**
  * Fails unless every route is a controller route (so AuthGuard sees it) or one of the
- * known exceptions added by bootstrap.ts / http/openapi.ts or a plugin, no gateway file
- * but those two adds hooks, plugins or middleware, and no module but logging and the
- * request context mounts Nest middleware (ADR-0004).
+ * known exceptions, and nothing but packages and the gateway's bootstrap.ts and
+ * http/openapi.ts added hooks, plugins, handlers or middleware (ADR-0004). Runs once
+ * Fastify is ready, so registrations deferred to its boot are seen too.
  */
-function expectOnlyGuardedRoutes(app: NestFastifyApplication, seen: Registrations): void {
+function expectOnlyGuardedRoutes(seen: Registrations): void {
   const allowedFrom = (by: string) => by === 'nest' || by === 'library' || RAW_HTTP_FILES.has(by);
   const stray = seen.routes.filter(
     ({ route, by }) => by !== 'nest' && !(NON_CONTROLLER_ROUTES.has(route) && allowedFrom(by)),
   );
   const hooks = seen.hooks.filter(({ by }) => !allowedFrom(by));
-  const middleware = [...app.get(ModulesContainer).values()]
-    .map((module) => module.metatype as { name: string; prototype?: { configure?: unknown } })
-    .filter(
-      ({ name, prototype }) =>
-        typeof prototype?.configure === 'function' && !MIDDLEWARE_MODULES.has(name),
-    )
-    .map(({ name }) => name);
-  if (stray.length > 0 || hooks.length > 0 || middleware.length > 0) {
+  if (stray.length > 0 || hooks.length > 0) {
     throw new Error(
       [
         'the gateway serves requests outside its controllers, so AuthGuard never sees them (ADR-0004):',
         ...stray.map(({ route, by }) => `  route ${route} (from ${by})`),
         ...hooks.map(({ what, by }) => `  ${what} (from ${by})`),
-        ...middleware.map((name) => `  Nest middleware from ${name}`),
       ].join('\n'),
     );
   }
@@ -175,7 +213,12 @@ let logins = 0;
  */
 export async function createTestGateway(
   clients: ReadonlyMap<symbol, unknown>,
-  options: { readonly realResolver?: boolean; readonly env?: Record<string, string> } = {},
+  options: {
+    readonly realResolver?: boolean;
+    readonly env?: Record<string, string>;
+    /** Extra modules next to AppModule (the harness's own tests). */
+    readonly imports?: readonly Type[];
+  } = {},
 ): Promise<TestGateway> {
   // One gateway key and one identity provider per test process.
   keys ??= createTestWorkloadKeys(['gateway']);
@@ -195,7 +238,7 @@ export async function createTestGateway(
   });
   const config = parseConfig(ConfigSchema);
   const identities = new InMemoryIdentityResolver();
-  let builder = Test.createTestingModule({ imports: [AppModule] });
+  let builder = Test.createTestingModule({ imports: [AppModule, ...(options.imports ?? [])] });
   for (const [token, fake] of clients) builder = builder.overrideProvider(token).useValue(fake);
   if (!options.realResolver)
     builder = builder.overrideProvider(IdentityResolver).useValue(identities);
@@ -203,17 +246,20 @@ export async function createTestGateway(
   const adapter = createAdapter(config);
   const registrations = recordRegistrations(adapter);
   const app = moduleRef.createNestApplication<NestFastifyApplication>(adapter);
-  configureGateway(app, config);
-  await app.init();
+  const fastify = app.getHttpAdapter().getInstance();
+  recording = registrations;
   try {
+    configureGateway(app, config);
+    await app.init();
+    await fastify.ready();
     expectListedOpenEndpoints('apps/gateway', app.get(AuthRoutes).open);
-    expectOnlyGuardedRoutes(app, registrations);
+    expectOnlyGuardedRoutes(registrations);
   } catch (error) {
     await app.close();
     throw error;
+  } finally {
+    recording = undefined;
   }
-  const fastify = app.getHttpAdapter().getInstance();
-  await fastify.ready();
   const bearer = async (sub: string, tokenOptions: Omit<TokenOptions, 'sub'> = {}) => ({
     authorization: `Bearer ${await idp.token({ sub, ...tokenOptions })}`,
   });

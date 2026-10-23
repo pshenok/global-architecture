@@ -38,7 +38,11 @@ export function authRoutesOf(
     routes.set(type, handlers);
     add(type.name, reflector.get<AuthRoute | undefined>(AUTH_ROUTE, type));
     const prototype = type.prototype as Record<string, unknown>;
-    for (const name of scanner.getAllMethodNames(prototype)) {
+    const names = scanner.getAllMethodNames(prototype);
+    const methods = new Set(names.map((name) => prototype[name]));
+    const bound = new Map<object, AuthRoute | undefined>();
+    const shared = new Set<object>();
+    for (const name of names) {
       const handler = prototype[name];
       if (
         typeof handler !== 'function' ||
@@ -48,10 +52,18 @@ export function authRoutesOf(
       }
       const route = reflector.getAllAndOverride<AuthRoute | undefined>(AUTH_ROUTE, [handler, type]);
       handlers.set(handler, route);
-      // Nest calls instance[name]: a method bound in the constructor is another function.
-      const bound = (instance as Record<string, unknown> | undefined)?.[name];
-      if (typeof bound === 'function') handlers.set(bound, route);
+      // Nest calls instance[name]: a method bound in the constructor is a new function.
+      // Another method put there (an alias) keeps its own mode, never this route's.
+      const copy = (instance as Record<string, unknown> | undefined)?.[name];
+      if (typeof copy === 'function' && !methods.has(copy)) {
+        if (bound.has(copy)) shared.add(copy);
+        bound.set(copy, route);
+      }
       add(`${type.name}.${name}`, reflector.get<AuthRoute | undefined>(AUTH_ROUTE, handler));
+    }
+    // A copy that two routes share is left unknown: the guard refuses it (fail closed).
+    for (const [copy, route] of bound) {
+      if (!handlers.has(copy) && !shared.has(copy)) handlers.set(copy, route);
     }
   }
   return { routes, open };

@@ -34,4 +34,5 @@
 /templates/service/vitest.config.ts @pshenok
 **/biome.json @pshenok
 **/biome.jsonc @pshenok
-**/.oxlintrc.json @pshenok
+**/.oxlintrc* @pshenok
+**/oxlint.config.* @pshenok
