@@ -1,4 +1,4 @@
-import type { UserServiceClient } from '@ga/contracts/ga/user/v1/user';
+import type { RegisterUserResponse, UserServiceClient } from '@ga/contracts/ga/user/v1/user';
 import { currentIdentity, currentUser } from '@ga/service-kit';
 import {
   Body,
@@ -69,10 +69,15 @@ export class UsersController {
     @Body({ schema: RegisterUserBody }) body: z.output<typeof RegisterUserBody>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const { user } = await firstValueFrom(this.users.registerUser(body));
     const { issuer, subject } = currentIdentity();
-    this.identities.forget({ issuer, subject });
-    const view = toUserView(user);
+    let registered: RegisterUserResponse;
+    try {
+      registered = await firstValueFrom(this.users.registerUser(body));
+    } finally {
+      // Also on failure: USER_ALREADY_REGISTERED means a cached "not registered" is wrong.
+      this.identities.forget({ issuer, subject });
+    }
+    const view = toUserView(registered.user);
     void reply.header('location', `/v1/users/${view.id}`);
     return view;
   }
@@ -112,6 +117,8 @@ export class UsersController {
   @ApiResponse({ status: 204 })
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
   async remove(@Param('id', { schema: UserIdParam }) id: string): Promise<void> {
-    await firstValueFrom(this.users.deleteUser({ id: userId(id) }));
+    const target = userId(id);
+    await firstValueFrom(this.users.deleteUser({ id: target }));
+    this.identities.forgetUser(target);
   }
 }

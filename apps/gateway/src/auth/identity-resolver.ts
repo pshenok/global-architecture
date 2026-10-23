@@ -28,8 +28,10 @@ export interface ResolvedUser {
 export abstract class IdentityResolver {
   /** The user of `identity`, or null when it has none. Throws DependencyUnavailableError. */
   abstract resolve(identity: Identity): Promise<ResolvedUser | null>;
-  /** Drops a cached "not registered" answer (after this gateway registered the identity). */
+  /** Drops what is cached for a login (after this gateway registered it). */
   abstract forget(identity: Identity): void;
+  /** Drops every cached login of a user (after this gateway deleted it). */
+  abstract forgetUser(userId: string): void;
 }
 
 interface Entry {
@@ -49,6 +51,8 @@ export class GrpcIdentityResolver extends IdentityResolver {
   private readonly logger = new Logger(GrpcIdentityResolver.name);
   private readonly cache = new Map<string, Entry>();
   private readonly inflight = new Map<string, Promise<ResolvedUser | null>>();
+  /** Lookups that started before a forget: their callers get the answer, the cache does not. */
+  private readonly superseded = new WeakSet<Promise<ResolvedUser | null>>();
 
   constructor(
     @Inject(USER_SERVICE) private readonly users: UserServiceClient,
@@ -73,12 +77,15 @@ export class GrpcIdentityResolver extends IdentityResolver {
     }
     let pending = this.inflight.get(key);
     if (!pending) {
-      pending = this.fetch(identity).finally(() => this.inflight.delete(key));
-      this.inflight.set(key, pending);
+      const fetching: Promise<ResolvedUser | null> = this.fetch(identity).finally(() => {
+        if (this.inflight.get(key) === fetching) this.inflight.delete(key);
+      });
+      pending = fetching;
+      this.inflight.set(key, fetching);
     }
     try {
       const user = await pending;
-      this.touch(key, { user, at: Date.now() });
+      if (!this.superseded.has(pending)) this.touch(key, { user, at: Date.now() });
       return user;
     } catch (error) {
       const staleFor = cached?.user ? Date.now() - cached.at : Number.POSITIVE_INFINITY;
@@ -93,7 +100,24 @@ export class GrpcIdentityResolver extends IdentityResolver {
   }
 
   forget(identity: Identity): void {
-    this.cache.delete(`${identity.issuer}\n${identity.subject}`);
+    const key = `${identity.issuer}\n${identity.subject}`;
+    this.cache.delete(key);
+    this.supersede(key);
+  }
+
+  forgetUser(userId: string): void {
+    for (const [key, entry] of this.cache) {
+      if (entry.user?.userId === userId) this.cache.delete(key);
+    }
+    // In-flight lookups do not say whose they are yet: none of them may be cached.
+    for (const key of [...this.inflight.keys()]) this.supersede(key);
+  }
+
+  private supersede(key: string): void {
+    const pending = this.inflight.get(key);
+    if (!pending) return;
+    this.superseded.add(pending);
+    this.inflight.delete(key);
   }
 
   /** Asks user-service as the identity itself, in a child context so the request's own principal is untouched. */

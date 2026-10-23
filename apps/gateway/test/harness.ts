@@ -48,6 +48,8 @@ export class InMemoryIdentityResolver extends IdentityResolver {
 
   forget(): void {}
 
+  forgetUser(): void {}
+
   register(identity: Identity, user: ResolvedUser): void {
     this.users.set(identityKey(identity), user);
   }

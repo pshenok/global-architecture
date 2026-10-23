@@ -67,7 +67,9 @@ two issuers with the same `sub` are different logins.
   `USER_ALREADY_REGISTERED`.
 - **Resolution**: the gateway maps every login to its user through
   `ResolveIdentity`, cached for `IDENTITY_CACHE_TTL_S` (60 s), "not registered" for
-  `IDENTITY_CACHE_NEGATIVE_TTL_S` (5 s, cleared when this gateway registers the login).
+  `IDENTITY_CACHE_NEGATIVE_TTL_S` (5 s). A gateway clears what it cached for a login it
+  registers (also when the login turns out to be registered already) and for a user it
+  deletes, including lookups still in flight; other replicas catch up within the TTLs.
   While user-service is unreachable a known mapping keeps serving for
   `IDENTITY_CACHE_STALE_IF_ERROR_S` (5 min); unknown logins get 503.
 - **Roles** are platform data in `users.roles` (today: `admin`), granted with

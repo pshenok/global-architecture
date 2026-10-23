@@ -2,7 +2,7 @@ import { encodeStatusDetails, STATUS_DETAILS_KEY } from '@ga/contracts/runtime';
 import { currentActor, parseConfig } from '@ga/service-kit';
 import { Metadata, status } from '@grpc/grpc-js';
 import { ThrottlerException } from '@nestjs/throttler';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BOOKING_SERVICE, HOUSE_SERVICE, USER_SERVICE } from '../src/clients.ts';
 import { ConfigSchema } from '../src/config.ts';
@@ -446,6 +446,60 @@ describe('identity resolution through user-service', () => {
     users.resolveIdentity.mockReturnValue(of({ userId: USER_ID, roles: [] }));
     users.getUser.mockReturnValue(of({ user }));
     expect((await me('late')).statusCode).toBe(200);
+  });
+
+  it('never caches a lookup that raced the registration, nor a deleted user', async () => {
+    const lookup = new Subject<never>();
+    users.resolveIdentity.mockReturnValueOnce(lookup);
+    const before = me('racer');
+    await vi.waitFor(() => expect(users.resolveIdentity).toHaveBeenCalledTimes(1));
+    users.registerUser.mockReturnValue(of({ user }));
+    const registered = await gateway.inject({
+      method: 'POST',
+      url: '/v1/users',
+      headers: await gateway.bearer('racer', { email: 'r@example.com', emailVerified: true }),
+      payload: { fullName: 'Racer' },
+    });
+    expect(registered.statusCode).toBe(201);
+    lookup.error(grpcError(status.NOT_FOUND, 'no user', 'USER_NOT_REGISTERED'));
+    expect((await before).json().code).toBe('USER_NOT_REGISTERED');
+    users.resolveIdentity.mockReturnValue(of({ userId: USER_ID, roles: [] }));
+    users.getUser.mockReturnValue(of({ user }));
+    expect((await me('racer')).statusCode).toBe(200);
+
+    users.deleteUser.mockReturnValue(of({}));
+    const deleted = await gateway.inject({
+      method: 'DELETE',
+      url: '/v1/users/me',
+      headers: await gateway.bearer('racer'),
+    });
+    expect(deleted.statusCode).toBe(204);
+    users.resolveIdentity.mockReturnValue(
+      throwError(() => grpcError(status.NOT_FOUND, 'no user', 'USER_NOT_REGISTERED')),
+    );
+    expect((await me('racer')).json().code).toBe('USER_NOT_REGISTERED');
+  });
+
+  it('forgets "not registered" when registration says the login already has a user', async () => {
+    users.resolveIdentity.mockReturnValue(
+      throwError(() => grpcError(status.NOT_FOUND, 'no user', 'USER_NOT_REGISTERED')),
+    );
+    expect((await me('elsewhere')).json().code).toBe('USER_NOT_REGISTERED');
+    users.registerUser.mockReturnValue(
+      throwError(() =>
+        grpcError(status.ALREADY_EXISTS, 'already registered', 'USER_ALREADY_REGISTERED'),
+      ),
+    );
+    const again = await gateway.inject({
+      method: 'POST',
+      url: '/v1/users',
+      headers: await gateway.bearer('elsewhere', { email: 'e@example.com', emailVerified: true }),
+      payload: { fullName: 'Elsewhere' },
+    });
+    expect(again.statusCode).toBe(409);
+    users.resolveIdentity.mockReturnValue(of({ userId: USER_ID, roles: [] }));
+    users.getUser.mockReturnValue(of({ user }));
+    expect((await me('elsewhere')).statusCode).toBe(200);
   });
 
   it('keeps serving known logins while user-service is down, and 503s unknown ones', async () => {
