@@ -12,6 +12,12 @@ verified on 2026-10-22 against the npm registry, release notes and small
 experiments (NestJS 12 boot, decorator metadata under TS 7 and SWC, Drizzle
 migrations against Postgres, gRPC round trips through Nest, buf codegen).
 
+The data layer was re-checked the same day against Prisma 7.10.1, the Prisma 8
+RC and Drizzle 0.45.4: hands-on runs against the booking-service schema, a
+benchmark, and an independent cross-check of the findings. The benchmark ran on
+a busy laptop, so absolute numbers are rough; the ratios quoted below held
+across two passes and a separate serial re-run.
+
 ## Decision
 
 | Area              | Choice                                                                                            | Why                                                                                                                                                       |
@@ -38,8 +44,9 @@ migrations against Postgres, gRPC round trips through Nest, buf codegen).
 
 ## Rejected alternatives
 
-- **Prisma 7.10**: becoming the legacy line (Prisma 8 is a different API, 26 RCs in two months); `migrate dev` refuses to run non-interactively; 2-4x slower than Drizzle in a local benchmark; 7.10 releases lost npm provenance.
-- **Drizzle 0.45 (stable)**: guaranteed breaking upgrade to 1.0. We use only the core query builder, which is the part least affected by remaining RC changes. Fallback if RC churn hurts: pin `0.45.4` and keep to the same subset.
+- **Prisma 7.10**: the v7 line is in maintenance mode (fixes are promised for 18 months after Prisma 8 GA), and the next major is a rewrite (below). Findings on our stack: when the Postgres session `TimeZone` is not UTC, `@prisma/adapter-pg` silently shifts `timestamptz` values (Prisma reads its own writes back unchanged, so Prisma-only tests miss it; `-c TimeZone=UTC` on the pool fixes it). Exclusion and check violations surface as a generic P2039 without the constraint name, so `translateDbError` cannot map `bookings_no_overlap` without parsing the message text. It uses about 2x the CPU per operation of Drizzle 1.0 RC and reached 43-53% of raw `pg` throughput against 81-97%. Migrations can be generated without a human (`migrate dev --create-only --name <change>`, then `migrate deploy`), but `migrate dev` without `--name` hangs when there is neither a TTY nor a `CI` variable. Since 7.10.0 the `prisma` CLI package is published without npm provenance; `@prisma/client` and `@prisma/adapter-pg` still have it.
+- **Prisma 8 (RC)**: a plain `npm install prisma` has installed it since 2026-08-25, but it is a different ORM (a contract file instead of PrismaClient; no `generate` or `migrate dev`). 26 RCs in two months with breaking changes in most of them, no GA date, and 13 `npm audit` findings in its dependency tree.
+- **Drizzle 0.45 (stable)**: guaranteed breaking upgrade to 1.0, no node-postgres transaction fixes from 1.0 RC, and 45-58% of raw `pg` throughput. We use only the core query builder, which is the part least affected by remaining RC changes. Fallback if RC churn hurts, rehearsed on 2026-10-22: pin `drizzle-orm@0.45.4` and `drizzle-kit@0.31`. The source compiles and all tests pass unchanged, but each migrations folder must first be converted to the `meta/_journal.json` layout; otherwise kit 0.31 silently generates a full baseline that omits hand-written SQL such as the exclusion constraint. Kit 0.31 also skips an ambiguous rename without a TTY (exit 0, no file written), and a database migrated by 0.45 needs a manual fix before returning to 1.0, because 0.45 records applied migrations without names and the 1.0 migrator applies them again.
 - **Connect-RPC**: no first-party Nest integration, bypasses Nest guards/pipes/filters, needs a second codegen. Revisit for browser-facing APIs.
 - **ESLint + typescript-eslint**: no TypeScript 7 support.
 - **Jest**: needs experimental VM modules for ESM Nest; slower.
@@ -48,6 +55,7 @@ migrations against Postgres, gRPC round trips through Nest, buf codegen).
 
 ## Consequences
 
-- Drizzle is pinned to an exact RC; upgrades are deliberate and go through the template first.
+- Drizzle is pinned to an exact RC; upgrades are deliberate and go through the template first. 1.0 has no GA date and formats still change inside the RC line (rc.5 moved migration snapshots from version 8 to 9).
+- Open issue drizzle-team/drizzle-orm#6572 (Prisma 7 behaves the same): when a statement fails inside a transaction and the callback swallows the error, Postgres answers COMMIT with ROLLBACK, yet the transaction resolves as success and its writes are silently lost. Code inside `UnitOfWork.run` never catches a database error and carries on; it translates and rethrows, as the repositories do.
 - TypeScript 7 has no compiler API yet, so tools that need it (Nest CLI schematics, Swagger CLI plugin) are not used. Our own generator replaces `nest g`.
 - Known sharp edges are encoded in code and docs: injectable classes must stay value imports, ESM circular imports need `Ref<T>`, proto timestamps need the installed well-known-type wrappers, and `@grpc/proto-loader` / `protobufjs` are pinned to single versions via pnpm overrides.

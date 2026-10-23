@@ -43,12 +43,22 @@ export async function createTestDatabase(options: {
     );
   }
   const url = withSearchPath(baseUrl, schema);
-  await runMigrations({
-    databaseUrl: url,
-    migrationsFolder: options.migrationsFolder,
-    lockKey: schema,
-    migrationsSchema: schema,
-  });
+  try {
+    await runMigrations({
+      databaseUrl: url,
+      migrationsFolder: options.migrationsFolder,
+      lockKey: schema,
+      migrationsSchema: schema,
+    });
+  } catch (error) {
+    // The caller gets no TestDatabase to dispose(), so clean up here.
+    await admin.query(`drop schema if exists "${schema}" cascade`).catch(() => undefined);
+    await admin.end();
+    throw new Error(
+      `migrations in ${options.migrationsFolder} failed in test schema ${schema}: ${String(error)}`,
+      { cause: error },
+    );
+  }
   const pool = new pg.Pool({ connectionString: url, max: 4 });
   return {
     url,
@@ -62,8 +72,11 @@ export async function createTestDatabase(options: {
     },
     async dispose() {
       await pool.end();
-      await admin.query(`drop schema if exists "${schema}" cascade`);
-      await admin.end();
+      try {
+        await admin.query(`drop schema if exists "${schema}" cascade`);
+      } finally {
+        await admin.end();
+      }
     },
   };
 }
