@@ -73,8 +73,10 @@ two issuers with the same `sub` are different logins.
   While user-service is unreachable a known mapping keeps serving for
   `IDENTITY_CACHE_STALE_IF_ERROR_S` (5 min); unknown logins get 503.
 - **Roles** are platform data in `users.roles` (today: `admin`), granted and revoked
-  with `pnpm users:grant-role|users:revoke-role <userId> admin` inside user-service
-  (each change is printed with the operator's OS user). An IdP role never becomes a
+  with `pnpm users:grant-role|users:revoke-role <userId> admin --by <name>` inside
+  user-service. Each change prints one line naming who made it (`--by`, else the OS user
+  the CLI runs as, which in a container is the image's user); that line is the only
+  record, so runbooks keep it. An IdP role never becomes a
   platform role, so an IdP administrator is not a platform administrator. Role changes
   and deletions reach requests within the cache TTL, or the stale window while
   user-service is unreachable; to cut off a compromised admin at once, revoke the role,

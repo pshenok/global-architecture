@@ -53,7 +53,7 @@ TOKEN=$(pnpm -s dev:token alice --email alice@example.com)   # 900 s; --ttl <s>,
 curl -s --cacert .certs/dev-cert.pem -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' -d '{"fullName":"Alice"}' https://localhost:8443/v1/users
 curl -s --cacert .certs/dev-cert.pem -H "authorization: Bearer $TOKEN" https://localhost:8443/v1/users/me
-pnpm users:grant-role <userId> admin    # roles live in user-service, never in the IdP
+pnpm users:grant-role <userId> admin    # roles live in user-service, never in the IdP; --by <name> to record who
 pnpm users:revoke-role <userId> admin   # takes effect within the gateway's 60 s identity cache
 ```
 
