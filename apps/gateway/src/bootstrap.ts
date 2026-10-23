@@ -43,7 +43,10 @@ export function configureGateway(app: NestFastifyApplication, config: Config): v
     .map((o) => o.trim())
     .filter(Boolean);
   if (origins.length > 0)
-    app.enableCors({ origin: origins, exposedHeaders: ['x-request-id', 'location'] });
+    app.enableCors({
+      origin: origins,
+      exposedHeaders: ['x-request-id', 'location', 'www-authenticate'],
+    });
   app.useGlobalPipes(validationPipe);
   app.useGlobalFilters(new ProblemDetailsFilter());
   app

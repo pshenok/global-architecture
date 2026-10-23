@@ -1,5 +1,5 @@
 import { encodeStatusDetails, STATUS_DETAILS_KEY } from '@ga/contracts/runtime';
-import { parseConfig } from '@ga/service-kit';
+import { currentActor, parseConfig } from '@ga/service-kit';
 import { Metadata, status } from '@grpc/grpc-js';
 import { ThrottlerException } from '@nestjs/throttler';
 import { of, throwError } from 'rxjs';
@@ -10,15 +10,28 @@ import { toProblemDetails } from '../src/http/problem-details.ts';
 import { createTestGateway, type TestGateway } from './harness.ts';
 
 const USER_ID = '01900000-0000-7000-8000-000000000001';
+const HOUSE_ID = '01900000-0000-7000-8000-0000000000a1';
 const user = {
   id: USER_ID,
   email: 'ann@example.com',
   fullName: 'Ann',
+  roles: [],
   createTime: new Date('2026-01-01T00:00:00.000Z'),
   updateTime: new Date('2026-01-02T00:00:00.000Z'),
 };
+const house = {
+  id: HOUSE_ID,
+  ownerId: USER_ID,
+  title: 'Loft',
+  description: '',
+  address: { line1: '1 Main', city: 'Odesa', countryCode: 'UA' },
+  nightlyPrice: { currencyCode: 'USD', amountMinor: 100 },
+  maxGuests: 2,
+  createTime: new Date('2026-01-01T00:00:00.000Z'),
+  updateTime: new Date('2026-01-01T00:00:00.000Z'),
+};
 
-function grpcError(code: number, message: string, reason?: string) {
+function grpcError(code: number, message: string, reason?: string, domain = 'user-service') {
   const metadata = new Metadata();
   if (reason) {
     metadata.set(
@@ -26,7 +39,7 @@ function grpcError(code: number, message: string, reason?: string) {
       encodeStatusDetails({
         code,
         message,
-        errorInfo: { reason, domain: 'user-service', metadata: { email: 'ann@example.com' } },
+        errorInfo: { reason, domain, metadata: { email: 'ann@example.com' } },
       }),
     );
   }
@@ -34,21 +47,31 @@ function grpcError(code: number, message: string, reason?: string) {
 }
 
 const users = {
+  registerUser: vi.fn(),
+  resolveIdentity: vi.fn(),
   createUser: vi.fn(),
   getUser: vi.fn(),
   listUsers: vi.fn(),
   updateUser: vi.fn(),
   deleteUser: vi.fn(),
 };
+const houses = {
+  createHouse: vi.fn(),
+  getHouse: vi.fn(),
+  listHouses: vi.fn(),
+  updateHouse: vi.fn(),
+  deleteHouse: vi.fn(),
+};
 
 describe('gateway (REST -> gRPC)', () => {
   let gateway: TestGateway;
+  let ann: Record<string, string>;
 
   beforeAll(async () => {
     gateway = await createTestGateway(
       new Map<symbol, unknown>([
         [USER_SERVICE, users],
-        [HOUSE_SERVICE, {}],
+        [HOUSE_SERVICE, houses],
         [BOOKING_SERVICE, {}],
       ]),
     );
@@ -58,34 +81,169 @@ describe('gateway (REST -> gRPC)', () => {
     await gateway?.close();
   });
 
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    ann = await gateway.as(USER_ID);
+  });
 
   const inject: TestGateway['inject'] = (options) => gateway.inject(options);
 
-  it('creates a user: 201, Location, REST field names, ISO timestamps', async () => {
-    users.createUser.mockReturnValue(of({ user }));
-    const response = await inject({
-      method: 'POST',
-      url: '/v1/users',
-      payload: { email: 'ann@example.com', fullName: 'Ann' },
+  describe('authentication', () => {
+    it('answers a protected route without a token with 401 and WWW-Authenticate', async () => {
+      const response = await inject({ method: 'GET', url: '/v1/users/me' });
+      expect(response.statusCode).toBe(401);
+      expect(response.headers['www-authenticate']).toBe('Bearer realm="ga"');
+      expect(response.json()).toMatchObject({ status: 401, code: 'AUTH_TOKEN_MISSING' });
+      expect(users.getUser).not.toHaveBeenCalled();
     });
-    expect(response.statusCode).toBe(201);
-    expect(response.headers.location).toBe(`/v1/users/${USER_ID}`);
-    expect(response.json()).toEqual({
-      id: USER_ID,
-      email: 'ann@example.com',
-      fullName: 'Ann',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-02T00:00:00.000Z',
+
+    it('answers a bad or expired token with 401 invalid_token', async () => {
+      for (const [headers, code] of [
+        [{ authorization: 'Bearer not.a.jwt' }, 'AUTH_TOKEN_INVALID'],
+        [{ authorization: 'Basic YW5uOnB3' }, 'AUTH_TOKEN_INVALID'],
+        [await gateway.bearer('ann', { expiresIn: -120 }), 'AUTH_TOKEN_EXPIRED'],
+        [await gateway.bearer('ann', { audience: 'some-client' }), 'AUTH_TOKEN_INVALID'],
+      ] as const) {
+        const response = await inject({ method: 'GET', url: '/v1/users/me', headers });
+        expect(response.statusCode).toBe(401);
+        expect(response.headers['www-authenticate']).toBe(
+          'Bearer realm="ga", error="invalid_token"',
+        );
+        expect(response.json().code).toBe(code);
+      }
     });
-    expect(users.createUser).toHaveBeenCalledWith({ email: 'ann@example.com', fullName: 'Ann' });
+
+    it('requires registration before anything but POST /v1/users', async () => {
+      const response = await inject({
+        method: 'GET',
+        url: '/v1/users/me',
+        headers: await gateway.bearer('newcomer'),
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('USER_NOT_REGISTERED');
+    });
+
+    it('registers a login with the email the identity provider verified', async () => {
+      let actor: unknown;
+      users.registerUser.mockImplementation(() => {
+        actor = currentActor();
+        return of({ user });
+      });
+      const response = await inject({
+        method: 'POST',
+        url: '/v1/users',
+        headers: await gateway.bearer('newcomer', {
+          email: 'Ann@Example.com',
+          emailVerified: true,
+        }),
+        payload: { fullName: 'Ann', email: 'someone-else@example.com' },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.headers.location).toBe(`/v1/users/${USER_ID}`);
+      expect(users.registerUser).toHaveBeenCalledWith({ fullName: 'Ann' });
+      expect(actor).toMatchObject({
+        kind: 'identity',
+        issuer: gateway.issuer.issuer,
+        subject: 'newcomer',
+        email: 'Ann@Example.com',
+      });
+    });
+
+    it('refuses to register an unverified email', async () => {
+      const response = await inject({
+        method: 'POST',
+        url: '/v1/users',
+        headers: await gateway.bearer('newcomer', { email: 'a@b.io', emailVerified: false }),
+        payload: { fullName: 'Ann' },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('EMAIL_NOT_VERIFIED');
+      expect(users.registerUser).not.toHaveBeenCalled();
+    });
+
+    it('serves the catalogue anonymously, but never with a bad token', async () => {
+      houses.listHouses.mockReturnValue(of({ houses: [house], nextPageToken: '' }));
+      const anonymous = await inject({ method: 'GET', url: '/v1/houses' });
+      expect(anonymous.statusCode).toBe(200);
+      const bad = await inject({
+        method: 'GET',
+        url: '/v1/houses',
+        headers: { authorization: 'Bearer forged.token.value' },
+      });
+      expect(bad.statusCode).toBe(401);
+    });
+
+    it('acts as the signed-in user: owner and guest never come from the body', async () => {
+      let actor: unknown;
+      houses.createHouse.mockImplementation(() => {
+        actor = currentActor();
+        return of({ house });
+      });
+      const response = await inject({
+        method: 'POST',
+        url: '/v1/houses',
+        headers: ann,
+        payload: {
+          ownerId: '01900000-0000-7000-8000-0000000000ff',
+          title: 'Loft',
+          address: house.address,
+          nightlyPrice: house.nightlyPrice,
+          maxGuests: 2,
+        },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(houses.createHouse).toHaveBeenCalledWith(
+        expect.objectContaining({ ownerId: USER_ID }),
+      );
+      expect(actor).toMatchObject({ kind: 'user', userId: USER_ID, roles: [] });
+    });
+
+    it('resolves `me` to the signed-in user', async () => {
+      users.getUser.mockReturnValue(of({ user }));
+      const response = await inject({ method: 'GET', url: '/v1/users/me', headers: ann });
+      expect(response.statusCode).toBe(200);
+      expect(users.getUser).toHaveBeenCalledWith({ id: USER_ID });
+    });
+
+    it('turns authentication faults between gateway and services into 500', async () => {
+      for (const error of [
+        grpcError(status.UNAUTHENTICATED, 'x-ga-caller: token expired', 'CALLER_EXPIRED'),
+        grpcError(
+          status.PERMISSION_DENIED,
+          'workload gateway may not call this',
+          'CALLER_NOT_ALLOWED',
+        ),
+      ]) {
+        users.getUser.mockReturnValue(throwError(() => error));
+        const response = await inject({ method: 'GET', url: '/v1/users/me', headers: ann });
+        expect(response.statusCode).toBe(500);
+        expect(response.json()).toMatchObject({ code: 'INTERNAL' });
+        expect(response.json().detail).toBeUndefined();
+      }
+    });
+
+    it('passes real authorization failures through as 403', async () => {
+      users.listUsers.mockReturnValue(
+        throwError(() =>
+          grpcError(
+            status.PERMISSION_DENIED,
+            'this operation requires the admin role',
+            'ADMIN_ROLE_REQUIRED',
+          ),
+        ),
+      );
+      const response = await inject({ method: 'GET', url: '/v1/users', headers: ann });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('ADMIN_ROLE_REQUIRED');
+    });
   });
 
   it('rejects invalid input with 400 problem+json before calling the service', async () => {
     const response = await inject({
       method: 'POST',
       url: '/v1/users',
-      payload: { email: 'nope', fullName: '' },
+      headers: await gateway.bearer('newcomer', { email: 'a@b.io', emailVerified: true }),
+      payload: { fullName: '' },
     });
     expect(response.statusCode).toBe(400);
     expect(response.headers['content-type']).toContain('application/problem+json');
@@ -96,12 +254,12 @@ describe('gateway (REST -> gRPC)', () => {
       code: 'VALIDATION_FAILED',
       instance: '/v1/users',
     });
-    expect(problem.errors.map((e: { field: string }) => e.field)).toEqual(['email', 'fullName']);
-    expect(users.createUser).not.toHaveBeenCalled();
+    expect(problem.errors.map((e: { field: string }) => e.field)).toEqual(['fullName']);
+    expect(users.registerUser).not.toHaveBeenCalled();
   });
 
   it('maps a rich gRPC error to a 409 problem with the domain reason', async () => {
-    users.createUser.mockReturnValue(
+    users.registerUser.mockReturnValue(
       throwError(() =>
         grpcError(
           status.ALREADY_EXISTS,
@@ -113,7 +271,8 @@ describe('gateway (REST -> gRPC)', () => {
     const response = await inject({
       method: 'POST',
       url: '/v1/users',
-      payload: { email: 'ann@example.com', fullName: 'Ann' },
+      headers: await gateway.bearer('newcomer', { email: 'ann@example.com', emailVerified: true }),
+      payload: { fullName: 'Ann' },
     });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({
@@ -128,7 +287,7 @@ describe('gateway (REST -> gRPC)', () => {
     users.getUser.mockReturnValue(
       throwError(() => grpcError(status.UNAVAILABLE, 'connect ECONNREFUSED 10.0.0.7:50051')),
     );
-    const response = await inject({ method: 'GET', url: `/v1/users/${USER_ID}` });
+    const response = await inject({ method: 'GET', url: `/v1/users/${USER_ID}`, headers: ann });
     expect(response.statusCode).toBe(503);
     const problem = response.json();
     expect(problem.code).toBe('UNAVAILABLE');
@@ -136,10 +295,14 @@ describe('gateway (REST -> gRPC)', () => {
   });
 
   it('validates path params, pages lists and maps empty tokens to null', async () => {
-    expect((await inject({ method: 'GET', url: '/v1/users/not-a-uuid' })).statusCode).toBe(400);
+    const invalid = await inject({ method: 'GET', url: '/v1/users/not-a-uuid', headers: ann });
+    expect(invalid.statusCode).toBe(400);
     users.listUsers.mockReturnValue(of({ users: [user], nextPageToken: '' }));
-    const response = await inject({ method: 'GET', url: '/v1/users?pageSize=5' });
-    expect(response.json()).toMatchObject({ items: [{ id: USER_ID }], nextPageToken: null });
+    const response = await inject({ method: 'GET', url: '/v1/users?pageSize=5', headers: ann });
+    expect(response.json()).toMatchObject({
+      items: [{ id: USER_ID, roles: [] }],
+      nextPageToken: null,
+    });
     expect(users.listUsers).toHaveBeenCalledWith({ pageSize: 5, pageToken: '' });
   });
 
@@ -170,7 +333,7 @@ describe('gateway (REST -> gRPC)', () => {
     expect(response.json()).toMatchObject({ status: 404, code: 'NOT_FOUND' });
   });
 
-  it('publishes an OpenAPI document built from the Zod schemas', async () => {
+  it('publishes an OpenAPI document with bearer security on every non-public operation', async () => {
     const document = (await inject({ method: 'GET', url: '/openapi.json' })).json();
     expect(Object.keys(document.paths)).toEqual(
       expect.arrayContaining([
@@ -181,23 +344,110 @@ describe('gateway (REST -> gRPC)', () => {
         '/v1/bookings/{id}/cancel',
       ]),
     );
-    const body = document.paths['/v1/users'].post.requestBody.content['application/json'].schema;
-    expect(body).toEqual({ $ref: '#/components/schemas/CreateUserBody' });
-    expect(document.components.schemas.CreateUserBody.properties.email).toMatchObject({
-      type: 'string',
-      format: 'email',
+    expect(document.components.securitySchemes.bearer).toMatchObject({
+      type: 'http',
+      scheme: 'bearer',
     });
-    expect(document.components.schemas).toHaveProperty('ProblemDetails');
+    expect(document.security).toEqual([{ bearer: [] }]);
+    const body = document.paths['/v1/users'].post.requestBody.content['application/json'].schema;
+    expect(body).toEqual({ $ref: '#/components/schemas/RegisterUserBody' });
+    const operations = Object.entries(document.paths).flatMap(([path, item]) =>
+      Object.entries(
+        item as Record<string, { security?: unknown[]; responses: Record<string, unknown> }>,
+      ).map(([method, operation]) => ({ id: `${method.toUpperCase()} ${path}`, operation })),
+    );
+    const open = operations
+      .filter(({ operation }) => operation.security?.length === 0)
+      .map(({ id }) => id);
+    expect(open.sort()).toEqual(['GET /v1/houses', 'GET /v1/houses/{id}']);
+    for (const { id, operation } of operations) {
+      if (open.includes(id)) continue;
+      expect(operation.responses, id).toHaveProperty('401');
+      expect(operation.responses, id).toHaveProperty('403');
+    }
+    expect(JSON.stringify(document)).not.toContain('x-ga-public');
+  });
+});
+
+describe('identity resolution through user-service', () => {
+  let gateway: TestGateway;
+
+  beforeAll(async () => {
+    gateway = await createTestGateway(new Map<symbol, unknown>([[USER_SERVICE, users]]), {
+      realResolver: true,
+      env: {
+        IDENTITY_CACHE_TTL_S: '1',
+        IDENTITY_CACHE_NEGATIVE_TTL_S: '60',
+        IDENTITY_CACHE_STALE_IF_ERROR_S: '60',
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await gateway?.close();
+  });
+
+  beforeEach(() => vi.resetAllMocks());
+
+  const me = async (sub: string) =>
+    gateway.inject({ method: 'GET', url: '/v1/users/me', headers: await gateway.bearer(sub) });
+
+  it('asks user-service once per login and caches the answer', async () => {
+    let actor: unknown;
+    users.resolveIdentity.mockImplementation(() => {
+      actor = currentActor();
+      return of({ userId: USER_ID, roles: ['admin', 'unknown-role'] });
+    });
+    users.getUser.mockReturnValue(of({ user }));
+    expect((await me('cached')).statusCode).toBe(200);
+    expect((await me('cached')).statusCode).toBe(200);
+    expect(users.resolveIdentity).toHaveBeenCalledTimes(1);
+    expect(actor).toMatchObject({ kind: 'identity', subject: 'cached', email: null });
+  });
+
+  it('remembers "not registered" until this gateway registers the login', async () => {
+    users.resolveIdentity.mockReturnValue(
+      throwError(() => grpcError(status.NOT_FOUND, 'no user', 'USER_NOT_REGISTERED')),
+    );
+    expect((await me('late')).json().code).toBe('USER_NOT_REGISTERED');
+    expect((await me('late')).json().code).toBe('USER_NOT_REGISTERED');
+    expect(users.resolveIdentity).toHaveBeenCalledTimes(1);
+    users.registerUser.mockReturnValue(of({ user }));
+    const registered = await gateway.inject({
+      method: 'POST',
+      url: '/v1/users',
+      headers: await gateway.bearer('late', { email: 'late@example.com', emailVerified: true }),
+      payload: { fullName: 'Late' },
+    });
+    expect(registered.statusCode).toBe(201);
+    users.resolveIdentity.mockReturnValue(of({ userId: USER_ID, roles: [] }));
+    users.getUser.mockReturnValue(of({ user }));
+    expect((await me('late')).statusCode).toBe(200);
+  });
+
+  it('keeps serving known logins while user-service is down, and 503s unknown ones', async () => {
+    users.resolveIdentity.mockReturnValue(of({ userId: USER_ID, roles: [] }));
+    users.getUser.mockReturnValue(of({ user }));
+    expect((await me('steady')).statusCode).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 1_100)); // past the 1 s TTL
+    users.resolveIdentity.mockReturnValue(throwError(() => grpcError(status.UNAVAILABLE, 'down')));
+    expect((await me('steady')).statusCode).toBe(200);
+    const unknown = await me('stranger');
+    expect(unknown.statusCode).toBe(503);
+    expect(unknown.json().code).toBe('USER_SERVICE_UNAVAILABLE');
   });
 });
 
 describe('gateway config', () => {
+  const issuers = (jwksUri: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify([{ issuer: 'https://idp.example', audience: 'ga-api', jwksUri, ...extra }]);
   const env = {
     USER_SERVICE_URL: 'a:1',
     HOUSE_SERVICE_URL: 'b:1',
     BOOKING_SERVICE_URL: 'c:1',
     WORKLOAD_KEY_FILE: '/keys/gateway.jwk.json',
     WORKLOAD_KEYS_FILE: '/keys/workload-keys.json',
+    AUTH_ISSUERS: issuers('https://idp.example/jwks.json'),
   };
 
   it('disables the docs by default in production only', () => {
@@ -207,6 +457,29 @@ describe('gateway config', () => {
       parseConfig(ConfigSchema, { ...env, NODE_ENV: 'production', DOCS_ENABLED: 'true' })
         .DOCS_ENABLED,
     ).toBe(true);
+  });
+
+  it('requires https identity providers, except loopback outside production', () => {
+    const local = { ...env, AUTH_ISSUERS: issuers('http://127.0.0.1:8090/jwks.json') };
+    expect(() => parseConfig(ConfigSchema, { ...local, NODE_ENV: 'development' })).not.toThrow();
+    expect(() => parseConfig(ConfigSchema, { ...local, NODE_ENV: 'production' })).toThrow(
+      /must use https/,
+    );
+    const remote = { ...env, AUTH_ISSUERS: issuers('http://idp.example/jwks.json') };
+    expect(() => parseConfig(ConfigSchema, remote)).toThrow(/must use https/);
+  });
+
+  it('never accepts symmetric or unsigned algorithms', () => {
+    for (const algorithm of ['HS256', 'none']) {
+      const config = {
+        ...env,
+        AUTH_ISSUERS: issuers('https://idp.example/jwks.json', { algorithms: [algorithm] }),
+      };
+      expect(() => parseConfig(ConfigSchema, config)).toThrow(/AUTH_ISSUERS/);
+    }
+    expect(() => parseConfig(ConfigSchema, { ...env, AUTH_ISSUERS: 'not json' })).toThrow(
+      /JSON array/,
+    );
   });
 });
 

@@ -80,12 +80,19 @@ export const authConfigSchema = z.object({
   AUTH_JWKS_REFRESH_S: z.coerce.number().int().min(10).max(86_400).default(300),
   /** At most one extra JWKS fetch per this interval for tokens signed with an unknown key. */
   AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S: z.coerce.number().int().min(0).max(3_600).default(30),
-  /** Keys older than this (no successful refresh) are not used: requests get 503. */
-  AUTH_JWKS_MAX_STALE_S: z.coerce.number().int().min(60).max(86_400).default(3_600),
+  /**
+   * Keys older than this (no successful refresh) are not used: requests get 503. Bounds
+   * how long a key the provider removed (e.g. after a compromise) can stay trusted while
+   * refreshes fail.
+   */
+  AUTH_JWKS_MAX_STALE_S: z.coerce.number().int().min(60).max(86_400).default(1_800),
   AUTH_JWKS_TIMEOUT_MS: z.coerce.number().int().min(100).max(30_000).default(3_000),
   IDENTITY_CACHE_TTL_S: z.coerce.number().int().min(1).max(3_600).default(60),
-  /** How long a known mapping keeps serving while user-service is unreachable. */
-  IDENTITY_CACHE_STALE_IF_ERROR_S: z.coerce.number().int().min(0).max(86_400).default(900),
+  /**
+   * How long a known mapping keeps serving while user-service is unreachable. During an
+   * outage a role change or deletion takes up to this long to apply; 0 disables it.
+   */
+  IDENTITY_CACHE_STALE_IF_ERROR_S: z.coerce.number().int().min(0).max(3_600).default(300),
   IDENTITY_CACHE_NEGATIVE_TTL_S: z.coerce.number().int().min(0).max(300).default(5),
   IDENTITY_CACHE_MAX_ENTRIES: z.coerce.number().int().min(100).max(1_000_000).default(10_000),
   /** Lifetime of the principals the gateway signs (at most 120 s). */

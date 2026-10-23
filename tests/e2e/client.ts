@@ -1,9 +1,16 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Agent, request } from 'undici';
 
 const ROOT = new URL('../../', import.meta.url);
 export const BASE_URL = process.env.E2E_BASE_URL ?? 'https://localhost:8443';
 export const CA = readFileSync(new URL('.certs/dev-cert.pem', ROOT));
+const registry = JSON.parse(readFileSync(new URL('services.json', ROOT), 'utf8')) as {
+  devIdp: { port: number };
+};
+/** The stack's local OIDC provider (tools/dev-idp.ts). */
+export const IDP_URL = `http://127.0.0.1:${registry.devIdp.port}`;
 
 /** HTTPS client that trusts the local dev certificate and negotiates HTTP/2 when offered. */
 const dispatcher = new Agent({ connect: { ca: CA }, allowH2: true });
@@ -58,3 +65,66 @@ export function day(n: number): string {
 
 export const unique = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+export const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+
+/** An access token from the dev IdP for login `sub`. */
+export async function idpToken(
+  sub: string,
+  options: { email?: string; emailVerified?: boolean; ttlS?: number } = {},
+): Promise<string> {
+  const response = await fetch(`${IDP_URL}/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sub, ...options }),
+  });
+  const body = (await response.json()) as { access_token?: string };
+  if (!body.access_token) throw new Error(`dev-idp refused a token for ${sub}`);
+  return body.access_token;
+}
+
+export interface Session {
+  readonly sub: string;
+  readonly userId: string;
+  readonly email: string;
+  readonly token: string;
+  call<T = Record<string, unknown>>(
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>>;
+}
+
+/** A new login at the dev IdP, registered as a user (POST /v1/users). */
+export async function signUp(name: string): Promise<Session> {
+  const sub = unique(name);
+  const email = `${sub}@example.com`;
+  const token = await idpToken(sub, { email, emailVerified: true });
+  const registered = await api<{ id: string }>(
+    'POST',
+    '/v1/users',
+    { fullName: name },
+    bearer(token),
+  );
+  if (registered.status !== 201) {
+    throw new Error(`registration failed: ${registered.status} ${JSON.stringify(registered.body)}`);
+  }
+  return {
+    sub,
+    email,
+    token,
+    userId: registered.body.id,
+    call: (method, path, body) => api(method, path, body, bearer(token)),
+  };
+}
+
+/**
+ * Grants a platform role through user-service's own script. Call it before the
+ * session's first authenticated request: the gateway caches roles per login.
+ */
+export function grantAdmin(userId: string): void {
+  execFileSync('pnpm', ['-s', 'users:grant-role', userId, 'admin'], {
+    cwd: fileURLToPath(ROOT),
+    stdio: 'pipe',
+  });
+}

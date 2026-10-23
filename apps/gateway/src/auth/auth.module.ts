@@ -1,5 +1,6 @@
 import { CONFIG } from '@ga/service-kit';
 import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
+import { DownstreamClientsModule } from '../clients.ts';
 import { AccessTokenVerifier } from './access-token-verifier.ts';
 import type { AuthConfig } from './auth.config.ts';
 import { GrpcIdentityResolver, IdentityResolver } from './identity-resolver.ts';
@@ -19,6 +20,8 @@ class IdpKeySetsLifecycle implements OnApplicationShutdown {
 /** Authentication building blocks of the gateway; AuthGuard is bound in AppModule. */
 @Global()
 @Module({
+  // GrpcIdentityResolver calls user-service.ResolveIdentity.
+  imports: [DownstreamClientsModule],
   providers: [
     {
       provide: IDP_KEY_SETS,

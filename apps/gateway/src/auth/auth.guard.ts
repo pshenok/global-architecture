@@ -31,7 +31,8 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (context.getType() !== 'http') return true;
+    // Fail closed: the gateway serves HTTP only, any other transport is not authenticated.
+    if (context.getType() !== 'http') return false;
     const route = this.reflector.getAllAndOverride<AuthRoute | undefined>(AUTH_ROUTE, [
       context.getHandler(),
       context.getClass(),

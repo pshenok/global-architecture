@@ -1,5 +1,6 @@
 import { grpcTarget, workloadIdentityConfigSchema } from '@ga/service-kit';
 import { z } from 'zod';
+import { authConfigSchema, checkIssuerUrls } from './auth/auth.config.ts';
 
 /** Environment of the gateway, validated at boot. */
 const BaseConfigSchema = z.object({
@@ -27,11 +28,14 @@ const BaseConfigSchema = z.object({
   HOUSE_SERVICE_URL: grpcTarget(),
   BOOKING_SERVICE_URL: grpcTarget(),
   ...workloadIdentityConfigSchema.shape,
+  ...authConfigSchema.shape,
 });
 
-export const ConfigSchema = BaseConfigSchema.transform((config) => ({
-  ...config,
-  DOCS_ENABLED: config.DOCS_ENABLED ?? config.NODE_ENV !== 'production',
-}));
+export const ConfigSchema = BaseConfigSchema.transform((config, ctx) => {
+  checkIssuerUrls(config.AUTH_ISSUERS, config.NODE_ENV === 'production', (message) =>
+    ctx.addIssue({ code: 'custom', message, path: ['AUTH_ISSUERS'] }),
+  );
+  return { ...config, DOCS_ENABLED: config.DOCS_ENABLED ?? config.NODE_ENV !== 'production' };
+});
 
 export type Config = z.output<typeof ConfigSchema>;

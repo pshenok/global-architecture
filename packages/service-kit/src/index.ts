@@ -4,6 +4,7 @@ export {
   workloadIdentityConfigSchema,
   workloadName,
 } from './auth/config.ts';
+export { PLATFORM_AUTH_FAULTS } from './auth/grpc-auth.guard.ts';
 export {
   currentActor,
   currentCaller,

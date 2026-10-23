@@ -14,6 +14,17 @@ const workloadKeys = (name) => ({
   WORKLOAD_KEYS_FILE: `${CERTS}/workload-keys.json`,
 });
 
+/** The local OIDC provider (tools/dev-idp.ts) the gateway trusts; dev only. */
+const devIdp = `http://127.0.0.1:${registry.devIdp.port}`;
+const AUTH_ISSUERS = JSON.stringify([
+  {
+    issuer: devIdp,
+    audience: 'ga-api',
+    jwksUri: `${devIdp}/jwks.json`,
+    userinfoUri: `${devIdp}/userinfo`,
+  },
+]);
+
 const grpcServerTls = {
   GRPC_TLS_CERT_FILE: `${CERTS}/grpc-server.pem`,
   GRPC_TLS_KEY_FILE: `${CERTS}/grpc-server-key.pem`,
@@ -79,9 +90,20 @@ module.exports = {
         TLS_KEY_FILE: `${CERTS}/dev-key.pem`,
         GRPC_TLS_CA_FILE: grpcServerTls.GRPC_TLS_CA_FILE,
         ...workloadKeys(registry.gateway.name),
+        AUTH_ISSUERS,
+        // Rotation tests rotate the dev IdP's key and use the new one right away.
+        AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S: '1',
         OTEL_SERVICE_NAME: 'gateway',
         ...serviceUrls,
       },
+    },
+    {
+      ...common,
+      name: 'dev-idp',
+      cwd: __dirname,
+      script: 'tools/dev-idp.ts',
+      node_args: ['--enable-source-maps'],
+      env: { NODE_ENV: 'development' },
     },
   ],
 };

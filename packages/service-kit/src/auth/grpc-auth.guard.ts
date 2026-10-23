@@ -23,6 +23,18 @@ import {
 } from './tokens.ts';
 import { WorkloadIdentity } from './workload-identity.ts';
 
+/**
+ * Reasons a service gives when the platform itself (not the end user) got authentication
+ * wrong: an undeclared policy, a missing or wrong principal, a caller that is not allowed.
+ * An edge reports them as 500, so clients never react to a server bug by signing in again.
+ */
+export const PLATFORM_AUTH_FAULTS: ReadonlySet<string> = new Set([
+  'ACCESS_NOT_DECLARED',
+  'PRINCIPAL_NOT_REGISTERED',
+  'IDENTITY_PRINCIPAL_REQUIRED',
+  'CALLER_NOT_ALLOWED',
+]);
+
 /** The single metadata value of `key`, or undefined; several values are an attack or a bug. */
 function single(
   metadata: Metadata,
@@ -57,7 +69,8 @@ export class GrpcAuthGuard implements CanActivate {
   constructor(private readonly identity: WorkloadIdentity) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (context.getType() !== 'rpc') return true;
+    // Fail closed: services serve gRPC only, any other transport is not authenticated.
+    if (context.getType() !== 'rpc') return false;
     const policy = accessPolicyOf(context.getHandler());
     if (!policy) {
       throw new PermissionDeniedError(

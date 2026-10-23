@@ -1,4 +1,5 @@
 import { BookingParty, type BookingServiceClient } from '@ga/contracts/ga/booking/v1/booking';
+import { currentUser } from '@ga/service-kit';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
@@ -16,6 +17,12 @@ import {
 } from './bookings.schemas.ts';
 
 const ListBookingsQuery = PageQuery.extend(BookingQuery.shape);
+
+const PARTY = {
+  guest: BookingParty.BOOKING_PARTY_GUEST,
+  host: BookingParty.BOOKING_PARTY_HOST,
+  any: BookingParty.BOOKING_PARTY_ANY,
+} as const;
 
 @ApiTags('bookings')
 @ApiResponse({
@@ -44,17 +51,26 @@ export class BookingsController {
     @Body({ schema: CreateBookingBody }) body: z.output<typeof CreateBookingBody>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const view = toBookingView((await firstValueFrom(this.bookings.createBooking(body))).booking);
+    const request = { ...body, guestId: currentUser().userId };
+    const view = toBookingView(
+      (await firstValueFrom(this.bookings.createBooking(request))).booking,
+    );
     void reply.header('location', `/v1/bookings/${view.id}`);
     return view;
   }
 
   @Get()
-  @ApiOperation({ summary: 'List bookings, newest first, optionally by guest or house' })
+  @ApiOperation({ summary: 'List your bookings (as guest or host), newest first' })
   @ApiResponse({ status: 200, standardSchema: BookingPage })
   async list(@Query({ schema: ListBookingsQuery }) query: z.output<typeof ListBookingsQuery>) {
+    const { as, ...rest } = query;
     const page = await firstValueFrom(
-      this.bookings.listBookings({ ...query, party: BookingParty.BOOKING_PARTY_UNSPECIFIED }),
+      this.bookings.listBookings({
+        ...rest,
+        party: PARTY[as],
+        // Transitional (ADR-0004 rollout): booking-service does not scope by party yet.
+        ...(as === 'guest' ? { guestId: currentUser().userId } : {}),
+      }),
     );
     return {
       items: page.bookings.map(toBookingView),

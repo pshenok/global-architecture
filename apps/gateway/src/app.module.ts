@@ -4,6 +4,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
+import { AuthGuard } from './auth/auth.guard.ts';
+import { AuthModule } from './auth/auth.module.ts';
 import { BookingsController } from './bookings/bookings.controller.ts';
 import { DownstreamClientsModule } from './clients.ts';
 import { type Config, ConfigSchema } from './config.ts';
@@ -37,8 +39,13 @@ import { UsersController } from './users/users.controller.ts';
       }),
     }),
     DownstreamClientsModule,
+    AuthModule,
   ],
   controllers: [HealthController, UsersController, HousesController, BookingsController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  // Order matters: rate limiting runs before any token cryptography.
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AppModule {}
