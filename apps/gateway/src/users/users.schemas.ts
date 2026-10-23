@@ -15,8 +15,8 @@ export const UpdateUserBody = z
   })
   .meta({ id: 'UpdateUserBody' });
 
-/** `me` (the signed-in user) or a user id. */
-export const UserIdParam = z.union([z.literal('me'), z.uuid()], {
+/** `me` (the signed-in user) or a user id, lowercased like the ids the services return. */
+export const UserIdParam = z.union([z.literal('me'), z.uuid().toLowerCase()], {
   message: 'must be "me" or a UUID',
 });
 

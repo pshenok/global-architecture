@@ -18,7 +18,10 @@ export interface IdpKeySetOptions {
   readonly timeoutMs: number;
 }
 
-/** After a failed fetch the loop retries with backoff: up to 5 s without usable keys, 30 s with. */
+/**
+ * After a failed fetch the loop retries with backoff: up to 5 s without usable keys, up
+ * to 30 s while the last good keys still work (and never past the moment they stop).
+ */
 const RETRY_MIN_MS = 500;
 const RETRY_MAX_MS = 5_000;
 const STALE_RETRY_MAX_MS = 30_000;
@@ -132,10 +135,20 @@ export class IdpKeySet {
     if (this.stopped) return;
     const ok = await this.refresh();
     if (this.stopped) return;
-    const maxRetryMs = this.state === 'unavailable' ? RETRY_MAX_MS : STALE_RETRY_MAX_MS;
-    const delayMs = ok
+    const state = this.state;
+    let delayMs = ok
       ? this.options.refreshMs * (0.9 + Math.random() * 0.2)
-      : Math.min(retryMs, maxRetryMs, this.options.refreshMs);
+      : Math.min(
+          retryMs,
+          state === 'unavailable' ? RETRY_MAX_MS : STALE_RETRY_MAX_MS,
+          this.options.refreshMs,
+        );
+    if (!ok && state === 'stale') {
+      // Wake up just after the last good keys expire: from then on the 5 s cap applies,
+      // and requests never fetch themselves.
+      const untilUnusableMs = this.loadedAt + this.options.maxStaleMs - Date.now();
+      delayMs = Math.min(delayMs, untilUnusableMs + RETRY_MIN_MS);
+    }
     const nextRetryMs = ok ? RETRY_MIN_MS : Math.min(retryMs * 2, STALE_RETRY_MAX_MS);
     this.timer = setTimeout(() => void this.loop(nextRetryMs), delayMs);
     this.timer.unref();

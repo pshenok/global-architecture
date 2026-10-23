@@ -118,7 +118,11 @@ export class UsersController {
   @ApiResponse({ status: 404, standardSchema: ProblemDetails })
   async remove(@Param('id', { schema: UserIdParam }) id: string): Promise<void> {
     const target = userId(id);
-    await firstValueFrom(this.users.deleteUser({ id: target }));
-    this.identities.forgetUser(target);
+    try {
+      await firstValueFrom(this.users.deleteUser({ id: target }));
+    } finally {
+      // Also when the call fails: the delete may have committed before a deadline.
+      this.identities.forgetUser(target);
+    }
   }
 }

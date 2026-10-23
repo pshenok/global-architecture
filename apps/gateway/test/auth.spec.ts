@@ -254,7 +254,64 @@ describe('access tokens', () => {
     }
   });
 
-  it('retries a failed fetch in the background within seconds', async () => {
+  it('retries within seconds after a periodic refresh fails, keeping the old keys', async () => {
+    const jwk = { ...(await exportJWK((await generateKeyPair('ES256')).publicKey)), kid: 'k1' };
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // no jitter: the refresh is exactly refreshMs
+    try {
+      let attempts = 0;
+      const set = new IdpKeySet('http://unused', options, async () => {
+        attempts += 1;
+        if (attempts === 2) throw new Error('connection refused');
+        return { keys: [jwk] };
+      });
+      set.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(set.state).toBe('ok');
+      await vi.advanceTimersByTimeAsync(options.refreshMs);
+      expect(attempts).toBe(2);
+      expect(set.state).toBe('stale');
+      await vi.advanceTimersByTimeAsync(500);
+      expect(attempts).toBe(3);
+      expect(set.state).toBe('ok');
+      set.stop();
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it('is on its short backoff when the last good keys expire', async () => {
+    const jwk = { ...(await exportJWK((await generateKeyPair('ES256')).publicKey)), kid: 'k1' };
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      let down = false;
+      const set = new IdpKeySet(
+        'http://unused',
+        { ...options, refreshMs: 280_000, maxStaleMs: 581_600 },
+        async () => {
+          if (down) throw new Error('connection refused');
+          return { keys: [jwk] };
+        },
+      );
+      set.start();
+      await vi.advanceTimersByTimeAsync(0);
+      down = true;
+      // Retries back off to 30 s while the keys still work; they expire at 581.6 s.
+      await vi.advanceTimersByTimeAsync(581_601);
+      expect(set.state).toBe('unavailable');
+      down = false;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(set.state).toBe('ok');
+      set.stop();
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a failed first fetch within seconds (cold start)', async () => {
     const jwk = { ...(await exportJWK((await generateKeyPair('ES256')).publicKey)), kid: 'k1' };
     vi.useFakeTimers();
     try {

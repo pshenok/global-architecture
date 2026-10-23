@@ -502,6 +502,63 @@ describe('identity resolution through user-service', () => {
     expect((await me('elsewhere')).statusCode).toBe(200);
   });
 
+  describe('after a delete', () => {
+    const MIXED_ID = '0190aaaa-0000-7000-8000-0000000000a1';
+    let cached: TestGateway;
+
+    beforeAll(async () => {
+      cached = await createTestGateway(new Map<symbol, unknown>([[USER_SERVICE, users]]), {
+        realResolver: true,
+        env: { IDENTITY_CACHE_TTL_S: '60' },
+      });
+    });
+
+    afterAll(async () => {
+      await cached?.close();
+    });
+
+    const meOn = async (sub: string) =>
+      cached.inject({ method: 'GET', url: '/v1/users/me', headers: await cached.bearer(sub) });
+    const loggedIn = async (sub: string) => {
+      users.resolveIdentity.mockReturnValue(of({ userId: MIXED_ID, roles: [] }));
+      users.getUser.mockReturnValue(of({ user: { ...user, id: MIXED_ID } }));
+      expect((await meOn(sub)).statusCode).toBe(200);
+    };
+    const gone = () =>
+      users.resolveIdentity.mockReturnValue(
+        throwError(() => grpcError(status.NOT_FOUND, 'no user', 'USER_NOT_REGISTERED')),
+      );
+
+    it('forgets the user whatever the case of the id in the path', async () => {
+      await loggedIn('upper');
+      users.deleteUser.mockReturnValue(of({}));
+      const deleted = await cached.inject({
+        method: 'DELETE',
+        url: `/v1/users/${MIXED_ID.toUpperCase()}`,
+        headers: await cached.bearer('upper'),
+      });
+      expect(deleted.statusCode).toBe(204);
+      expect(users.deleteUser).toHaveBeenCalledWith({ id: MIXED_ID });
+      gone();
+      expect((await meOn('upper')).json().code).toBe('USER_NOT_REGISTERED');
+    });
+
+    it('forgets the user when the delete fails after it may have committed', async () => {
+      await loggedIn('deadline');
+      users.deleteUser.mockReturnValue(
+        throwError(() => grpcError(status.DEADLINE_EXCEEDED, 'deadline exceeded')),
+      );
+      const deleted = await cached.inject({
+        method: 'DELETE',
+        url: '/v1/users/me',
+        headers: await cached.bearer('deadline'),
+      });
+      expect(deleted.statusCode).toBe(504);
+      gone();
+      expect((await meOn('deadline')).json().code).toBe('USER_NOT_REGISTERED');
+    });
+  });
+
   it('keeps serving known logins while user-service is down, and 503s unknown ones', async () => {
     users.resolveIdentity.mockReturnValue(of({ userId: USER_ID, roles: [] }));
     users.getUser.mockReturnValue(of({ user }));

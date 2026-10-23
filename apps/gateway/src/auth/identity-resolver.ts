@@ -106,8 +106,9 @@ export class GrpcIdentityResolver extends IdentityResolver {
   }
 
   forgetUser(userId: string): void {
+    const id = userId.toLowerCase();
     for (const [key, entry] of this.cache) {
-      if (entry.user?.userId === userId) this.cache.delete(key);
+      if (entry.user?.userId.toLowerCase() === id) this.cache.delete(key);
     }
     // In-flight lookups do not say whose they are yet: none of them may be cached.
     for (const key of [...this.inflight.keys()]) this.supersede(key);
