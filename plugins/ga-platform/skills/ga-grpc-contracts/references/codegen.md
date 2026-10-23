@@ -44,12 +44,28 @@ break again.
 
 ## Debugging a contract at runtime
 
+Services serve gRPC over TLS in the local stack, with certificates from a local CA
+(`.certs/grpc-ca.pem` at the repo root, created by `pnpm certs`). Use
+`https://localhost:<port>` (a host name the certificate names) and the CA. Reflection and
+health checks are not RPC handlers, so they need no tokens:
+
 ```bash
 cd packages/contracts
-pnpm exec buf curl --protocol grpc --http2-prior-knowledge http://127.0.0.1:50051 --list-methods
-pnpm exec buf curl --protocol grpc --http2-prior-knowledge \
-  -d '{"id":"<uuid>"}' http://127.0.0.1:50051/ga.user.v1.UserService/GetUser
+pnpm exec buf curl --protocol grpc --cacert ../../.certs/grpc-ca.pem https://localhost:50051 --list-methods
+pnpm exec buf curl --protocol grpc --cacert ../../.certs/grpc-ca.pem -d '{"service":""}' \
+  https://localhost:50051/grpc.health.v1.Health/Check
 ```
 
-Reflection is enabled on every service, so no local proto files are needed. grpcurl and
-Postman work the same way.
+Every RPC needs a caller assertion signed by a workload key (and a principal for user
+methods), which buf curl cannot produce: it gets `UNAUTHENTICATED` with reason
+`CALLER_MISSING`. Call RPCs with `pnpm grpc:call` from the repo root; it signs both with
+the local keys in `.certs/` and prints decoded errors:
+
+```bash
+pnpm grpc:call house-service ListHouses '{"pageSize":5}'
+pnpm grpc:call user-service GetUser '{"id":"<userId>"}' --as <userId>
+```
+
+Reflection is on in every service except with `NODE_ENV=production` (unless
+`GRPC_REFLECTION=true`), so no local proto files are needed. grpcurl and Postman work the
+same way with the CA.

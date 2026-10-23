@@ -547,6 +547,9 @@ importers:
       fastify:
         specifier: 'catalog:'
         version: 5.12.7
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.13
       nestjs-cls:
         specifier: 'catalog:'
         version: 7.0.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)

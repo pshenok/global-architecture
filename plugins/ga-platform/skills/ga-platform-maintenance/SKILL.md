@@ -1,7 +1,7 @@
 ---
 
 name: ga-platform-maintenance
-description: Maintain the global-architecture platform itself - upgrading dependency versions in the pnpm catalog under the supply-chain policy, changing the shared service kit, kernel or contracts runtime without breaking services, keeping templates/service and generated services in sync, the known sharp edges of the stack (TypeScript 7, SWC decorator metadata, ESM, Drizzle 1.0 RC, ts-proto, pnpm 12, Biome), and recording decisions as ADRs. Use it for any dependency bump, Renovate/Dependabot PR, change under packages/ or templates/, toolchain or config change (tsconfig, .swcrc, biome.json, turbo.json, pnpm-workspace.yaml), or architectural decision.
+description: Maintain the global-architecture platform itself - upgrading dependency versions in the pnpm catalog under the supply-chain policy (jose included), changing the shared service kit, kernel or contracts runtime without breaking services, keeping templates/service and generated services in sync, rotating workload keys and adding identity providers, the access guardrails (check-access, CODEOWNERS), the known sharp edges of the stack (TypeScript 7, SWC decorator metadata, ESM, Drizzle 1.0 RC, ts-proto, pnpm 12, Biome, grpc-js TLS, jose), and recording decisions as ADRs. Use it for any dependency bump, Renovate/Dependabot PR, change under packages/ or templates/, toolchain or config change (tsconfig, .swcrc, biome.json, turbo.json, pnpm-workspace.yaml), key rotation or IdP change, or architectural decision.
 ---
 
 # Maintaining the platform
@@ -34,25 +34,35 @@ Upgrade framework families together (all `@nestjs/*` 12.x at once; `@grpc/grpc-j
 `@grpc/proto-loader`). Keep the overrides for `@grpc/proto-loader` and `protobufjs`:
 they guarantee a single copy (see the contracts skill for why).
 
+`jose` does every JWS signature and verification: the kit's caller and principal tokens,
+the gateway's access tokens and IdP keys, the dev tools. Declare it (`"jose": "catalog:"`)
+in each package that imports it, upgrade it on its own, read its changelog for changes in
+verification (algorithms, claim checks, key handling), and run the auth suites:
+`packages/service-kit/src/auth/*.spec.ts`, `apps/gateway/test/auth.spec.ts` and
+`tests/e2e/access.e2e.spec.ts`.
+
 ## Sharp edges (each was hit and fixed once; keep them fixed)
 
-| Area                 | Edge                                                                                                                                                                                                 | Guard                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| TypeScript 7         | no compiler API: tools needing it (Nest CLI, Swagger CLI plugin, typescript-eslint) cannot run                                                                                                       | SWC builds, oxlint + Biome lint, own generator                     |
-| Decorators           | `import type` of an injected class -> metadata `Object` -> Nest fails at boot with `UnknownDependenciesException` (it hints at `import type`); tests that construct classes directly do not catch it | Biome `useImportType` off; review checklist                        |
-| ESM                  | circular imports of injectables crash at load (TDZ)                                                                                                                                                  | no cycles; `Ref<T>` as last resort                                 |
-| ESM + generated code | interfaces imported as values crash at link time                                                                                                                                                     | `postgen.ts` rewrites to `import type`; `check-esm` in every build |
-| Timestamps           | without wrappers a Date is sent as 1970-01-01                                                                                                                                                        | `installWellKnownTypes()` in every entrypoint                      |
-| SWC target           | `es2025` unsupported by SWC 1.16                                                                                                                                                                     | `target: es2024` in tsconfig and `.swcrc`                          |
-| Vitest 5             | Vite 8 oxc emits wrong enum metadata                                                                                                                                                                 | `unplugin-swc` in `vitest.shared.ts`                               |
-| Drizzle 1.0 RC       | relational query API still changing                                                                                                                                                                  | core query builder only; exact pin                                 |
-| drizzle-kit          | `strict`/`verbose` are push-only options                                                                                                                                                             | not used                                                           |
-| Migrations           | Drizzle's migrator takes no lock                                                                                                                                                                     | `runMigrations` wraps it in an advisory lock                       |
-| gRPC hybrid apps     | enhancers added after `connectMicroservice` are ignored                                                                                                                                              | services are pure microservices; filters before `listen()`         |
-| Nest 12 gRPC errors  | `GrpcException` without a filter -> UNKNOWN                                                                                                                                                          | `GrpcErrorFilter` always registered                                |
-| Fastify docs page    | raw responses skip `onSend` hooks                                                                                                                                                                    | `/docs` CSP set by middleware                                      |
-| PM2                  | `@` in the interpreter path is read as an nvm version                                                                                                                                                | interpreter is `node_modules/.bin/node`                            |
-| pnpm 12              | npm inside the repo fails `devEngines`                                                                                                                                                               | use pnpm / run npm outside the repo                                |
+| Area                 | Edge                                                                                                                                                                                                 | Guard                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| TypeScript 7         | no compiler API: tools needing it (Nest CLI, Swagger CLI plugin, typescript-eslint) cannot run                                                                                                       | SWC builds, oxlint + Biome lint, own generator                                                                |
+| Decorators           | `import type` of an injected class -> metadata `Object` -> Nest fails at boot with `UnknownDependenciesException` (it hints at `import type`); tests that construct classes directly do not catch it | Biome `useImportType` off; review checklist                                                                   |
+| ESM                  | circular imports of injectables crash at load (TDZ)                                                                                                                                                  | no cycles; `Ref<T>` as last resort                                                                            |
+| ESM + generated code | interfaces imported as values crash at link time                                                                                                                                                     | `postgen.ts` rewrites to `import type`; `check-esm` in every build                                            |
+| Timestamps           | without wrappers a Date is sent as 1970-01-01                                                                                                                                                        | `installWellKnownTypes()` in every entrypoint                                                                 |
+| SWC target           | `es2025` unsupported by SWC 1.16                                                                                                                                                                     | `target: es2024` in tsconfig and `.swcrc`                                                                     |
+| Vitest 5             | Vite 8 oxc emits wrong enum metadata                                                                                                                                                                 | `unplugin-swc` in `vitest.shared.ts`                                                                          |
+| Drizzle 1.0 RC       | relational query API still changing                                                                                                                                                                  | core query builder only; exact pin                                                                            |
+| drizzle-kit          | `strict`/`verbose` are push-only options                                                                                                                                                             | not used                                                                                                      |
+| Migrations           | Drizzle's migrator takes no lock                                                                                                                                                                     | `runMigrations` wraps it in an advisory lock                                                                  |
+| gRPC hybrid apps     | enhancers added after `connectMicroservice` are ignored                                                                                                                                              | services are pure microservices; filters before `listen()`                                                    |
+| Nest 12 gRPC errors  | `GrpcException` without a filter -> UNKNOWN                                                                                                                                                          | `GrpcErrorFilter` always registered                                                                           |
+| Nest guards and CLS  | guards run before the CLS interceptor, so the auth guard cannot write the request context                                                                                                            | the guard keys the verified call on the call's `Metadata`; the CLS `setup` copies it (`principal-context.ts`) |
+| grpc-js TLS          | grpc-js sends the target host as the TLS server name, and Node refuses an IP address there                                                                                                           | targets are host names (`localhost:50051`); `channelCredentials` refuses IP targets when a CA is set          |
+| jose remote JWKS     | `createRemoteJWKSet` reloads on the request path and fails requests while the IdP is down                                                                                                            | `IdpKeySet`: background refresh, last good keys, 503 after `AUTH_JWKS_MAX_STALE_S`                            |
+| Fastify docs page    | raw responses skip `onSend` hooks                                                                                                                                                                    | `/docs` CSP set by middleware                                                                                 |
+| PM2                  | `@` in the interpreter path is read as an nvm version                                                                                                                                                | interpreter is `node_modules/.bin/node`                                                                       |
+| pnpm 12              | npm inside the repo fails `devEngines`                                                                                                                                                               | use pnpm / run npm outside the repo                                                                           |
 
 ## Changing shared code
 
@@ -60,17 +70,66 @@ they guarantee a single copy (see the contracts skill for why).
   vocabulary. Never import a framework here.
 - `packages/service-kit`: keep the public surface in `src/index.ts`; prefer adding options
   with safe defaults over changing behaviour. Breaking a kit API means updating every
-  service in the same PR (they are all in this repo; `pnpm typecheck` lists them).
+  service in the same PR (they are all in this repo; `pnpm typecheck` lists them). The raw
+  token functions (`signCallerToken`, `signPrincipalToken`, `readSigningKey`) are exported
+  only from `@ga/service-kit/testing`, for tests and local tools.
 - `packages/contracts/src/runtime`: the loader options must stay in lock-step with
   `buf.gen.yaml`.
 - `templates/service`: after any change run `pnpm template:verify`; then apply the same
   change to existing services (they are generated copies, not linked to the template).
-  Keep `SampleItem` naming so the generator's replacements still match, and keep the
-  two literal anchors the generator rewrites: `GRPC_PORT=50099` in `.env.example` and
-  `EXPOSE 50051` in the `Dockerfile` (`tools/new-service.ts`).
+  Keep `SampleItem` naming so the generator's replacements still match, keep the five
+  access tests, and keep the two literal anchors the generator rewrites:
+  `GRPC_PORT=50099` in `.env.example` and `EXPOSE 50051` in the `Dockerfile`
+  (`tools/new-service.ts`).
+
+## Access guardrails
+
+- `tools/check-access.ts` runs in `pnpm lint`: every `@Access.public`, `@Public` and
+  `@AllowUnregistered` must match an entry (file#member, access, reason) in
+  `security/public-endpoints.json`, and production code may not cast to a verified actor,
+  build `x-ga-caller`/`x-ga-principal` metadata or import `@ga/kernel/testing` or
+  `@ga/service-kit/testing`. Extend it when
+  you add a new way to reach data without a user; never weaken it.
+- `.github/CODEOWNERS` requires the platform owner's review for `security/`,
+  `packages/service-kit/src/auth/`, `apps/gateway/src/auth/`,
+  `packages/kernel/src/actor.ts` and `tools/check-access.ts`.
+- Never add a switch that disables authentication or allows plaintext gRPC off loopback;
+  ADR-0004 rejects both, because agents would use them.
+
+## Keys and identity providers
+
+**Workload keys.** Each workload signs with its own Ed25519 key (`WORKLOAD_KEY_FILE`, a
+secret mounted into that workload only) and trusts one public key map
+(`WORKLOAD_KEYS_FILE`, not secret, at most 5 keys per workload), which every workload
+re-reads every `WORKLOAD_KEYS_RELOAD_S` (60 s; a broken file keeps the last good map).
+Rotate in this order:
+1. Add the new public key to the map and roll out the map.
+2. Wait until every workload has reloaded it: each logs `workload keys reloaded; trusts ...`
+   (within 60 s after the file changes).
+3. Switch the workload's private key and restart it. A workload refuses to boot when its
+   public key is missing from the map, so a reversed order fails loudly.
+4. After 120 s (the longest token lifetime), remove the old public key.
+
+On compromise, remove the leaked public key at once (its tokens fail once each workload
+reloads the map) and switch the private key; calls signed with the old key fail in
+between. Locally, `pnpm keys --rotate <name>` does steps 1 and 2 and switches the private
+key; restart with `pnpm exec pm2 reload <name>`, and later `pnpm keys --prune <name>` does
+step 4 (it refuses within 130 s of the switch).
+
+**IdP keys rotate by themselves.** The gateway refreshes each provider's JWKS in the
+background (`AUTH_JWKS_REFRESH_S`, 300 s), fetches early for a token with an unknown `kid`
+(at most once per `AUTH_JWKS_UNKNOWN_KID_COOLDOWN_S`, 30 s), and stops using keys it could
+not refresh for `AUTH_JWKS_MAX_STALE_S` (30 min; then 503, never 401).
+
+**Adding or changing an identity provider** is configuration: an entry in `AUTH_ISSUERS`
+(one to five issuers, so a migration can trust two at once; asymmetric algorithms only;
+https except loopback outside production). See `docs/architecture/identity-providers.md`.
+Moving users to a new provider means inserting `user_identities` rows in user-service,
+never linking logins by email; platform roles stay in user-service.
 
 ## Recording decisions
 
 Architectural decisions go to `docs/architecture/adr/NNNN-title.md` (Nygard format:
 Status, Context, Decision, Consequences). Update an ADR's status instead of rewriting
-history. ADR-0001 records the stack and why each alternative was rejected.
+history. ADR-0001 records the stack and why each alternative was rejected; ADR-0004
+records identity and authorization.

@@ -28,6 +28,14 @@ turning into a distributed monolith.
    eventually consistent.
 6. **The gateway is the only public entrypoint** and contains no business logic.
 7. **Services are generated** from `templates/service` and built on `@ga/service-kit`.
+8. **Every call is authenticated per hop (ADR-0004).** The caller signs an assertion for
+   its callee, and the end user's principal travels with it. A callee lists, per method,
+   which services may forward a user to it (`@Access.user({ via: [...] })`), so who may
+   call whom is reviewed where the method is.
+9. **Snapshot immutable facts instead of calling for them.** When an authorization rule
+   needs another service's data and that data never changes (a house's owner), copy it
+   at creation time (`bookings.host_id`). If it ever becomes mutable, the owning service
+   must publish an event that updates the copies (ADR-0005).
 
 ## Consequences
 

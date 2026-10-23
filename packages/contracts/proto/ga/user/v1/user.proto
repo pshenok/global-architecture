@@ -20,7 +20,8 @@ service UserService {
   // CreateUser creates a user without a login. Deprecated: users register
   // themselves with RegisterUser.
   // Access: admin.
-  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), PERMISSION_DENIED.
+  // Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), UNAUTHENTICATED,
+  // PERMISSION_DENIED.
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
     option deprecated = true;
   }

@@ -1,7 +1,7 @@
 ---
 
 name: ga-domain-logic
-description: How to write business logic inside a global-architecture service with clean architecture - aggregates and invariants in src/domain, use cases in src/application, ports as abstract classes, DomainError kinds and reasons, validation split between transport and domain, UnitOfWork transactions, ids and time. Use it whenever you add or change a business rule, entity, aggregate, use case, error, status/state machine or validation in any *-service, or when deciding which layer a piece of code belongs to.
+description: How to write business logic inside a global-architecture service with clean architecture - aggregates and invariants in src/domain, use cases in src/application that take the acting user first, authorization rules (ownership, visibility, admin role, 404 vs 403, typed list scopes), ports as abstract classes, DomainError kinds and reasons, validation split between transport and domain, UnitOfWork transactions, ids and time. Use it whenever you add or change a business rule, entity, aggregate, use case, error, permission or ownership check, status/state machine or validation in any *-service, or when deciding which layer a piece of code belongs to.
 ---
 
 # Domain and application layers
@@ -13,11 +13,12 @@ transport or ORM changes. That is why `src/domain` is plain TypeScript and
 ## Anatomy (booking-service is the richest example)
 
 ```
-src/domain/booking.ts            aggregate: state, create(), restore(), behaviour (cancel)
+src/domain/booking.ts            aggregate: state, create(), restore(), behaviour (cancel), isVisibleTo(actor)
+src/domain/booking-scope.ts      who sees which rows: bookingScopeFor(actor, party) -> BookingScope
 src/domain/stay.ts               value logic (date rules) as pure functions
 src/domain/booking.errors.ts     error factories: bookingNotFound(id), datesUnavailable(houseId)
 src/domain/booking.repository.ts persistence port (abstract class)
-src/application/booking.service.ts            use cases
+src/application/booking.service.ts            use cases, the actor as first argument
 src/application/ports/house-catalog.ts        port for another service's data
 ```
 
@@ -29,6 +30,7 @@ export class House {
   static create(input: {...}, now: Date): House  // validates and normalizes everything
   static restore(state: HouseState): House       // rebuilds from storage; trusts the DB
   update(changes: HouseChanges, now: Date): void // behaviour enforces invariants
+  assertManageableBy(actor: Actor): void         // authorization rule: owner or admin
   toState(): HouseState                          // copy out for persistence and mapping
 }
 ```
@@ -44,17 +46,75 @@ export class House {
 - Rules that span many aggregates or need atomicity under concurrency (uniqueness,
   no-overlap) belong to the database (`ga-database`), not to an in-memory check.
 
+## Actors and authorization (ADR-0004)
+
+Who acts is a parameter, like `now`. The controller takes it from the verified request
+(`currentUser()` from `@ga/service-kit`) and passes it as the use case's **first**
+argument. Use cases and the domain never read request context, so every rule is visible
+in a unit test and a second transport cannot skip it.
+
+```ts
+// src/transport/grpc/house.grpc-controller.ts
+@Access.user()
+async updateHouse(request: UpdateHouseRequest): Promise<UpdateHouseResponse> {
+  const { id, ...changes } = parseRequest(UpdateHouseRequestSchema, request);
+  return { house: toHouseMessage(await this.houses.update(currentUser(), id, changes)) };
+}
+
+// src/application/house.service.ts
+update(actor: UserActor, id: string, changes: HouseChanges): Promise<House> {
+  return this.unitOfWork.run(async () => {
+    const house = await this.houses.findById(id, { forUpdate: true });
+    if (!house) throw houseNotFound(id);
+    house.assertManageableBy(actor); // the rule lives in the aggregate
+    house.update(changes, this.clock.now());
+    await this.houses.update(house);
+    return house;
+  });
+}
+```
+
+- Actor types and helpers come from `@ga/kernel` (`Actor`, `UserActor`, `IdentityActor`,
+  `ServiceActor`, `isAdmin`, `adminRoleRequired()`), so the domain may use them. Verified
+  actors are branded: only the service kit creates them from checked tokens, and
+  `pnpm lint` fails a cast to one.
+- New data belongs to the actor (`ownerId: actor.userId`, `guestId: actor.userId`), never
+  to an id from the request.
+- Put each rule on the aggregate: `House.assertManageableBy(actor)` throws,
+  `Booking.isVisibleTo(actor)` and `User.isVisibleTo(actor)` return a boolean and the use
+  case throws its not-found error. Check writes under the row lock (`forUpdate`), so the
+  check and the change cannot interleave.
+- **404 or 403.** If the caller may not know the resource exists (bookings, users, the
+  template's items), throw the same `NotFoundError` as for a missing one: same reason,
+  same message. If the resource is visible to the caller (the public house catalogue)
+  but the action is not allowed, throw a `PermissionDeniedError` (`HOUSE_PERMISSION_DENIED`).
+- Admin-only: `if (!isAdmin(actor)) throw adminRoleRequired();` (PERMISSION_DENIED,
+  reason `ADMIN_ROLE_REQUIRED`).
+- **Lists never fail on visibility.** A domain function turns the actor into a typed
+  scope (`bookingScopeFor(actor, party)` -> `BookingScope`), and the repository port takes
+  the scope, so no list can forget to filter. Only asking for more than the actor may see
+  fails (`party: 'any'` without the admin role -> `ADMIN_ROLE_REQUIRED`).
+- A use case that checks scope or role before its first `await` is declared `async`, so
+  a refusal rejects the returned promise instead of throwing synchronously
+  (`BookingService.list`, `UserService.list`).
+- Facts a rule needs from another service are snapshotted when they cannot change
+  (`Booking.hostId` is the house owner at booking time), so the check needs no remote call.
+- Unit tests build actors with `userActor(id, roles?)`, `adminActor(id)`,
+  `identityActor(issuer, subject, email?)` and `serviceActor(name)` from
+  `@ga/kernel/testing`; production code never imports it (`pnpm lint`).
+
 ## Errors: pick the kind by what the caller should do
 
-| Throw                                            | gRPC / HTTP               | When                                                                                                                                                                                                                                                           |
-| ------------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ValidationError(message, violations)`           | INVALID_ARGUMENT / 400    | input is malformed regardless of system state                                                                                                                                                                                                                  |
-| `NotFoundError(reason, msg, meta)`               | NOT_FOUND / 404           | the addressed resource does not exist                                                                                                                                                                                                                          |
-| `ConflictError`                                  | ALREADY_EXISTS / 409      | a conflicting resource exists (unique key, overlapping range)                                                                                                                                                                                                  |
-| `PreconditionFailedError`                        | FAILED_PRECONDITION / 400 | valid input, but the system state forbids it (cancelled twice, referenced user missing, too many guests)                                                                                                                                                       |
-| `ConcurrencyError`                               | ABORTED / 409             | lost a race (serialization failure); safe to retry                                                                                                                                                                                                             |
-| `DependencyUnavailableError`                     | UNAVAILABLE / 503         | another service is down (adapters raise it via `toDependencyError`) or a DB statement timed out (`translateDbError`); nothing was changed. A database that is completely unreachable currently surfaces as INTERNAL while the health check reports NOT_SERVING |
-| `PermissionDeniedError` / `UnauthenticatedError` | 403 / 401                 | reserved for the auth work (see ADR-0004)                                                                                                                                                                                                                      |
+| Throw                                  | gRPC / HTTP               | When                                                                                                                                                                                                                                                           |
+| -------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ValidationError(message, violations)` | INVALID_ARGUMENT / 400    | input is malformed regardless of system state                                                                                                                                                                                                                  |
+| `NotFoundError(reason, msg, meta)`     | NOT_FOUND / 404           | the addressed resource does not exist, or the caller may not know that it exists                                                                                                                                                                               |
+| `ConflictError`                        | ALREADY_EXISTS / 409      | a conflicting resource exists (unique key, overlapping range)                                                                                                                                                                                                  |
+| `PreconditionFailedError`              | FAILED_PRECONDITION / 400 | valid input, but the system state forbids it (cancelled twice, referenced user missing, too many guests)                                                                                                                                                       |
+| `PermissionDeniedError`                | PERMISSION_DENIED / 403   | the caller may see the resource but not do this (`HOUSE_PERMISSION_DENIED`), or lacks a role (`adminRoleRequired()`)                                                                                                                                           |
+| `ConcurrencyError`                     | ABORTED / 409             | lost a race (serialization failure); safe to retry                                                                                                                                                                                                             |
+| `DependencyUnavailableError`           | UNAVAILABLE / 503         | another service is down (adapters raise it via `toDependencyError`) or a DB statement timed out (`translateDbError`); nothing was changed. A database that is completely unreachable currently surfaces as INTERNAL while the health check reports NOT_SERVING |
+| `UnauthenticatedError`                 | UNAUTHENTICATED / 401     | raised by the platform only (gateway token checks, the service kit, `currentUser()` without a user); use cases always receive a verified actor                                                                                                                 |
 
 Constructors: `new NotFoundError(reason, message, metadata?)` and the same
 `(reason, message, metadata = {}, options?)` for every kind except
@@ -69,7 +129,9 @@ write them for API users, include only identifiers the caller already knows.
 
 1. **Transport** (`src/transport/grpc/*.requests.ts`, Zod + `parseRequest`): shape and
    format. Is `id` a UUID, is `email` an email, are numbers integers within range.
-   Rejects garbage before any work and returns precise field violations.
+   Rejects garbage before any work and returns precise field violations. Deprecated
+   request fields that used to carry identities are left out of the schema, so they are
+   ignored.
 2. **Domain** (aggregate methods): business invariants, using the same limits, because
    the domain must protect itself whoever calls it.
 
@@ -89,10 +151,14 @@ export class BookingService {
     private readonly clock: Clock,
     private readonly unitOfWork: UnitOfWork,
   ) {}
+
+  async create(actor: UserActor, input: CreateBookingInput): Promise<Booking> { ... }
+  async get(actor: UserActor, id: string): Promise<Booking> { ... }
 }
 ```
 
-- One public method per use case; it reads like the business process.
+- One public method per use case; it reads like the business process. A use case that
+  acts for someone takes the actor first.
 - Do cheap local validation before remote calls; run independent remote calls in
   parallel (`Promise.all`).
 - **Never hold a database transaction open across a remote call.**
@@ -122,7 +188,7 @@ this.logger.log(`booking ${id} cancelled`);
 ```
 
 The request id is attached automatically. Every RPC already gets one structured line
-with method, status and duration, so log business events, not entry/exit. Never log
-emails, names or tokens. Logging is optional; when a use case logs, its unit tests (which
-construct the class without Nest) print those lines unless the spec calls
-`Logger.overrideLogger(false)` in `beforeAll`.
+with method, status, duration, calling workload and user id, so log business events, not
+entry/exit. Never log emails, names or tokens. Logging is optional; when a use case logs,
+its unit tests (which construct the class without Nest) print those lines unless the spec
+calls `Logger.overrideLogger(false)` in `beforeAll`.

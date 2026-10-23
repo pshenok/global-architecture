@@ -1,3 +1,11 @@
+/** Token signing for tests and local dev tools (pnpm grpc:call); never for production code. */
+export {
+  CALLER_METADATA_KEY,
+  PRINCIPAL_METADATA_KEY,
+  signCallerToken,
+  signPrincipalToken,
+} from '../auth/tokens.ts';
+export { readSigningKey } from '../auth/workload-keys.ts';
 export { freePort } from './free-port.ts';
 export {
   type CaughtGrpcError,

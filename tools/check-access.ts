@@ -65,17 +65,25 @@ for (const top of SCANNED) {
       if (isComment(line)) return;
       const at = `${file}:${index + 1}`;
       if (!isTest(file)) {
-        const declared =
-          /@Access\.public\(\s*'([^']*)'\s*\)/.exec(line) ??
-          /@Public\(\s*'([^']*)'\s*\)/.exec(line);
-        if (declared) {
-          found.push({
-            where: `${file}#${memberAfter(lines, index)}`,
-            access: 'public',
-            reason: declared[1] as string,
-          });
+        if (/@(Access\.public|Public)\s*\(/.test(line)) {
+          // The reason must be an inline string literal on the decorator's line, so this
+          // check can read it; a constant or a call would hide the endpoint from review.
+          const reason = /@(?:Access\.public|Public)\s*\(\s*(['"`])((?:(?!\1).)*)\1\s*\)/.exec(
+            line,
+          );
+          if (reason) {
+            found.push({
+              where: `${file}#${memberAfter(lines, index)}`,
+              access: 'public',
+              reason: reason[2] as string,
+            });
+          } else {
+            problems.push(
+              `${at}: write the public reason as an inline string literal on this line`,
+            );
+          }
         }
-        if (/@AllowUnregistered\(\s*\)/.test(line)) {
+        if (/@AllowUnregistered\s*\(/.test(line)) {
           found.push({
             where: `${file}#${memberAfter(lines, index)}`,
             access: 'unregistered',
@@ -83,7 +91,8 @@ for (const top of SCANNED) {
           });
         }
       }
-      if (isTest(file) || isAuthCode(file)) return;
+      // Tests and local dev tools (tools/) may sign tokens and build metadata on purpose.
+      if (isTest(file) || isAuthCode(file) || file.startsWith('tools/')) return;
       if (/\bas\s+(unknown\s+as\s+)?(UserActor|IdentityActor|ServiceActor)\b/.test(line)) {
         problems.push(
           `${at}: casts to a verified actor; take actors from currentUser() / currentActor()`,

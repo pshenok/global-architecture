@@ -129,7 +129,8 @@ export interface UserServiceClient {
    * CreateUser creates a user without a login. Deprecated: users register
    * themselves with RegisterUser.
    * Access: admin.
-   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), PERMISSION_DENIED.
+   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), UNAUTHENTICATED,
+   * PERMISSION_DENIED.
    *
    * @deprecated
    */
@@ -205,7 +206,8 @@ export interface UserServiceController {
    * CreateUser creates a user without a login. Deprecated: users register
    * themselves with RegisterUser.
    * Access: admin.
-   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), PERMISSION_DENIED.
+   * Errors: INVALID_ARGUMENT, ALREADY_EXISTS (email taken), UNAUTHENTICATED,
+   * PERMISSION_DENIED.
    */
 
   createUser(

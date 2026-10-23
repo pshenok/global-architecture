@@ -13,7 +13,10 @@ pnpm build                      # SWC build (turbo-cached); runs an ESM link che
 pnpm new:service <noun>         # new service from templates/service
 pnpm --filter @ga/contracts codegen   # after editing any .proto
 pnpm --filter @ga/<svc> db:generate --name <change>   # after editing schema.ts
-pnpm stack:up && pnpm test:e2e  # whole system locally (PM2): .env files, DBs, migrations, health
+pnpm stack:up && pnpm test:e2e  # whole system locally (PM2): certs, keys, dev IdP, DBs, migrations, health
+pnpm dev:token alice --email alice@example.com   # access token from the local dev IdP
+pnpm grpc:call house-service ListHouses '{}' --as <userId>   # call a service as the platform does
+pnpm users:grant-role <userId> admin            # platform roles live in user-service
 ```
 
 ## Rules that break production when ignored
@@ -29,10 +32,19 @@ pnpm stack:up && pnpm test:e2e  # whole system locally (PM2): .env files, DBs, m
 - Concurrency-sensitive invariants are Postgres constraints + `translateDbError`;
   read-modify-write is `UnitOfWork.run` + `forUpdate`. No remote calls inside a transaction.
 - Database per service; other services' data only through their gRPC API; no call cycles.
+- Every gRPC method declares `@Access` (`user`, `admin`, `identity`, `service`, or
+  `public(reason)` listed in `security/public-endpoints.json`); a service with an
+  undeclared method does not start. Never weaken the guard or add an auth bypass.
+- Never take the acting user's id from a request: controllers pass `currentUser()` as
+  the use case's first argument; rules live in the domain. Answer NOT_FOUND when the
+  caller may not know a resource exists; lists take a typed scope.
+- Never cast to `UserActor`/`IdentityActor`/`ServiceActor` or build `x-ga-*` metadata;
+  the service kit does both (`check-access` in `pnpm lint` enforces it).
 - Never edit generated code (`packages/contracts/src/gen`) or applied migrations.
 - Commit messages in English.
 
 ## Status
 
-No authentication/authorization and no async messaging yet (ADR-0004, ADR-0005 in
-`docs/architecture/adr/`). Processes bind to 127.0.0.1 by default; do not expose them.
+Authentication and authorization are in place (ADR-0004): OIDC at the gateway, signed
+caller and principal tokens between services, gRPC TLS off loopback. No async messaging
+yet (ADR-0005): deleting a user or house does not clean up what references it.
