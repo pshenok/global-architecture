@@ -4,12 +4,17 @@
  *   PG_ADMIN_URL (default postgresql://$USER@localhost:5432/postgres)
  *
  *   pnpm db:setup --reset ga_booking [...] --yes
- *     drops and recreates the named local databases first (dev data only; refused
- *     unless PG_ADMIN_URL points at this machine and NODE_ENV is not production)
+ *     drops and recreates the named databases first (dev data only). It drops only a
+ *     database that db:setup itself created (it carries a comment marker), never one
+ *     created any other way, e.g. by infrastructure behind a localhost tunnel or proxy;
+ *     refused when NODE_ENV is production.
  */
 import pg from 'pg';
 import { ensureEnvFiles } from './env-files.ts';
 import { DEFAULT_PG_ADMIN_URL, readRegistry, TEST_DATABASE } from './lib.ts';
+
+/** Written on every database db:setup creates; --reset drops only databases that carry it. */
+const LOCAL_MARKER = 'global-architecture local stack (pnpm db:setup)';
 
 for (const file of ensureEnvFiles()) console.log(`created ${file} from .env.example`);
 
@@ -17,12 +22,8 @@ const adminUrl = process.env.PG_ADMIN_URL ?? DEFAULT_PG_ADMIN_URL;
 const args = process.argv.slice(2);
 const toReset = args.includes('--reset') ? args.filter((arg) => !arg.startsWith('--')) : [];
 if (toReset.length > 0) {
-  const host = new URL(adminUrl).hostname;
   const known = new Set([...readRegistry().services.map((s) => s.database), TEST_DATABASE]);
   if (process.env.NODE_ENV === 'production') throw new Error('--reset is refused in production');
-  if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
-    throw new Error(`--reset only works on a local Postgres, not ${host}`);
-  }
   if (!args.includes('--yes')) throw new Error(`--reset drops ${toReset.join(', ')}: add --yes`);
   for (const name of toReset) {
     if (!known.has(name)) throw new Error(`--reset: ${name} is not a database of this repository`);
@@ -32,8 +33,20 @@ if (toReset.length > 0) {
 const client = new pg.Client({ connectionString: adminUrl });
 await client.connect();
 try {
-  for (const name of toReset) {
-    await client.query(`drop database if exists "${name}" with (force)`);
+  // Check every database before dropping any of them.
+  const { rows: existing } = await client.query<{ name: string; marker: string | null }>(
+    "select datname as name, shobj_description(oid, 'pg_database') as marker from pg_database where datname = any($1)",
+    [toReset],
+  );
+  for (const { name, marker } of existing) {
+    if (marker !== LOCAL_MARKER) {
+      throw new Error(
+        `--reset: ${name} was not created by pnpm db:setup (no local-stack marker); drop it by hand if it really is disposable`,
+      );
+    }
+  }
+  for (const { name } of existing) {
+    await client.query(`drop database "${name}" with (force)`);
     console.log(`dropped database ${name}`);
   }
   const role = await client.query("select 1 from pg_roles where rolname = 'ga'");
@@ -48,6 +61,7 @@ try {
     const exists = await client.query('select 1 from pg_database where datname = $1', [name]);
     if (exists.rowCount === 0) {
       await client.query(`create database "${name}" owner ga`);
+      await client.query(`comment on database "${name}" is '${LOCAL_MARKER}'`);
       console.log(`created database ${name}`);
     } else {
       console.log(`database ${name} exists`);

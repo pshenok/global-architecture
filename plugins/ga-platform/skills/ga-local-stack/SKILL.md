@@ -36,8 +36,9 @@ migrations and the tests always connect as `ga:ga@localhost:5432`, so a Postgres
 elsewhere (another host or port, Docker on 5433) needs a port forward to
 `localhost:5432`; changing `PG_ADMIN_URL` alone splits the setup across two servers.
 `pnpm db:setup --reset ga_booking --yes` drops and recreates the named local databases
-(dev data only; refused for a non-local Postgres or in production); run `pnpm stack:up`
-afterwards to migrate them.
+(dev data only): it drops only databases that `db:setup` created (they carry a comment
+marker), so a tunnel to a shared server cannot lose real data, and it refuses production.
+Run `pnpm stack:up` afterwards to migrate them.
 
 ## Signing in
 
@@ -125,7 +126,7 @@ on your machine only and never paste its output into tickets or shared logs.
 ## Keys and certificates
 
 ```bash
-pnpm certs [--force]                     # HTTPS certificate, gRPC CA + server certificate
+pnpm certs [--force]                     # HTTPS certificate, gRPC CA + server certificate (renewed 30 days before expiry)
 pnpm keys                                # missing keys for the gateway and every registered service
 pnpm keys --rotate house-service         # publish a new public key, wait 65 s, replace the private key
 pnpm keys --prune house-service          # drop its old public keys (refused within 130 s of a rotation)
