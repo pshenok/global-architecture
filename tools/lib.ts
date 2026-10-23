@@ -27,6 +27,8 @@ export interface ServiceEntry {
 export interface Registry {
   $comment: string;
   gateway: { name: string; dir: string; httpsPort: number };
+  /** Local OIDC provider of the stack (tools/dev-idp.ts). */
+  devIdp: { port: number };
   services: ServiceEntry[];
 }
 

@@ -1,0 +1,74 @@
+import { PermissionDeniedError } from '@ga/kernel';
+import { enterPrincipal, InjectConfig, WorkloadIdentity } from '@ga/service-kit';
+import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import type { FastifyRequest } from 'fastify';
+import { AccessTokenVerifier, bearerToken, tokenMissing } from './access-token-verifier.ts';
+import type { AuthConfig } from './auth.config.ts';
+import { AUTH_ROUTE, type AuthRoute } from './decorators.ts';
+import { acceptedEmail } from './email-claims.ts';
+import { IdentityResolver } from './identity-resolver.ts';
+
+export const userNotRegistered = () =>
+  new PermissionDeniedError(
+    'USER_NOT_REGISTERED',
+    'this login has no user yet: register with POST /v1/users',
+  );
+
+/**
+ * Authenticates every HTTP request (ADR-0004). Routes need a registered user unless
+ * they are @Public() or @AllowUnregistered(). On success the request gets a principal
+ * signed by the gateway, which the gRPC clients forward to the services.
+ */
+@Injectable()
+export class AuthGuard implements CanActivate {
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly verifier: AccessTokenVerifier,
+    private readonly resolver: IdentityResolver,
+    private readonly identity: WorkloadIdentity,
+    @InjectConfig() private readonly config: AuthConfig,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (context.getType() !== 'http') return true;
+    const route = this.reflector.getAllAndOverride<AuthRoute | undefined>(AUTH_ROUTE, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const request = context.switchToHttp().getRequest<FastifyRequest>();
+    const token = bearerToken(request.headers.authorization);
+
+    if (route?.mode === 'public') {
+      // A token that is sent must be valid; it is not used for anything else.
+      if (token) await this.verifier.verify(token);
+      return true;
+    }
+    if (!token) throw tokenMissing();
+    const verified = await this.verifier.verify(token);
+    const ttl = this.config.PRINCIPAL_TOKEN_TTL_S;
+
+    if (route?.mode === 'unregistered') {
+      const email = await acceptedEmail(verified);
+      enterPrincipal(
+        await this.identity.issuePrincipal(
+          { kind: 'identity', issuer: verified.issuer.issuer, subject: verified.subject, email },
+          ttl,
+        ),
+      );
+      return true;
+    }
+    const user = await this.resolver.resolve({
+      issuer: verified.issuer.issuer,
+      subject: verified.subject,
+    });
+    if (!user) throw userNotRegistered();
+    enterPrincipal(
+      await this.identity.issuePrincipal(
+        { kind: 'user', userId: user.userId, roles: user.roles },
+        ttl,
+      ),
+    );
+    return true;
+  }
+}

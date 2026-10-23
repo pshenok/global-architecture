@@ -32,6 +32,7 @@
     "template:verify": "node tools/verify-template.ts",
     "certs": "node tools/dev-certs.ts",
     "keys": "node tools/dev-keys.ts",
+    "dev:token": "node tools/dev-token.ts",
     "db:setup": "node tools/db-setup.ts",
     "db:migrate": "node tools/stack.ts migrate",
     "users:grant-role": "pnpm --filter @ga/user-service grant-role",

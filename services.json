@@ -5,6 +5,9 @@
     "dir": "apps/gateway",
     "httpsPort": 8443
   },
+  "devIdp": {
+    "port": 8090
+  },
   "services": [
     {
       "name": "user-service",
