@@ -175,22 +175,30 @@ fields. Rules:
   of their metadata (`SetMetadata`, `Reflect`, the key strings) fails. Outside the kit
   nothing may produce a value whose type carries the actor brand: no type assertion or
   type predicate to a type that is or holds an actor, to `never` or to a type built from
-  a type parameter; no spread of an actor; no call that returns an actor its declaration
-  does not promise (a generic helper, `structuredClone`, `Object.assign`); no constructor
-  parameter typed as an actor; no overload or ambient declaration of one. Biome and oxlint
-  refuse explicit and implicit `any`, and check-access refuses `@ts-ignore`-style comments,
-  suppressions of the any-rules and non-`.ts` files. No production code builds `x-ga-*`
-  metadata, reaches the test helpers, loads a module by a computed path or
-  `createRequire`, or adds a gateway route or middleware outside a controller.
-  `pnpm template:verify` runs the same check on a generated service.
+  a type parameter; no actor object literal (spread, computed key); no call or property
+  read that returns an actor its declaration does not promise (a generic helper,
+  `structuredClone`, `Object.assign`, a generic `value!: T`); no definitely-assigned actor
+  field; no actor taken by constructor injection, from the request or as a typed callback
+  parameter; no overload, ambient declaration or module augmentation of one. Biome and
+  oxlint refuse explicit and implicit `any` (member access and calls on it included), and
+  check-access refuses `@ts-ignore`-style comments, suppressions of the any-rules and
+  non-`.ts` files. No production code builds `x-ga-*` metadata, reaches the test helpers,
+  loads a module by a computed path or `createRequire`, or (gateway) touches the raw
+  server, Nest middleware or Nest's registries outside its two raw-HTTP files.
+  TypeScript is not sound, so these rules list the ways around the brand that reviews
+  found; each is a probe in `apps/*/test/access-probes` that check-access checks on every
+  run, so a rule that stops working fails lint. `pnpm template:verify` runs the same check
+  on a generated service.
 - What runs is what the tests check: each service's `AccessPolicyCheck` and the gateway's
   `AuthRoutes` record the policies once at boot (per controller and handler, bound
   methods included), and the guards enforce that record, not live metadata.
   `startTestService` (in a service's own package) and `createTestGateway` fail when the
-  recorded open methods or routes differ from the list. `createTestGateway` also fails on
-  any route, hook, plugin or middleware added outside the controllers by a gateway file
-  other than `bootstrap.ts` and `http/openapi.ts`, and on Nest middleware other than
-  logging and the request context.
+  recorded open methods or routes differ from the list. Once Fastify is ready,
+  `createTestGateway` also fails on any route, hook, plugin, handler or middleware added
+  outside the controllers by code other than packages, `bootstrap.ts` and
+  `http/openapi.ts`; each registration is attributed to the code that called it, and an
+  unknown caller (a call scheduled from a microtask) is refused. The harness's own tests
+  show each way it catches.
 - What neither sees is code that defeats the type checker at run time (`eval` and the
   like) or edits the guardrails themselves; that is what CODEOWNERS review is for.
   `.github/CODEOWNERS` covers `security/`, the whole service kit, the gateway's auth code,

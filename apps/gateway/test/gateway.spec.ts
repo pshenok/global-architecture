@@ -589,6 +589,23 @@ describe('identity resolution through user-service', () => {
       },
     );
 
+    it.each([status.PERMISSION_DENIED, status.INVALID_ARGUMENT, status.FAILED_PRECONDITION])(
+      'keeps the cache when a delete certainly failed (%i)',
+      async (code) => {
+        await loggedIn(`kept-${code}`);
+        users.deleteUser.mockReturnValue(throwError(() => grpcError(code, 'refused')));
+        const refused = await cached.inject({
+          method: 'DELETE',
+          url: '/v1/users/me',
+          headers: await cached.bearer(`kept-${code}`),
+        });
+        expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+        users.resolveIdentity.mockClear();
+        expect((await meOn(`kept-${code}`)).statusCode).toBe(200);
+        expect(users.resolveIdentity).not.toHaveBeenCalled();
+      },
+    );
+
     it('forgets a user an admin deleted when the outcome is unclear', async () => {
       await loggedIn('deleted-by-admin');
       users.resolveIdentity.mockReturnValue(
