@@ -86,14 +86,23 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
 
 - `tools/check-access.ts` runs in `pnpm lint`: every `@Access.public`, `@Public`,
   `@AllowUnregistered`, `@Access.identity` and `@Access.service` must match an entry
-  (file#member, access, reason) in `security/public-endpoints.json` (arguments are inline
-  literals, or lint fails), and production code may not cast to a verified actor,
-  build `x-ga-caller`/`x-ga-principal` metadata or import `@ga/kernel/testing` or
-  `@ga/service-kit/testing`. Extend it when
-  you add a new way to reach data without a user; never weaken it.
+  (`file#Class.method` or `file#Class`, access, reason) in
+  `security/public-endpoints.json`. It reads only direct decorators with inline literal
+  arguments and fails every other use of these names or their metadata keys, a
+  decorator whose method it cannot tell, and a member opened twice. Production code may
+  not cast to a verified actor or pass one as a type argument, build
+  `x-ga-caller`/`x-ga-principal` metadata, load a test helper, or (gateway) touch the raw
+  Fastify instance outside `bootstrap.ts` and `http/openapi.ts`. Extend it when you add
+  a new way to reach data without a user; never weaken it.
+- The same list is checked at runtime, against the metadata itself: `startTestService`
+  in each service's own package and `createTestGateway` fail when the open methods or
+  routes differ from it, so a spelling the source check misses still fails the tests.
+- Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument` (outside
+  tests) keep `any` from turning request data into an actor without a cast.
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the kit's
-  `auth/`, `grpc/` and `platform/` code, `apps/gateway/src/auth/`,
-  `packages/kernel/src/actor.ts`, `tools/check-access.ts` and CODEOWNERS itself.
+  `auth/`, `grpc/`, `platform/` and `testing/` code, `apps/gateway/src/auth/` and the
+  gateway test harness, `packages/kernel/src/actor.ts`, `testing.ts` and `index.ts`,
+  `tools/check-access.ts`, the Biome and oxlint configs and CODEOWNERS itself.
 - Never add a switch that disables authentication or allows plaintext gRPC off loopback;
   ADR-0004 rejects both, because agents would use them.
 

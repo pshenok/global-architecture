@@ -39,7 +39,7 @@ export function grpcServerOptions(
       credentials,
       package: [...service.packages],
       packageDefinition: loadProtoPackage(service.protoFiles),
-      onLoadPackageDefinition: (_pkg, server) => {
+      onLoadPackageDefinition: (_pkg: unknown, server: Server) => {
         onServer(server);
         if (!reflection) return;
         new ReflectionService(reflectionPackageDefinition(), {

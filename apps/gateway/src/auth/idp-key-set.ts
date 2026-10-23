@@ -5,6 +5,7 @@ import {
   createLocalJWKSet,
   type FlattenedJWSInput,
   type JSONWebKeySet,
+  type JWK,
   type JWTVerifyGetKey,
 } from 'jose';
 
@@ -148,7 +149,8 @@ function parseJwks(value: unknown): JSONWebKeySet {
   const kids = keys.map((key) => (key as { kid?: unknown }).kid);
   if (kids.some((kid) => typeof kid !== 'string')) throw new Error('every key needs a kid');
   if (new Set(kids).size !== kids.length) throw new Error('duplicate kids');
-  return { keys };
+  // jose checks each key's own fields when it imports the key.
+  return { keys: keys as JWK[] };
 }
 
 async function fetchJwks(url: string, timeoutMs: number): Promise<unknown> {

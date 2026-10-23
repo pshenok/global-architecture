@@ -170,7 +170,7 @@ export class GrpcClientsModule {
         {
           provide: definition.token,
           inject: [proxyToken],
-          useFactory: (client: ClientGrpc) => client.getService(name),
+          useFactory: (client: ClientGrpc) => client.getService<object>(name),
         },
       ];
     });

@@ -1,9 +1,18 @@
 import type { Role } from '@ga/kernel';
 import { parseConfig } from '@ga/service-kit';
-import { createTestWorkloadKeys, type TestWorkloadKeys } from '@ga/service-kit/testing';
+import {
+  createTestWorkloadKeys,
+  type DeclaredOpenEndpoint,
+  expectListedOpenEndpoints,
+  type TestWorkloadKeys,
+} from '@ga/service-kit/testing';
+import type { Type } from '@nestjs/common';
+import { METHOD_METADATA } from '@nestjs/common/constants';
+import { MetadataScanner, ModulesContainer } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module.ts';
+import { AUTH_ROUTE, type AuthRoute } from '../src/auth/decorators.ts';
 import {
   type Identity,
   IdentityResolver,
@@ -74,6 +83,43 @@ export interface TestGateway {
   close(): Promise<void>;
 }
 
+/**
+ * Routes of these controllers that need no registered user, read from the metadata the
+ * auth guard reads (a method's own route wins over its class's), whatever spelling put it
+ * there.
+ */
+export function openRoutes(controllers: readonly Type[]): DeclaredOpenEndpoint[] {
+  const scanner = new MetadataScanner();
+  const open: DeclaredOpenEndpoint[] = [];
+  const add = (member: string, route: AuthRoute | undefined) => {
+    if (route?.mode === 'public') open.push({ member, access: 'public', reason: route.reason });
+    if (route?.mode === 'unregistered')
+      open.push({ member, access: 'unregistered', reason: 'registration' });
+  };
+  for (const controller of controllers) {
+    add(controller.name, Reflect.getMetadata(AUTH_ROUTE, controller) as AuthRoute | undefined);
+    const prototype = controller.prototype as Record<string, unknown>;
+    for (const name of scanner.getAllMethodNames(prototype)) {
+      const handler = prototype[name] as object;
+      if (Reflect.getMetadata(METHOD_METADATA, handler) === undefined) continue;
+      add(
+        `${controller.name}.${name}`,
+        Reflect.getMetadata(AUTH_ROUTE, handler) as AuthRoute | undefined,
+      );
+    }
+  }
+  return open;
+}
+
+/** Every controller the app registered. */
+function controllersOf(app: NestFastifyApplication): Type[] {
+  return [...app.get(ModulesContainer).values()].flatMap((module) =>
+    [...module.controllers.values()].flatMap(({ metatype }) =>
+      typeof metatype === 'function' ? [metatype as Type] : [],
+    ),
+  );
+}
+
 let keys: Promise<TestWorkloadKeys> | undefined;
 let issuer: Promise<TestIssuer> | undefined;
 let logins = 0;
@@ -83,7 +129,9 @@ let logins = 0;
  * with the given gRPC client tokens replaced by fakes:
  * `createTestGateway(new Map([[USER_SERVICE, fakeUsers]]))`. Clients that are not
  * overridden get an empty object. Pass `{ realResolver: true }` to resolve identities
- * through the (fake) user-service client instead of the in-memory map.
+ * through the (fake) user-service client instead of the in-memory map. Fails unless the
+ * routes open without a registered user are exactly those security/public-endpoints.json
+ * lists for the gateway (ADR-0004).
  */
 export async function createTestGateway(
   clients: ReadonlyMap<symbol, unknown>,
@@ -115,6 +163,12 @@ export async function createTestGateway(
   const app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(config));
   configureGateway(app, config);
   await app.init();
+  try {
+    expectListedOpenEndpoints('apps/gateway', openRoutes(controllersOf(app)));
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
   const fastify = app.getHttpAdapter().getInstance();
   await fastify.ready();
   const bearer = async (sub: string, tokenOptions: Omit<TokenOptions, 'sub'> = {}) => ({

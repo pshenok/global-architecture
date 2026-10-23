@@ -4,6 +4,12 @@
 /packages/service-kit/src/auth/ @pshenok
 /packages/service-kit/src/grpc/ @pshenok
 /packages/service-kit/src/platform/ @pshenok
+/packages/service-kit/src/testing/ @pshenok
 /apps/gateway/src/auth/ @pshenok
+/apps/gateway/test/harness.ts @pshenok
 /packages/kernel/src/actor.ts @pshenok
+/packages/kernel/src/testing.ts @pshenok
+/packages/kernel/src/index.ts @pshenok
 /tools/check-access.ts @pshenok
+/biome.json @pshenok
+/.oxlintrc.json @pshenok

@@ -2,6 +2,7 @@ import type { Role, UserActor } from '@ga/kernel';
 import { Metadata } from '@grpc/grpc-js';
 import type { INestMicroservice, Type } from '@nestjs/common';
 import { Test, type TestingModuleBuilder } from '@nestjs/testing';
+import { AccessPolicyCheck } from '../auth/access-policy-check.ts';
 import {
   CALLER_METADATA_KEY,
   PRINCIPAL_METADATA_KEY,
@@ -13,6 +14,7 @@ import { bootstrapGrpcService } from '../grpc/bootstrap.ts';
 import type { ServiceDefinition } from '../platform/service-definition.ts';
 import { freePort } from './free-port.ts';
 import { createGrpcTestClient, type GrpcTestClient } from './grpc-test-client.ts';
+import { expectListedOpenEndpoints, ownPackageDir } from './public-endpoints.ts';
 import { createTestWorkloadKeys, type TestWorkloadKeys } from './workload-keys.ts';
 
 /** The edge that signs principals in tests, as in production. */
@@ -51,7 +53,9 @@ export interface TestService {
 /**
  * Boots a real gRPC service in-process on a free port, exactly like main.ts does
  * (same filter, auth guard, health, reflection, logging), with optional provider
- * overrides and ephemeral workload keys.
+ * overrides and ephemeral workload keys. In the service's own package (apps/<name>) it
+ * also fails unless the methods open without a user are exactly those that
+ * security/public-endpoints.json lists for it (ADR-0004).
  */
 export async function startTestService(options: {
   readonly module: Type<unknown>;
@@ -91,6 +95,16 @@ export async function startTestService(options: {
   } catch (error) {
     if (ownKeys) keys.dispose();
     throw error;
+  }
+  const packageDir = ownPackageDir(self);
+  if (packageDir) {
+    try {
+      expectListedOpenEndpoints(packageDir, app.get(AccessPolicyCheck).open);
+    } catch (error) {
+      await app.close();
+      if (ownKeys) keys.dispose();
+      throw error;
+    }
   }
 
   const callerOnly = async (caller: string) => {

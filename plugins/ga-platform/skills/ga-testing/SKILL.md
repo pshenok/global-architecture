@@ -89,7 +89,9 @@ it('books a stay', async () => {
 - `startTestService` boots the real `AppModule` exactly like `main.ts` (same error filter,
   auth guard, `@Access` boot check, health, reflection) on a free port, with ephemeral
   workload keys for the gateway, the service and `callers`. Override **ports**, not
-  adapters' internals.
+  adapters' internals. Run from the service's own package, it also fails unless the
+  methods open without a user are exactly the ones `security/public-endpoints.json` lists
+  for the service (`createTestGateway` does the same for the gateway's routes).
 
 | `TestService` member                                   | Gives                                                                                               |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |

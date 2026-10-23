@@ -91,9 +91,14 @@ export function enterPrincipal(principal: IssuedPrincipal): void {
   cls.set(CLS_PRINCIPAL_TOKEN, principal.token);
 }
 
+/** A value of the current request context; undefined outside a request. */
+function fromCls(key: string): unknown {
+  return activeCls()?.get(key);
+}
+
 /** The actor of the current request; anonymous outside a request or on public methods. */
 export function currentActor(): Actor {
-  return (activeCls()?.get(CLS_ACTOR) as Actor | undefined) ?? ANONYMOUS;
+  return (fromCls(CLS_ACTOR) as Actor | undefined) ?? ANONYMOUS;
 }
 
 /** The registered user of the current request. Throws UNAUTHENTICATED when there is none. */
@@ -116,12 +121,12 @@ export function currentIdentity(): IdentityActor {
 
 /** The workload that called the current RPC, if any. */
 export function currentCaller(): string | undefined {
-  return activeCls()?.get(CLS_CALLER) as string | undefined;
+  return fromCls(CLS_CALLER) as string | undefined;
 }
 
 /** The principal to forward on outbound calls, if the current request has one. */
 export function currentPrincipalToken(): string | undefined {
-  return activeCls()?.get(CLS_PRINCIPAL_TOKEN) as string | undefined;
+  return fromCls(CLS_PRINCIPAL_TOKEN) as string | undefined;
 }
 
 /**

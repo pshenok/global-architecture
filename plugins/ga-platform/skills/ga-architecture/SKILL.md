@@ -109,7 +109,8 @@ Details and examples: the `ga-domain-logic` skill.
   The local stack runs TLS on every hop.
 - **Public is a reviewed decision.** Every endpoint reachable without a signed-in user is
   listed with its reason in `security/public-endpoints.json`; `pnpm lint` compares the
-  list with the code, and CODEOWNERS protects it.
+  list with the source and the tests with the metadata the apps really carry, and
+  CODEOWNERS protects it.
 
 Details: `ga-domain-logic` (rules), `ga-service-communication` (forwarding, `via`),
 `ga-gateway-endpoint` (routes), `ga-testing` (access tests), `ga-local-stack` (tokens).

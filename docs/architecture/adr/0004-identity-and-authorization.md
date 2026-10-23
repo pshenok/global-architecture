@@ -165,11 +165,19 @@ fields. Rules:
 
 - `pnpm lint` runs `tools/check-access.ts`: every endpoint that does not need a signed-in
   user (public, registration, identity and workload-only methods) is listed with its
-  reason in `security/public-endpoints.json`, and a decorator whose arguments it cannot
-  read fails; no production code casts to a verified actor, builds `x-ga-*` metadata or
-  imports test helpers.
-- `.github/CODEOWNERS` covers `security/`, the kit's auth, gRPC and platform code, the
-  gateway's auth code, the access check and itself.
+  reason in `security/public-endpoints.json`. It reads only decorators written directly
+  on the method or class with inline literal arguments, and fails every other use of
+  them or of their metadata keys (wrappers, aliases, stored decorators, `SetMetadata`).
+  No production code casts to a verified actor (or passes one as a type argument),
+  builds `x-ga-*` metadata, loads test helpers, or adds a gateway route outside a
+  controller. Biome and oxlint refuse explicit and implicit `any`, so request data cannot
+  become an actor without a cast either; a generic `value as T` helper is left to review.
+- The tests check the same list against the metadata the apps really carry:
+  `startTestService` (in a service's own package) and `createTestGateway` fail when the
+  open methods or routes differ from it, whatever spelling opened them.
+- `.github/CODEOWNERS` covers `security/`, the kit's auth, gRPC, platform and testing
+  code, the gateway's auth code and test harness, the kernel's actor, testing and index
+  files, the access check, the lint configs and itself.
 - The template's gRPC spec starts every new service with five access tests (no user,
   another user, admin, a stranger's empty list, an unlisted forwarder).
 - The gateway turns a downstream `UNAUTHENTICATED`, and `PERMISSION_DENIED` with a

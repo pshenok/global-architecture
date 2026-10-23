@@ -37,11 +37,17 @@ in the controller.
 | registration only           | `@AllowUnregistered()`                                | the login without a user: `@Access.identity()` methods |
 | anyone                      | `@Public('reason')` on the method (or the controller) | an anonymous call: `@Access.public(...)` methods only  |
 - Every `@Public` route is listed in `security/public-endpoints.json` with the same reason
-  (`{ "where": "apps/gateway/src/houses/houses.controller.ts#list", "access": "public", "reason": "world-readable catalogue" }`);
-  `pnpm lint` fails when the code and the list differ, and the list has code owners.
-  Write the reason inline on the decorator's line, in any quote style: `check-access`
-  fails `@Public(REASON)`, a computed reason or a decorator that wraps `@Public`, so no
-  form escapes the check.
+  (`{ "where": "apps/gateway/src/houses/houses.controller.ts#HousesController.list", "access": "public", "reason": "world-readable catalogue" }`);
+  the list has code owners. Two checks compare it with the code: `pnpm lint`
+  (`check-access`) with the source, and every gateway test boot with the metadata the
+  routes really carry. Write `@Public('reason')` directly above the method or controller,
+  reason inline in any quote style. `check-access` fails anything else: a constant or
+  computed reason, a wrapper (`applyDecorators(..., Public(...))`), an alias
+  (`Public as Open`), a decorator kept in a constant or `SetMetadata(AUTH_ROUTE, ...)`;
+  the runtime check sees whatever slips past the source check.
+- Routes are controller methods. Raw Fastify routes and middleware skip the auth guard,
+  so only `bootstrap.ts` and `http/openapi.ts` (`/openapi.json`, `/docs`, only with
+  `DOCS_ENABLED`) touch the Fastify instance; `check-access` fails it anywhere else.
 - A token sent to a public route is still verified (a bad one is a 401, never a silent
   downgrade; during an IdP outage it is skipped instead of failing the route), but it is
   neither resolved nor forwarded, so a public route can only call `@Access.public` RPCs.

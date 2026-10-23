@@ -93,9 +93,12 @@ the tests after step 7.
    `user({ via: ['other-service'] })` for methods another service calls on the user's
    behalf, `service(['other-service'])` for calls without a user. `public('<reason>')`
    only for data anyone may read, with the same reason in `security/public-endpoints.json`
-   (`pnpm lint` fails otherwise; code owners review it). `service(...)` and `identity()`
-   methods are listed there too. Write the arguments inline on the decorator's line (any
-   quote style): `check-access` fails a constant, a call or a wrapper decorator.
+   (`pnpm lint` and the service's own tests fail otherwise: `startTestService` compares
+   the list with the policies the service really carries; code owners review it).
+   `service(...)` and `identity()` methods are listed there too. Write the decorator
+   directly above the method with inline arguments (any quote style): `check-access`
+   fails a constant or computed argument, a wrapper, an alias, a decorator kept in a
+   constant and any direct use of the `ACCESS_POLICY` metadata.
 6. **Dependencies on other services** (if any): config vars (`grpcTarget()`),
    `GrpcClientsModule.register(...)` with `target`, adapters, bindings in `app.module.ts`,
    the `.env`/`.env.example` entries (`localhost:<port>`), and your service in the

@@ -14,6 +14,7 @@ export {
   grpcError,
   type PromiseClient,
 } from './grpc-test-client.ts';
+export { type DeclaredOpenEndpoint, expectListedOpenEndpoints } from './public-endpoints.ts';
 export { type CallOptions, startTestService, type TestService } from './start-test-service.ts';
 export {
   createTestDatabase,
