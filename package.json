@@ -24,7 +24,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
     "test": "turbo run test",
-    "lint": "biome ci . && turbo run lint",
+    "lint": "biome ci . && node tools/check-access.ts && turbo run lint",
     "format": "biome check --write .",
     "codegen": "turbo run codegen",
     "check": "pnpm lint && pnpm typecheck && pnpm test",

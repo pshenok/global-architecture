@@ -1,10 +1,11 @@
 import { type Page, type PageRequest, toPage } from '@ga/kernel';
 import { DbContext, translateDbError } from '@ga/service-kit';
 import { Injectable } from '@nestjs/common';
-import { desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, lt } from 'drizzle-orm';
 import { sampleItemNameTaken } from '../../domain/sample-item.errors.ts';
 import { SampleItemRepository } from '../../domain/sample-item.repository.ts';
 import { SampleItem } from '../../domain/sample-item.ts';
+import type { SampleItemScope } from '../../domain/sample-item-scope.ts';
 import { type SampleItemRow, sampleItems } from './schema.ts';
 
 const toDomain = (row: SampleItemRow): SampleItem => SampleItem.restore(row);
@@ -22,11 +23,16 @@ export class DrizzleSampleItemRepository extends SampleItemRepository {
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async list({ limit, after }: PageRequest): Promise<Page<SampleItem>> {
+  async list(scope: SampleItemScope, { limit, after }: PageRequest): Promise<Page<SampleItem>> {
     const rows = await this.db.tx
       .select()
       .from(sampleItems)
-      .where(after ? lt(sampleItems.id, after) : undefined)
+      .where(
+        and(
+          scope.kind === 'owner' ? eq(sampleItems.ownerId, scope.ownerId) : undefined,
+          after ? lt(sampleItems.id, after) : undefined,
+        ),
+      )
       .orderBy(desc(sampleItems.id))
       .limit(limit + 1);
     return toPage(rows.map(toDomain), limit);
@@ -37,7 +43,7 @@ export class DrizzleSampleItemRepository extends SampleItemRepository {
       await this.db.tx.insert(sampleItems).values(sampleItem.toState());
     } catch (error) {
       throw translateDbError(error, {
-        sample_items_name_key: () => sampleItemNameTaken(sampleItem.name),
+        sample_items_owner_id_name_key: () => sampleItemNameTaken(sampleItem.name),
       });
     }
   }
@@ -48,7 +54,7 @@ export class DrizzleSampleItemRepository extends SampleItemRepository {
       await this.db.tx.update(sampleItems).set(state).where(eq(sampleItems.id, id));
     } catch (error) {
       throw translateDbError(error, {
-        sample_items_name_key: () => sampleItemNameTaken(sampleItem.name),
+        sample_items_owner_id_name_key: () => sampleItemNameTaken(sampleItem.name),
       });
     }
   }

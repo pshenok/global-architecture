@@ -1,12 +1,21 @@
-import { Clock, IdGenerator, type Page, type PageRequest, UnitOfWork } from '@ga/kernel';
+import {
+  Clock,
+  IdGenerator,
+  type Page,
+  type PageRequest,
+  UnitOfWork,
+  type UserActor,
+} from '@ga/kernel';
 import { Injectable } from '@nestjs/common';
 import { sampleItemNotFound } from '../domain/sample-item.errors.ts';
 import { SampleItemRepository } from '../domain/sample-item.repository.ts';
 import { SampleItem, type SampleItemChanges } from '../domain/sample-item.ts';
+import { sampleItemScopeFor } from '../domain/sample-item-scope.ts';
 
 /**
  * Use cases of the sample item service. Orchestrates the domain through ports;
- * knows nothing about gRPC, SQL or the ORM.
+ * knows nothing about gRPC, SQL or the ORM. The acting user is always the first
+ * argument (from `currentUser()` in the controller), never read from context here.
  */
 @Injectable()
 export class SampleItemService {
@@ -17,35 +26,46 @@ export class SampleItemService {
     private readonly unitOfWork: UnitOfWork,
   ) {}
 
-  async create(input: { name: string; description: string }): Promise<SampleItem> {
-    const sampleItem = SampleItem.create({ id: this.ids.newId(), ...input }, this.clock.now());
+  async create(
+    actor: UserActor,
+    input: { name: string; description: string },
+  ): Promise<SampleItem> {
+    const sampleItem = SampleItem.create(
+      { id: this.ids.newId(), ownerId: actor.userId, ...input },
+      this.clock.now(),
+    );
     await this.sampleItems.insert(sampleItem);
     return sampleItem;
   }
 
-  async get(id: string): Promise<SampleItem> {
+  /** Strangers get NOT_FOUND: they must not learn that the item exists. */
+  async get(actor: UserActor, id: string): Promise<SampleItem> {
     const sampleItem = await this.sampleItems.findById(id);
-    if (!sampleItem) throw sampleItemNotFound(id);
+    if (!sampleItem?.isVisibleTo(actor)) throw sampleItemNotFound(id);
     return sampleItem;
   }
 
-  list(page: PageRequest): Promise<Page<SampleItem>> {
-    return this.sampleItems.list(page);
+  async list(actor: UserActor, page: PageRequest): Promise<Page<SampleItem>> {
+    return this.sampleItems.list(sampleItemScopeFor(actor), page);
   }
 
   /** Read-modify-write under a row lock, so concurrent partial updates never lose each other's changes. */
-  update(id: string, changes: SampleItemChanges): Promise<SampleItem> {
+  update(actor: UserActor, id: string, changes: SampleItemChanges): Promise<SampleItem> {
     return this.unitOfWork.run(async () => {
       const sampleItem = await this.sampleItems.findById(id, { forUpdate: true });
-      if (!sampleItem) throw sampleItemNotFound(id);
+      if (!sampleItem?.isVisibleTo(actor)) throw sampleItemNotFound(id);
       sampleItem.update(changes, this.clock.now());
       await this.sampleItems.update(sampleItem);
       return sampleItem;
     });
   }
 
-  async delete(id: string): Promise<void> {
-    const deleted = await this.sampleItems.delete(id);
-    if (!deleted) throw sampleItemNotFound(id);
+  /** Checks visibility under the row lock, so the check and the delete cannot interleave. */
+  delete(actor: UserActor, id: string): Promise<void> {
+    return this.unitOfWork.run(async () => {
+      const sampleItem = await this.sampleItems.findById(id, { forUpdate: true });
+      if (!sampleItem?.isVisibleTo(actor)) throw sampleItemNotFound(id);
+      await this.sampleItems.delete(id);
+    });
   }
 }

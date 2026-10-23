@@ -1,0 +1,35 @@
+{
+  "$comment": "Every endpoint reachable without a signed-in user (ADR-0004). tools/check-access.ts (pnpm lint) fails when the code and this list differ; changes are reviewed by the code owners of security/.",
+  "endpoints": [
+    {
+      "where": "apps/gateway/src/health/health.controller.ts#HealthController",
+      "access": "public",
+      "reason": "liveness and readiness probes"
+    },
+    {
+      "where": "apps/gateway/src/houses/houses.controller.ts#list",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/gateway/src/houses/houses.controller.ts#get",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/gateway/src/users/users.controller.ts#register",
+      "access": "unregistered",
+      "reason": "registration"
+    },
+    {
+      "where": "apps/house-service/src/transport/grpc/house.grpc-controller.ts#getHouse",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    },
+    {
+      "where": "apps/house-service/src/transport/grpc/house.grpc-controller.ts#listHouses",
+      "access": "public",
+      "reason": "world-readable catalogue"
+    }
+  ]
+}

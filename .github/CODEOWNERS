@@ -1,0 +1,6 @@
+# Security-sensitive paths (ADR-0004): changes need the platform owner's review.
+/security/ @pshenok
+/packages/service-kit/src/auth/ @pshenok
+/apps/gateway/src/auth/ @pshenok
+/packages/kernel/src/actor.ts @pshenok
+/tools/check-access.ts @pshenok

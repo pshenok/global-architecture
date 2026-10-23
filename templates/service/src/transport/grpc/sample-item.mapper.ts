@@ -5,6 +5,7 @@ import type { SampleItem } from '../../domain/sample-item.ts';
 export function toSampleItemMessage(sampleItem: SampleItem): SampleItemMessage {
   return {
     id: sampleItem.id,
+    ownerId: sampleItem.ownerId,
     name: sampleItem.name,
     description: sampleItem.description,
     createTime: sampleItem.createdAt,

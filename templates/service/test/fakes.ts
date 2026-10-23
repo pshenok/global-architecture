@@ -2,6 +2,7 @@ import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } f
 import { sampleItemNameTaken } from '../src/domain/sample-item.errors.ts';
 import { SampleItemRepository } from '../src/domain/sample-item.repository.ts';
 import { SampleItem } from '../src/domain/sample-item.ts';
+import type { SampleItemScope } from '../src/domain/sample-item-scope.ts';
 
 /**
  * "YYYY-MM-DD" n days after `from` (UTC). In use-case tests pass `clock.now()` as `from`,
@@ -43,7 +44,7 @@ export class PassThroughUnitOfWork extends UnitOfWork {
   }
 }
 
-/** In-memory adapter with the same contract as the Drizzle one (unique name, newest first). */
+/** In-memory adapter with the same contract as the Drizzle one (name unique per owner, scoped, newest first). */
 export class InMemorySampleItemRepository extends SampleItemRepository {
   readonly rows = new Map<string, ReturnType<SampleItem['toState']>>();
 
@@ -52,8 +53,9 @@ export class InMemorySampleItemRepository extends SampleItemRepository {
     return state ? SampleItem.restore(state) : null;
   }
 
-  async list({ limit, after }: PageRequest): Promise<Page<SampleItem>> {
+  async list(scope: SampleItemScope, { limit, after }: PageRequest): Promise<Page<SampleItem>> {
     const sorted = [...this.rows.values()]
+      .filter((state) => scope.kind === 'all' || state.ownerId === scope.ownerId)
       .filter((state) => after === null || state.id < after)
       .sort((a, b) => (a.id < b.id ? 1 : -1))
       .slice(0, limit + 1)
@@ -77,7 +79,8 @@ export class InMemorySampleItemRepository extends SampleItemRepository {
 
   private assertNameFree(sampleItem: SampleItem): void {
     for (const state of this.rows.values()) {
-      if (state.name === sampleItem.name && state.id !== sampleItem.id)
+      const sameOwner = state.ownerId === sampleItem.ownerId;
+      if (sameOwner && state.name === sampleItem.name && state.id !== sampleItem.id)
         throw sampleItemNameTaken(sampleItem.name);
     }
   }
