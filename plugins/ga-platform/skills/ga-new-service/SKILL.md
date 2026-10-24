@@ -143,7 +143,7 @@ git status                               # only your intended changes remain
 points to, and publishes the public key), and is started, migrated (with the stack's
 `DATABASE_URL`) and health-checked over `grpc.health.v1` automatically; it does not need
 its own PM2 entry. To run it outside the stack first, run `pnpm certs && pnpm keys`. If it
-should be public, also add it to the gateway's readiness targets (`ga-gateway-endpoint`).
+should be public, also add it to the gateway's health targets (`ga-gateway-endpoint`).
 
 ## Things the generator cannot know
 
@@ -152,7 +152,7 @@ should be public, also add it to the gateway's readiness targets (`ga-gateway-en
 - Postgres extensions your migrations need: add `"extensions": ["btree_gist"]` to the
   service's entry in `services.json` so `pnpm db:setup` pre-creates them.
 - Removing a service: first remove every consumer (other services' clients, ports and
-  `*_SERVICE_URL` config; gateway routes, `clients.ts`, config, readiness target, test
+  `*_SERVICE_URL` config; gateway routes, `clients.ts`, config, health target, test
   harness env), its name in other services' `via` and `@Access.service` lists, and its
   entries in `security/public-endpoints.json`, because consumer config validation fails at
   boot once the URL is gone. Then delete `apps/<noun>-service`, its proto directory and

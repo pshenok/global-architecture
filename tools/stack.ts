@@ -64,14 +64,20 @@ async function poll(
       const notServing = health.filter(([, status]) => status !== 'SERVING');
       const response = await request(`${base}/readyz`, { dispatcher });
       const gatewayReady = response.statusCode === 200;
-      const { identityProvider } = (await response.body.json()) as { identityProvider?: string };
+      const { status, identityProvider } = (await response.body.json()) as {
+        status?: string;
+        identityProvider?: string;
+      };
       last = JSON.stringify({
         gatewayReady,
+        gatewayStatus: status,
         identityProvider,
         services: Object.fromEntries(health),
       });
-      // The gateway is ready before its IdP keys load (public routes work); the stack waits for both.
-      if (gatewayReady && identityProvider === 'ok' && notServing.length === 0) {
+      // The gateway is ready before its IdP keys load (public routes work) and stays ready
+      // while a service is down; the stack waits until the gateway itself sees every service
+      // SERVING (`status: "ok"`, which needs the IdP keys too).
+      if (gatewayReady && status === 'ok' && identityProvider === 'ok' && notServing.length === 0) {
         console.log(`\nstack ready: ${last}`);
         console.log(`\n  API      ${base}/v1/...`);
         console.log(`  Docs     ${base}/docs`);

@@ -55,6 +55,28 @@ describe('GrpcErrorFilter', () => {
     expect(payload).toEqual({ code: status.INTERNAL, message: 'Internal error' });
   });
 
+  it('gives deadlocks, serialization failures and statement timeouts their status from any query', () => {
+    // Drizzle wraps the driver error in `cause`, as on a read or a commit no repository wrapped.
+    const failedQuery = (code: string) =>
+      new Error('Failed query: select ... for update', {
+        cause: Object.assign(new Error('pg'), { code, severity: 'ERROR' }),
+      });
+    for (const code of ['40P01', '40001']) {
+      const payload = filter.toPayload(failedQuery(code));
+      expect(payload.code).toBe(status.ABORTED);
+      expect(detailsOf(payload)?.errorInfo?.reason).toBe('TRANSACTION_CONFLICT');
+    }
+    const timeout = filter.toPayload(failedQuery('57014'));
+    expect(timeout.code).toBe(status.UNAVAILABLE);
+    expect(detailsOf(timeout)?.errorInfo?.reason).toBe('DATABASE_TIMEOUT');
+    expect(timeout.metadata?.get('grpc-retry-pushback-ms')).toEqual(['-1']);
+    // Any other database error still leaves as a bare INTERNAL.
+    expect(filter.toPayload(failedQuery('23514'))).toEqual({
+      code: status.INTERNAL,
+      message: 'Internal error',
+    });
+  });
+
   it('passes through Nest gRPC exceptions and coded RpcExceptions', () => {
     expect(filter.toPayload(new GrpcNotFoundException('gone'))).toEqual({
       code: status.NOT_FOUND,

@@ -12,9 +12,14 @@ const WORST: readonly KeySetState[] = ['unavailable', 'stale', 'ok'];
 
 /**
  * /healthz: liveness (the process answers).
- * /readyz:  readiness (every downstream gRPC service reports SERVING via grpc.health.v1).
- *           `identityProvider` is informational: an IdP outage must not take the
- *           gateway out of rotation, because public routes and cached keys still work.
+ * /readyz:  readiness of the gateway itself. 503 until every service has answered SERVING
+ *           once since this process started (a rollout with a wrong service URL or CA never
+ *           becomes ready, so it cannot replace working replicas), and while the gateway
+ *           shuts down (Fastify answers 503 to new requests on close). After that, the
+ *           services' health and `identityProvider` are only reported, with `status:
+ *           "degraded"` when one is not well: every replica sees the same services and IdP,
+ *           so failing readiness on them would take the whole API out of rotation when one
+ *           service is down, while that service's routes already fail on their own.
  */
 @ApiExcludeController()
 @SkipThrottle()
@@ -31,6 +36,9 @@ export class HealthController {
     return { status: 'ok' };
   }
 
+  /** Services that answered SERVING at least once since this process started. */
+  private readonly seenServing = new Set<string>();
+
   @Get('readyz')
   async ready(@Res({ passthrough: true }) reply: FastifyReply) {
     const targets: Record<string, string> = {
@@ -44,11 +52,14 @@ export class HealthController {
           [name, await checkGrpcHealth(url, { caFile: this.config.GRPC_TLS_CA_FILE })] as const,
       ),
     );
+    for (const [name, status] of entries) if (status === 'SERVING') this.seenServing.add(name);
     const dependencies: Record<string, DownstreamHealth> = Object.fromEntries(entries);
-    const ready = entries.every(([, status]) => status === 'SERVING');
+    const started = entries.every(([name]) => this.seenServing.has(name));
+    const serving = entries.every(([, status]) => status === 'SERVING');
     const states = [...this.keySets.values()].map((keySet) => keySet.state);
     const identityProvider = WORST.find((state) => states.includes(state)) ?? 'ok';
-    void reply.status(ready ? 200 : 503);
-    return { status: ready ? 'ok' : 'degraded', dependencies, identityProvider };
+    const status = !started ? 'starting' : serving && identityProvider === 'ok' ? 'ok' : 'degraded';
+    void reply.status(started ? 200 : 503);
+    return { status, dependencies, identityProvider };
   }
 }

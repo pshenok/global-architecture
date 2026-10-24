@@ -42,7 +42,11 @@ export const grpcServiceConfigSchema = z.object({
 export const databaseConfigSchema = z.object({
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres:// connection URL'),
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),
-  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  /**
+   * Below the shortest caller deadline (2 s between services, 5 s from the gateway), so a
+   * slow statement or lock wait ends as DATABASE_TIMEOUT before the caller's deadline does.
+   */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(1_500),
 });
 
 /** `host:port` of another gRPC service, e.g. `USER_SERVICE_URL: grpcTarget()`. */

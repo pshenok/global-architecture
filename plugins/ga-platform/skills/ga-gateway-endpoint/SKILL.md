@@ -189,7 +189,8 @@ adds these:
    `apps/gateway/test/harness.ts`.
 2. `apps/gateway/src/clients.ts`: token + entry in `GrpcClientsModule.register` with
    `target: 'x-service'` (the callee's workload name).
-3. `apps/gateway/src/health/health.controller.ts`: add it to the readiness targets.
+3. `apps/gateway/src/health/health.controller.ts`: add it to the health targets (reported
+   in `/readyz`; it must answer SERVING once before a new gateway is ready).
 4. Controller + schemas, register the controller in `app.module.ts`. The gateway is the
    principal issuer, so the service's `@Access.user()` methods accept it without `via`.
 5. Tests in `apps/gateway/test/<resource>.spec.ts` via `createTestGateway` with the client
@@ -205,5 +206,9 @@ forwarding, security headers (strict CSP; `/docs` gets its own), optional CORS a
 (`CORS_ORIGINS`; `www-authenticate` is an exposed header), rate limit per IP
 (`RATE_LIMIT_PER_MINUTE`, `@SkipThrottle()` for probes), 1 MB body limit, `x-request-id`
 in and out, structured access logs (the `authorization` header is redacted), `/healthz`
-(liveness), `/readyz` (all downstream services SERVING; `identityProvider` is reported but
-does not fail readiness), `/openapi.json` and `/docs` (on unless `NODE_ENV=production`).
+(liveness), `/readyz` (503 until every service has answered SERVING once since start, and
+while shutting down; after that the services' health and `identityProvider` are only
+reported, with `status: "degraded"`, so one service's outage cannot take the whole API out
+of rotation), a per-request deadline (`REQUEST_TIMEOUT_MS`, 30 s, body upload and handler
+included, HTTP/2 too: 504 `REQUEST_TIMEOUT`, the controller never starts after it, and a
+stalled upload is cut off), `/openapi.json` and `/docs` (on unless `NODE_ENV=production`).
