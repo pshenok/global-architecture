@@ -259,12 +259,14 @@ for adopting a real provider.
 - Residual risks: a principal plus a caller key of an allowed forwarder can be replayed
   for up to 60 s; a role change or deletion takes up to `IDENTITY_CACHE_TTL_S` (or the
   stale window during a user-service outage); deleting a user leaves its houses and
-  bookings until ADR-0005 cleans them up.
+  bookings until ADR-0005 cleans them up (implemented 2026-10-23: within seconds).
 - Each workload needs one private key in production (a secret) and the shared public
   key map (config). Rotation: publish the new public key, wait until every workload
   logs it (≤ 60 s after the config propagates), switch the private key, prune the old
   public key after 120 s; on compromise remove the old key at once.
 - Event consumers (ADR-0005) will call as `@Access.service([...])` with their own
-  workload identity; events carry no user principal.
+  workload identity; events carry no user principal. (As built: producers and consumers
+  call event-bus-service, whose methods are `@Access.service([...])`; a handler acts as
+  its own service, `currentService()`.)
 - The `host_id` migration was a dev-data-only exception (guarded: it refuses a
   populated table); with real data, such a change is expand -> backfill -> contract.

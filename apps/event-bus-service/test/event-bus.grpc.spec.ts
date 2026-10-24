@@ -70,11 +70,12 @@ describe('EventBusService over gRPC', () => {
     const error = await grpcError(call);
     return { code: error.code, reason: error.details?.errorInfo?.reason };
   };
+  /** One call per method, started only when invoked (a rejection never goes unhandled). */
   const everyMethod = (metadata: Metadata) => [
-    client.publish({ events: [event()] }, metadata),
-    client.pull({ types: [HOUSE_DELETED], maxDeliveries: 10 }, metadata),
-    client.ack({ receipts: ['x'] }, metadata),
-    client.nack({ receipt: 'x', reason: 'X', message: '', deadLetter: false }, metadata),
+    () => client.publish({ events: [event()] }, metadata),
+    () => client.pull({ types: [HOUSE_DELETED], maxDeliveries: 10 }, metadata),
+    () => client.ack({ receipts: ['x'] }, metadata),
+    () => client.nack({ receipt: 'x', reason: 'X', message: '', deadLetter: false }, metadata),
   ];
   const stored = async () => (await db.pool.query('select id from events')).rowCount;
 
@@ -95,7 +96,7 @@ describe('EventBusService over gRPC', () => {
 
   it('refuses callers that are not platform workloads (the gateway)', async () => {
     for (const call of everyMethod(await service.anonymous())) {
-      expect(await code(call)).toEqual({
+      expect(await code(call())).toEqual({
         code: status.PERMISSION_DENIED,
         reason: 'CALLER_NOT_ALLOWED',
       });
@@ -104,13 +105,13 @@ describe('EventBusService over gRPC', () => {
 
   it('refuses users, even admins', async () => {
     for (const call of everyMethod(await service.as(STRANGER, { roles: ['admin'] }))) {
-      expect((await code(call)).code).toBe(status.PERMISSION_DENIED);
+      expect((await code(call())).code).toBe(status.PERMISSION_DENIED);
     }
   });
 
   it('refuses workloads it does not list', async () => {
     for (const call of everyMethod(await as('other-service'))) {
-      expect(await code(call)).toEqual({
+      expect(await code(call())).toEqual({
         code: status.PERMISSION_DENIED,
         reason: 'CALLER_NOT_ALLOWED',
       });

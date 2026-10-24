@@ -22,9 +22,14 @@ flowchart LR
   hs -- "gRPC/TLS: owner's account exists?" --> us
   bs -- "gRPC/TLS: guest's account exists?" --> us
   bs -- "gRPC/TLS: house terms + owner" --> hs
+  us -. "Publish (outbox relay)" .-> eb[event-bus-service]
+  hs -. "Publish (outbox relay)" .-> eb
+  hs -. "Pull / Ack" .-> eb
+  bs -. "Pull / Ack" .-> eb
   us --- udb[(ga_user)]
   hs --- hdb[(ga_house)]
   bs --- bdb[(ga_booking)]
+  eb --- edb[(ga_event_bus)]
 ```
 
 Every gRPC call carries two signed tokens (ADR-0004): `x-ga-caller`, signed by the
@@ -34,7 +39,13 @@ verified it. Services check both against `@Access` on each method.
   error presentation, rate limits and security headers. No business logic, no database.
 - **Domain services**: own one capability and one database each; expose gRPC only;
   health via `grpc.health.v1`; server reflection on.
-- **Dependencies form a DAG** (booking -> house -> user). Back-references will be events.
+- **Dependencies form a DAG** (booking -> house -> user). Back-references are events
+  through event-bus-service, which calls nobody (`tools/check-call-graph.ts` enforces
+  both in `pnpm lint`).
+- **Event bus** (ADR-0005): producers record events in their own `outbox` table in the
+  transaction of the change; the kit's relay publishes them; consumers pull, apply each
+  event once (`processed_events`) and ack. The queue behind the bus is its private
+  `EventBroker` adapter (Postgres today).
 
 ## Inside a service
 
@@ -104,6 +115,7 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 | Health     | `grpc.health.v1` per service (DB-aware); gateway `/healthz`, `/readyz`      | kit `HealthStatus`                                                            |
 | Shutdown   | NOT_SERVING -> optional drain delay -> graceful gRPC shutdown -> close pool | kit                                                                           |
 | Contracts  | one buf module, STANDARD lint, FILE breaking check, committed codegen       | `packages/contracts`                                                          |
+| Events     | outbox + relay, pull consumers deduped by event id, catalog as the ACL      | ADR-0005, kit `events/`, `apps/event-bus-service`                             |
 
 ## Scaling to hundreds of services
 
@@ -129,4 +141,4 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 - ADR-0002 Service boundaries and communication
 - ADR-0003 API and error conventions
 - ADR-0004 Identity and authorization
-- ADR-0005 Asynchronous events (proposed)
+- ADR-0005 Asynchronous events

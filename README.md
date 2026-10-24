@@ -20,7 +20,16 @@ client ────────────────────────�
               │                    │  └──▶ user-service        │  ├──▶ user-service
               ▼                    ▼                           ▼  └──▶ house-service
           ga_user (pg)         ga_house (pg)               ga_booking (pg)
+              ┊ publish            ┊ publish + pull             ┊ pull
+              └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┼┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+                                   ▼
+                       event-bus-service :50050  (calls nobody)
+                                   ▼
+                            ga_event_bus (pg)
 ```
+
+Deleting a user removes its houses and cancels its stays; deleting a house cancels its
+stays. Both happen asynchronously, through events (ADR-0005).
 
 ## Quick start
 
@@ -53,6 +62,7 @@ login registers once (`POST /v1/users`). See ADR-0004 for who may do what.
 | Path                                                              |                                                                                                                                     |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/user-service`, `apps/house-service`, `apps/booking-service` | example domain services (users, listings, reservations)                                                                             |
+| `apps/event-bus-service`                                          | the platform's publish/subscribe service; the queue behind it is a pluggable adapter (Postgres today)                               |
 | `apps/gateway`                                                    | public REST API -> gRPC, OpenAPI at `/openapi.json`, docs at `/docs`                                                                |
 | `packages/kernel`                                                 | domain primitives: errors, actors, ports, money, pagination                                                                         |
 | `packages/contracts`                                              | all `.proto` contracts (buf), generated TypeScript, proto runtime                                                                   |
@@ -84,6 +94,7 @@ pnpm stack:status | pnpm stack:logs
 pnpm dev:token <sub> --email <email>                       # token from the local dev IdP
 pnpm grpc:call <service> <Method> '<json>' --as <userId>   # call a service as the platform does
 pnpm users:grant-role <userId> admin                       # platform roles (users:revoke-role to remove)
+pnpm events:status                                         # event lag and dead letters (events:redrive, events:replay)
 pnpm keys [--rotate|--prune <workload>]                    # local workload keys
 ```
 
@@ -104,7 +115,7 @@ Verified: every package's tests, the template check, the PM2 stack with the end-
 suite, a fresh-clone start, and the user-service container image (distroless, non-root).
 CI (`.github/workflows/ci.yml`) runs the same gate on every push and PR. Not built yet,
 by design of this first iteration:
-- asynchronous events / outbox (proposal: ADR-0005), so deleting a user or a house does
-  not clean up what references it;
+- tombstones against late writes: a house or booking created while its user or house is
+  being deleted can stay orphaned (ADR-0005);
 - idempotency keys for create RPCs;
 - image publishing and deployment infrastructure.
