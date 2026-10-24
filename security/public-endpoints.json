@@ -2,6 +2,26 @@
   "$comment": "Every endpoint that does not need a signed-in user (ADR-0004): public (anyone), unregistered and identity (a login without a user), service (other workloads only). `where` is file#Class.method, or file#Class for a decorator on the class. tools/check-access.ts (pnpm lint) compares this list with the source; startTestService and createTestGateway compare it with the policies the guards enforce, recorded at boot. Changes are reviewed by the code owners of security/.",
   "endpoints": [
     {
+      "where": "apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts#EventBusGrpcController.ack",
+      "access": "service",
+      "reason": "workloads: booking-service, house-service"
+    },
+    {
+      "where": "apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts#EventBusGrpcController.nack",
+      "access": "service",
+      "reason": "workloads: booking-service, house-service"
+    },
+    {
+      "where": "apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts#EventBusGrpcController.publish",
+      "access": "service",
+      "reason": "workloads: house-service, user-service"
+    },
+    {
+      "where": "apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts#EventBusGrpcController.pull",
+      "access": "service",
+      "reason": "workloads: booking-service, house-service"
+    },
+    {
       "where": "apps/gateway/src/health/health.controller.ts#HealthController",
       "access": "public",
       "reason": "liveness and readiness probes"

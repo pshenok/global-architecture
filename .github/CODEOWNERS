@@ -36,3 +36,4 @@
 **/biome.jsonc @pshenok
 **/.oxlintrc* @pshenok
 **/oxlint.config.* @pshenok
+/apps/event-bus-service/src/domain/topics.ts @pshenok

@@ -39,6 +39,16 @@
       "protoFile": "ga/booking/v1/booking.proto",
       "urlEnv": "BOOKING_SERVICE_URL",
       "extensions": ["btree_gist"]
+    },
+    {
+      "name": "event-bus-service",
+      "dir": "apps/event-bus-service",
+      "package": "@ga/event-bus-service",
+      "grpcPort": 50050,
+      "database": "ga_event_bus",
+      "grpcService": "ga.event_bus.v1.EventBusService",
+      "protoFile": "ga/event_bus/v1/event_bus.proto",
+      "urlEnv": "EVENT_BUS_SERVICE_URL"
     }
   ]
 }
