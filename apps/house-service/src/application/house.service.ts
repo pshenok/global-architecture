@@ -4,6 +4,7 @@ import {
   type Money,
   type Page,
   type PageRequest,
+  type ServiceActor,
   UnitOfWork,
   type UserActor,
 } from '@ga/kernel';
@@ -11,6 +12,7 @@ import { Injectable } from '@nestjs/common';
 import { houseNotFound, ownerNotFound } from '../domain/house.errors.ts';
 import { type HouseFilter, HouseRepository } from '../domain/house.repository.ts';
 import { type Address, House, type HouseChanges } from '../domain/house.ts';
+import { HouseEvents } from './ports/house-events.ts';
 import { UserDirectory } from './ports/user-directory.ts';
 
 export interface CreateHouseInput {
@@ -30,6 +32,7 @@ export class HouseService {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly unitOfWork: UnitOfWork,
+    private readonly events: HouseEvents,
   ) {}
 
   /**
@@ -67,13 +70,30 @@ export class HouseService {
     });
   }
 
-  /** Checks ownership under the row lock, so an ownership check and the delete cannot interleave. */
+  /**
+   * Checks ownership under the row lock, so an ownership check and the delete cannot
+   * interleave, and records HouseDeletedEvent with the delete (ADR-0005).
+   */
   delete(actor: UserActor, id: string): Promise<void> {
     return this.unitOfWork.run(async () => {
       const house = await this.houses.findById(id, { forUpdate: true });
       if (!house) throw houseNotFound(id);
       house.assertManageableBy(actor);
       await this.houses.delete(id);
+      await this.events.deleted(house);
+    });
+  }
+
+  /**
+   * Deletes every house of an owner whose account is gone, each with its
+   * HouseDeletedEvent, in one transaction. Only a workload reaches it (UserDeletedEvent);
+   * running it again finds nothing left. Returns how many houses it deleted.
+   */
+  removeAllOf(_actor: ServiceActor, ownerId: string): Promise<number> {
+    return this.unitOfWork.run(async () => {
+      const removed = await this.houses.deleteByOwner(ownerId);
+      for (const house of removed) await this.events.deleted(house);
+      return removed.length;
     });
   }
 }

@@ -5,7 +5,7 @@ import {
   PreconditionFailedError,
   ValidationError,
 } from '@ga/kernel';
-import { adminActor, userActor } from '@ga/kernel/testing';
+import { adminActor, serviceActor, userActor } from '@ga/kernel/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   day,
@@ -36,13 +36,15 @@ describe('BookingService', () => {
   });
   let users: FakeUserDirectory;
   let houses: FakeHouseCatalog;
+  let repository: InMemoryBookingRepository;
   let service: BookingService;
 
   beforeEach(() => {
     users = new FakeUserDirectory();
     houses = new FakeHouseCatalog();
+    repository = new InMemoryBookingRepository();
     service = new BookingService(
-      new InMemoryBookingRepository(),
+      repository,
       users,
       houses,
       new SequentialIds(),
@@ -120,6 +122,37 @@ describe('BookingService', () => {
         PermissionDeniedError,
       );
       expect((await service.list(adminActor(STRANGER_ID), 'any', {}, page)).items).toHaveLength(2);
+    });
+  });
+
+  describe('cleanup after deletions (ADR-0005)', () => {
+    const workload = serviceActor('booking-service');
+    const statusOf = async (id: string) => (await repository.findById(id))?.toState().status;
+
+    it("cancels a deleted house's open stays, once, and keeps finished ones", async () => {
+      const upcoming = await service.create(guest, stay(10, 13));
+      const ongoing = await service.create(guest, stay(0, 3));
+      const finished = await service.create(guest, stay(20, 21));
+      // Move it into the past (checked out today), which the API itself refuses.
+      repository.rows.set(finished.id, {
+        ...finished.toState(),
+        checkIn: day(-5, clock.now()),
+        checkOut: day(0, clock.now()),
+      });
+      expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(2);
+      expect(await statusOf(upcoming.id)).toBe('CANCELLED');
+      expect(await statusOf(ongoing.id)).toBe('CANCELLED');
+      expect(await statusOf(finished.id)).toBe('CONFIRMED');
+      expect((await repository.findById(upcoming.id))?.toState().cancelledAt).toEqual(clock.now());
+      expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(0);
+    });
+
+    it("cancels a deleted guest's stays, not the stays it hosts", async () => {
+      const asGuest = await service.create(guest, stay(10, 13));
+      expect(await service.cancelOpenStaysOfGuest(workload, HOST_ID)).toBe(0);
+      expect(await statusOf(asGuest.id)).toBe('CONFIRMED');
+      expect(await service.cancelOpenStaysOfGuest(workload, GUEST_ID)).toBe(1);
+      expect(await statusOf(asGuest.id)).toBe('CANCELLED');
     });
   });
 });

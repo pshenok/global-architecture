@@ -1,4 +1,5 @@
 import { Clock, IdGenerator, type Page, type PageRequest, toPage, UnitOfWork } from '@ga/kernel';
+import { UserEvents } from '../src/application/ports/user-events.ts';
 import { userAlreadyRegistered, userEmailTaken } from '../src/domain/user.errors.ts';
 import { type Identity, UserRepository } from '../src/domain/user.repository.ts';
 import { User } from '../src/domain/user.ts';
@@ -100,3 +101,12 @@ export class InMemoryUserRepository extends UserRepository {
 }
 
 const identityKey = ({ issuer, subject }: Identity) => `${issuer}\n${subject}`;
+
+/** Records the events a use case raised, in order. */
+export class RecordingUserEvents extends UserEvents {
+  readonly deletedUsers: string[] = [];
+
+  async deleted(userId: string): Promise<void> {
+    this.deletedUsers.push(userId);
+  }
+}

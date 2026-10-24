@@ -1,5 +1,17 @@
 import { sql } from 'drizzle-orm';
-import { bigint, char, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  bytea,
+  char,
+  check,
+  index,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 /** Database schema of the house service (source of truth for `pnpm db:generate`). */
 export const houses = pgTable(
@@ -27,3 +39,50 @@ export const houses = pgTable(
 );
 
 export type HouseRow = typeof houses.$inferSelect;
+
+/**
+ * Events committed with the change that caused them, until the kit's relay publishes
+ * them (ADR-0005). Copied verbatim from the ga-database skill; EventsModule checks it.
+ */
+export const outbox = pgTable(
+  'outbox',
+  {
+    id: uuid('id').primaryKey(),
+    type: text('type').notNull(),
+    aggregateId: text('aggregate_id').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true, precision: 3 }).notNull(),
+    payload: bytea('payload').notNull(),
+    requestId: text('request_id'),
+    traceparent: text('traceparent'),
+    attempts: integer('attempts').notNull().default(0),
+    availableAt: timestamp('available_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    leaseToken: uuid('lease_token'),
+    lastError: text('last_error'),
+  },
+  (table) => [
+    index('outbox_available_at_idx').on(table.availableAt, table.id),
+    check('outbox_payload_size_check', sql`octet_length(${table.payload}) <= 65536`),
+  ],
+);
+
+/**
+ * Events this service's handlers have applied, so a redelivery is skipped (ADR-0005).
+ * Copied verbatim from the ga-database skill; EventsModule checks it.
+ */
+export const processedEvents = pgTable(
+  'processed_events',
+  {
+    subscription: text('subscription').notNull(),
+    eventId: uuid('event_id').notNull(),
+    type: text('type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.subscription, table.eventId] }),
+    index('processed_events_processed_at_idx').on(table.processedAt),
+  ],
+);

@@ -1,6 +1,6 @@
 import { ValidationError } from '@ga/kernel';
 import { describe, expect, it } from 'vitest';
-import { nightsOf, parseCalendarDate } from './stay.ts';
+import { nightsOf, openStayCutoff, parseCalendarDate } from './stay.ts';
 
 const now = new Date('2026-06-01T23:30:00.000Z');
 
@@ -23,5 +23,10 @@ describe('stay rules', () => {
   it('rejects impossible calendar dates', () => {
     expect(() => parseCalendarDate('2026-02-30', 'checkIn')).toThrow(ValidationError);
     expect(() => parseCalendarDate('2026-6-1', 'checkIn')).toThrow(ValidationError);
+  });
+
+  it('puts the open-stay cutoff on the current UTC day', () => {
+    expect(openStayCutoff(now)).toBe('2026-06-01');
+    expect(openStayCutoff(new Date('2026-06-02T00:30:00+02:00'))).toBe('2026-06-01');
   });
 });

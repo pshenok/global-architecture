@@ -3,6 +3,7 @@ import {
   IdGenerator,
   type Page,
   type PageRequest,
+  type ServiceActor,
   UnitOfWork,
   type UserActor,
 } from '@ga/kernel';
@@ -11,7 +12,7 @@ import { bookingNotFound, guestNotFound, houseNotFound } from '../domain/booking
 import { type BookingFilter, BookingRepository } from '../domain/booking.repository.ts';
 import { Booking } from '../domain/booking.ts';
 import { type BookingParty, bookingScopeFor } from '../domain/booking-scope.ts';
-import { nightsOf } from '../domain/stay.ts';
+import { nightsOf, openStayCutoff } from '../domain/stay.ts';
 import { HouseCatalog } from './ports/house-catalog.ts';
 import { UserDirectory } from './ports/user-directory.ts';
 
@@ -88,5 +89,24 @@ export class BookingService {
       await this.bookings.update(booking);
       return booking;
     });
+  }
+
+  /**
+   * The house is gone (HouseDeletedEvent): cancels its upcoming and ongoing stays and
+   * frees their dates; finished stays stay as history. Only a workload reaches it, and
+   * running it again changes nothing. Returns how many bookings it cancelled.
+   */
+  cancelOpenStaysOfHouse(_actor: ServiceActor, houseId: string): Promise<number> {
+    return this.cancelOpenStays({ houseId });
+  }
+
+  /** The guest's account is gone (UserDeletedEvent): as above, for the guest's stays. */
+  cancelOpenStaysOfGuest(_actor: ServiceActor, guestId: string): Promise<number> {
+    return this.cancelOpenStays({ guestId });
+  }
+
+  private cancelOpenStays(of: { houseId: string } | { guestId: string }): Promise<number> {
+    const now = this.clock.now();
+    return this.unitOfWork.run(() => this.bookings.cancelOpenStays(of, openStayCutoff(now), now));
   }
 }

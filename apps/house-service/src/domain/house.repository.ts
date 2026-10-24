@@ -17,4 +17,6 @@ export abstract class HouseRepository {
   abstract update(house: House): Promise<void>;
   /** Returns false when nothing was deleted. */
   abstract delete(id: string): Promise<boolean>;
+  /** Deletes every house of an owner and returns them as they were. */
+  abstract deleteByOwner(ownerId: string): Promise<readonly House[]>;
 }

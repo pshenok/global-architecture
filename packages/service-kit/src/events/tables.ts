@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bytea,
+  check,
   index,
   integer,
   pgTable,
@@ -35,7 +36,10 @@ export const outbox = pgTable(
     leaseToken: uuid('lease_token'),
     lastError: text('last_error'),
   },
-  (table) => [index('outbox_available_at_idx').on(table.availableAt, table.id)],
+  (table) => [
+    index('outbox_available_at_idx').on(table.availableAt, table.id),
+    check('outbox_payload_size_check', sql`octet_length(${table.payload}) <= 65536`),
+  ],
 );
 
 /** Consumer side: events whose handler committed, so a redelivery is skipped. */

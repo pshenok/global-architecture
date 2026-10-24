@@ -113,4 +113,19 @@ export class InMemoryBookingRepository extends BookingRepository {
   async update(booking: Booking): Promise<void> {
     this.rows.set(booking.id, booking.toState());
   }
+
+  async cancelOpenStays(
+    of: { readonly houseId: string } | { readonly guestId: string },
+    cutoff: string,
+    at: Date,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const state of this.rows.values()) {
+      const matches = 'houseId' in of ? state.houseId === of.houseId : state.guestId === of.guestId;
+      if (!matches || state.status !== 'CONFIRMED' || state.checkOut <= cutoff) continue;
+      this.rows.set(state.id, { ...state, status: 'CANCELLED', cancelledAt: at, updatedAt: at });
+      cancelled += 1;
+    }
+    return cancelled;
+  }
 }

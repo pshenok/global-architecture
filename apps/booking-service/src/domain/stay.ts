@@ -41,3 +41,12 @@ export function nightsOf(checkIn: string, checkOut: string, now: Date): number {
   }
   return nights;
 }
+
+/**
+ * The date an open stay checks out after: today (UTC), like the check-in rule above. A
+ * CONFIRMED booking with check_out later than this is upcoming or ongoing; one that
+ * checked out today or earlier is history and is never cancelled.
+ */
+export function openStayCutoff(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}

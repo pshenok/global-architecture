@@ -1,0 +1,163 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "24659f93-1f27-4285-89b9-7144df2b888f",
+  "prevIds": [
+    "bdc0823e-9602-47c8-a43c-f26126381613"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "processed_events"
+      ],
+      "writes": [
+        "s|tbl|public.processed_events",
+        "n|tbl|public.processed_events",
+        "e|tbl|public.processed_events",
+        "n|rel|public.processed_events",
+        "n|type|public.processed_events",
+        "n|rel|public.processed_events_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "processed_events",
+        "processed_events_processed_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.processed_events_processed_at_idx",
+        "n|idx|public.processed_events_processed_at_idx",
+        "e|idx|public.processed_events_processed_at_idx",
+        "n|rel|public.processed_events_processed_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.processed_events",
+        "n|sch|public",
+        "n|col|public.processed_events.processed_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "processed_events",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "processed_events",
+        "name": "subscription",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "processed_events",
+        "name": "event_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "processed_events",
+        "name": "type",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "processed_events",
+        "name": "processed_at",
+        "type": "timestamp(3) with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "processed_events",
+        "name": "processed_events_processed_at_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "processed_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "processed_events",
+        "name": "processed_events_pkey",
+        "columns": [
+          "subscription",
+          "event_id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

@@ -20,4 +20,14 @@ export abstract class BookingRepository {
   /** Throws ConflictError (BOOKING_DATES_UNAVAILABLE) when the stay overlaps a confirmed booking of the house. */
   abstract insert(booking: Booking): Promise<void>;
   abstract update(booking: Booking): Promise<void>;
+  /**
+   * Cancels, at `at`, every CONFIRMED booking of a house or of a guest that checks out
+   * after `cutoff` (openStayCutoff). Cancelled and finished stays stay as they are, so
+   * calling it again changes nothing. Returns how many it cancelled.
+   */
+  abstract cancelOpenStays(
+    of: { readonly houseId: string } | { readonly guestId: string },
+    cutoff: string,
+    at: Date,
+  ): Promise<number>;
 }
