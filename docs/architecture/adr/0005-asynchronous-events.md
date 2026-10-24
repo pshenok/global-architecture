@@ -41,6 +41,12 @@ Constraints at the time of the decision:
 4. **Pull delivery; the bus is a sink.** Consumers pull the event types they handle; the
    bus calls no service, so no event flow adds a synchronous edge that could close a
    cycle. A pulled delivery is leased; an unsettled one returns when its lease ends.
+   `check-call-graph` enforces the call graph at lint time, and `GrpcClientsModule.register`
+   works on frozen copies of its definitions, so a client signs only for the target that
+   register() validated and the checker read, whatever its `url()` does. At run time the
+   kit's `WorkloadIdentity` signs no caller assertion as event-bus-service and every
+   service refuses a call without one (`CALLER_MISSING`), so the bus cannot call a service
+   whatever code it contains.
 5. **Contracts.** The envelope (`ga.event_bus.v1.Event`) carries the event id (UUIDv7,
    the producer's outbox row id), the type (the payload's full protobuf name, which is
    also the topic), the aggregate id, the occur time, the request id and the W3C

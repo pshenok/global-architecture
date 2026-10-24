@@ -42,6 +42,12 @@ const publishes = (map: WorkloadKeyMap, name: string, key: SigningKey): boolean 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
+ * The event bus calls no service (ADR-0005 #4), so it never signs a caller assertion,
+ * whatever code it runs; every service refuses a call without one (CALLER_MISSING).
+ */
+const EVENT_BUS = 'event-bus-service';
+
+/**
  * This workload's identity: its private key (signs caller assertions, and user
  * principals when it is an edge) and every workload's public keys (verifies what
  * others signed). Both files are re-read every WORKLOAD_KEYS_RELOAD_S, so keys rotate
@@ -107,8 +113,14 @@ export class WorkloadIdentity implements OnApplicationShutdown {
     return this.config.PRINCIPAL_ISSUERS.includes(this.name);
   }
 
-  /** Caller assertion for an outbound call to `target`; cached until half its lifetime is left. */
+  /**
+   * Caller assertion for an outbound call to `target`; cached until half its lifetime is
+   * left. The event bus gets none: it calls nobody.
+   */
   async callerToken(target: string): Promise<string> {
+    if (this.name === EVENT_BUS) {
+      throw new Error(`${EVENT_BUS} calls no service (ADR-0005), so it signs no call to ${target}`);
+    }
     const cached = this.callerTokens.get(target);
     if (cached) {
       const value = await cached;

@@ -94,7 +94,7 @@ pnpm stack:status | pnpm stack:logs
 pnpm dev:token <sub> --email <email>                       # token from the local dev IdP
 pnpm grpc:call <service> <Method> '<json>' --as <userId>   # call a service as the platform does
 pnpm users:grant-role <userId> admin                       # platform roles (users:revoke-role to remove)
-pnpm events:status                                         # event lag and dead letters (events:redrive, events:replay)
+pnpm events:status                                         # event lag and dead letters (events:redrive, events:replay, events:drop)
 pnpm keys [--rotate|--prune <workload>]                    # local workload keys
 ```
 

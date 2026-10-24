@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
 import { EventBroker } from '../src/application/ports/event-broker.ts';
 import { drop, redrive, replay, status } from '../src/cli/bus-admin.ts';
+import { MAX_RETENTION_DAYS } from '../src/domain/retention.ts';
 import { EventRetention } from '../src/infrastructure/retention.ts';
 import { SERVICE } from '../src/service.ts';
 import { busEvent } from './event-broker.contract.ts';
@@ -121,6 +122,9 @@ describe('bus administration', () => {
     await expect(
       redrive(orm(), { subscriber: 'house-service', type: HOUSE_DELETED }),
     ).rejects.toThrow(/does not list house-service/);
+    await expect(redrive(orm(), { subscriber: 'house-service', type: '' })).rejects.toThrow(
+      /does not list house-service/,
+    );
     expect(await redrive(orm(), { subscriber: 'house-service' })).toEqual({
       redriven: 1,
       skipped: 1,
@@ -162,16 +166,44 @@ describe('bus administration', () => {
     const old = busEvent({ type: USER_DELETED, producer: 'user-service' });
     await broker.publish(old, ['booking-service']);
     const since = new Date(Date.now() - 60_000);
-    expect(await replay(orm(), { subscriber: 'house-service', type: USER_DELETED, since })).toBe(1);
-    expect(await replay(orm(), { subscriber: 'house-service', type: USER_DELETED, since })).toBe(0);
-    expect(await replay(orm(), { subscriber: 'booking-service', type: USER_DELETED, since })).toBe(
-      0,
-    );
+    const replayTo = (subscriber: string) =>
+      replay(orm(), { subscriber, type: USER_DELETED, since });
+    expect(await replayTo('house-service')).toEqual({ queued: 1, skipped: 0 });
+    expect(await replayTo('house-service')).toEqual({ queued: 0, skipped: 0 });
+    expect(await replayTo('booking-service')).toEqual({ queued: 0, skipped: 0 });
     await expect(
       replay(orm(), { subscriber: 'house-service', type: HOUSE_DELETED, since }),
     ).rejects.toThrow(/does not list house-service/);
     const [replayed] = await broker.pull('house-service', [USER_DELETED], 10);
     expect(replayed?.event.id).toBe(old.id);
+  });
+
+  it('replays no event older than consumers remember, even one a dead letter kept', async () => {
+    const forgotten = busEvent({ type: USER_DELETED, producer: 'user-service' });
+    const recent = busEvent({ type: USER_DELETED, producer: 'user-service' });
+    for (const event of [forgotten, recent]) {
+      await broker.publish(event, ['house-service', 'booking-service']);
+    }
+    const applied = await broker.pull('house-service', [USER_DELETED], 10);
+    await broker.ack(
+      'house-service',
+      applied.map((d) => d.receipt),
+    );
+    await deadLetter('booking-service', USER_DELETED);
+    await deadLetter('booking-service', USER_DELETED);
+    const age = (id: string, days: number) =>
+      db.pool.query(
+        'update events set published_at = now() - make_interval(days => $2) where id = $1',
+        [id, days],
+      );
+    await age(forgotten.id, MAX_RETENTION_DAYS + 19);
+    await age(recent.id, MAX_RETENTION_DAYS - 1);
+    const since = new Date(Date.now() - 60 * 86_400_000);
+    const target = { subscriber: 'house-service', type: USER_DELETED, since };
+    expect(await replay(orm(), target)).toEqual({ queued: 1, skipped: 1 });
+    expect(await replay(orm(), target)).toEqual({ queued: 0, skipped: 1 });
+    const replayed = await broker.pull('house-service', [USER_DELETED], 10);
+    expect(replayed.map((d) => d.event.id)).toEqual([recent.id]);
   });
 
   it('deletes delivered events past retention and keeps those with a delivery', async () => {

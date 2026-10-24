@@ -1,5 +1,6 @@
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { MAX_RETENTION_DAYS } from '../domain/retention.ts';
 import { subscriptions, topicOf } from '../domain/topics.ts';
 import { deliveries, events } from '../infrastructure/persistence/schema.ts';
 
@@ -41,23 +42,28 @@ export async function status(db: NodePgDatabase): Promise<QueueStatus[]> {
 
 /**
  * Dead letters of a subscriber (optionally one type) back to pending, with fresh attempts.
- * Their handler never applied them (the failure rolled its transaction back), so each runs
- * once. Only types the catalog lists for the subscriber: a `type` it does not list is
- * refused, and without one the dead letters of other types are skipped and counted.
+ * A failed handler rolled its transaction back, so that dead letter runs once. One that
+ * died by lease expiry (LEASE_EXPIRED) may have been applied: the consumer acks a batch
+ * only at its end, so the batch-mates of a delivery that crashes the process commit but
+ * are never acked. Its processed_events skips such an event only while it remembers the
+ * id (30 days). Only types the catalog lists for the subscriber: a `type` it does not list
+ * (or '') is refused, and without one the dead letters of other types are skipped and
+ * counted.
  */
 export async function redrive(
   db: NodePgDatabase,
   target: { readonly subscriber: string; readonly type?: string | undefined },
 ): Promise<{ readonly redriven: number; readonly skipped: number }> {
-  if (target.type && !listed(target.subscriber, target.type)) {
+  if (target.type !== undefined && !listed(target.subscriber, target.type)) {
     throw new Error(`the catalog does not list ${target.subscriber} for ${target.type}`);
   }
-  const types = target.type
-    ? [target.type]
-    : (subscriptions().find((s) => s.subscriber === target.subscriber)?.types ?? []);
+  const types =
+    target.type !== undefined
+      ? [target.type]
+      : (subscriptions().find((s) => s.subscriber === target.subscriber)?.types ?? []);
   const dead = and(eq(deliveries.subscriber, target.subscriber), eq(deliveries.status, 'DEAD'));
   let skipped = 0;
-  if (!target.type) {
+  if (target.type === undefined) {
     const [unlisted] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(deliveries)
@@ -76,32 +82,40 @@ export async function redrive(
  * Queues retained events of a type published since `since` for a subscriber again, e.g.
  * to backfill a new subscriber. Refused unless the catalog lists that subscriber for that
  * type. Events it already holds a delivery for are skipped; ones it already processed are
- * skipped by its processed_events, which remembers them 30 days, longer than retention
- * keeps a delivered event (EVENT_BUS_RETENTION_DAYS, at most 21). The exception is an
- * older event that another subscriber's pending or dead delivery still holds: it can run
- * again.
+ * skipped by its processed_events, which remembers them 30 days. Only events published in
+ * the last MAX_RETENTION_DAYS are queued: retention keeps an older one while another
+ * subscriber's delivery holds it, and this subscriber may have forgotten it. Those are
+ * skipped and counted.
  */
 export async function replay(
   db: NodePgDatabase,
   target: { readonly subscriber: string; readonly type: string; readonly since: Date },
-): Promise<number> {
+): Promise<{ readonly queued: number; readonly skipped: number }> {
   if (!listed(target.subscriber, target.type)) {
     throw new Error(`the catalog does not list ${target.subscriber} for ${target.type}`);
   }
+  const cutoff = sql`now() - make_interval(days => ${MAX_RETENTION_DAYS})`;
   const result = await db.execute<{ event_id: string }>(sql`
     insert into deliveries (subscriber, event_id, type, status)
     select ${target.subscriber}, id, type, 'PENDING' from events
-    where type = ${target.type} and published_at >= ${target.since}
+    where type = ${target.type} and published_at >= ${target.since} and published_at > ${cutoff}
     on conflict (subscriber, event_id) do nothing
     returning event_id`);
-  return result.rows.length;
+  const old = await db.execute<{ count: number }>(sql`
+    select count(*)::int as count from events e
+    where e.type = ${target.type} and e.published_at >= ${target.since}
+      and e.published_at <= ${cutoff}
+      and not exists (select 1 from deliveries d
+        where d.subscriber = ${target.subscriber} and d.event_id = e.id)`);
+  return { queued: result.rows.length, skipped: old.rows[0]?.count ?? 0 };
 }
 
 /**
  * Deletes the deliveries, pending or dead, of a pair the catalog no longer lists (a type
- * retired, or a subscriber moved to a v2 type or removed from the topic): nothing can
- * pull or dead-letter them, and they keep their events from retention. Refused while the
- * catalog lists the pair.
+ * retired, or a subscriber moved to a v2 type or removed from the topic): nothing leases
+ * or redrives them (the subscriber's next pull still turns one whose last lease ran out
+ * DEAD), and they keep their events from retention. Refused while the catalog lists the
+ * pair.
  */
 export async function drop(
   db: NodePgDatabase,

@@ -11,7 +11,7 @@ import {
 } from '@ga/contracts/ga/user/v1/user';
 import { UnitOfWork } from '@ga/kernel';
 import { status } from '@grpc/grpc-js';
-import { Controller, Inject, Module } from '@nestjs/common';
+import { Controller, type DynamicModule, Inject, Module, type Type } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Access } from '../auth/access.ts';
@@ -22,6 +22,7 @@ import { grpcError } from '../testing/grpc-test-client.ts';
 import { startTestService, type TestService } from '../testing/start-test-service.ts';
 import { DEFAULT_TEST_DATABASE_URL } from '../testing/test-database.ts';
 import {
+  type GrpcClientDefinition,
   GrpcClientsModule,
   outboundContextInterceptor,
   RemoteCallInTransactionError,
@@ -137,27 +138,40 @@ class HousesController implements HouseServiceController {
   }
 }
 
-@Module({
-  imports: [
-    GrpcPlatformModule.forRoot({
-      service: HOUSES_DEFINITION,
-      config: grpcServiceConfigSchema
-        .extend(databaseConfigSchema.shape)
-        .extend({ USER_SERVICE_URL: grpcTarget() }),
-    }),
-    GrpcClientsModule.register([
-      {
-        token: USERS,
-        service: 'ga.user.v1.UserService',
-        target: 'user-service',
-        protoFiles: ['ga/user/v1/user.proto'],
-        url: (config) => String(config.USER_SERVICE_URL),
+/** house-service with the given client of user-service. */
+function housesModule(clients: DynamicModule): Type<unknown> {
+  @Module({
+    imports: [
+      GrpcPlatformModule.forRoot({
+        service: HOUSES_DEFINITION,
+        config: grpcServiceConfigSchema
+          .extend(databaseConfigSchema.shape)
+          .extend({ USER_SERVICE_URL: grpcTarget() }),
+      }),
+      clients,
+    ],
+    controllers: [HousesController],
+  })
+  class HousesModule {}
+  return HousesModule;
+}
+
+/** The user-service client; `url` reads USER_SERVICE_URL after doing `write(this)`. */
+const usersClient = (write: (definition: GrpcClientDefinition) => void = () => {}) =>
+  GrpcClientsModule.register([
+    {
+      token: USERS,
+      service: 'ga.user.v1.UserService',
+      target: 'user-service',
+      protoFiles: ['ga/user/v1/user.proto'],
+      url(config) {
+        write(this);
+        return String(config.USER_SERVICE_URL);
       },
-    ]),
-  ],
-  controllers: [HousesController],
-})
-class HousesModule {}
+    },
+  ]);
+
+const HousesModule = housesModule(usersClient());
 
 /** Real Postgres (TEST_DATABASE_URL): the transaction is a real one. */
 describe('remote calls inside a transaction (ADR-0002)', () => {
@@ -215,5 +229,57 @@ describe('remote calls inside a transaction (ADR-0002)', () => {
       }),
     ).toThrow(new RemoteCallInTransactionError('user-service'));
     expect(reached).toBe(false);
+  });
+});
+
+/** register() validated the target; url() runs later and may not change what is signed. */
+describe('client definitions frozen at register()', () => {
+  let users: TestService;
+  const startHouses = (module: Type<unknown>) =>
+    startTestService({
+      module,
+      service: HOUSES_DEFINITION,
+      keys: users.keys,
+      env: {
+        USER_SERVICE_URL: users.url,
+        DATABASE_URL: process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_DATABASE_URL,
+      },
+    });
+
+  beforeAll(async () => {
+    users = await startTestService({
+      module: UsersModule,
+      service: USERS_DEFINITION,
+      callers: ['house-service'],
+    });
+  });
+
+  afterAll(async () => {
+    await users?.close();
+  });
+
+  it('fails to boot when url() writes another target', async () => {
+    const module = housesModule(
+      usersClient((definition) => Object.assign(definition, { target: 'booking-service' })),
+    );
+    await expect(startHouses(module)).rejects.toThrow(/read only property 'target'/);
+  });
+
+  it('keeps signing for the validated target when url() changes it quietly', async () => {
+    const houses = await startHouses(
+      housesModule(
+        usersClient((definition) => Reflect.set(definition, 'target', 'booking-service')),
+      ),
+    );
+    const client = houses.client<HouseServiceClient>('ga.house.v1.HouseService');
+    try {
+      calls = 0;
+      // user-service accepts only an assertion addressed to it, from house-service.
+      await expect(client.getHouse({ id: 'outside' })).resolves.toEqual({ house: null });
+      expect(calls).toBe(1);
+    } finally {
+      client.close();
+      await houses.close();
+    }
   });
 });

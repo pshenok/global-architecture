@@ -130,7 +130,8 @@ class GrpcClientsLifecycle implements OnApplicationShutdown {
  * Typed gRPC clients for calling other services.
  *
  *   GrpcClientsModule.register([{ token: USER_SERVICE, service: 'ga.user.v1.UserService',
- *     protoFiles: ['ga/user/v1/user.proto'], url: (c) => c.USER_SERVICE_URL as string }])
+ *     target: 'user-service', protoFiles: ['ga/user/v1/user.proto'],
+ *     url: (c) => c.USER_SERVICE_URL as string }])
  *
  *   constructor(@Inject(USER_SERVICE) private readonly users: UserServiceClient) {}
  *   await firstValueFrom(this.users.getUser({ id }))
@@ -143,7 +144,10 @@ class GrpcClientsLifecycle implements OnApplicationShutdown {
  */
 @Module({})
 export class GrpcClientsModule {
-  static register(definitions: readonly GrpcClientDefinition[]): DynamicModule {
+  static register(given: readonly GrpcClientDefinition[]): DynamicModule {
+    // Frozen copies first, used for everything after: the target validated here (and read
+    // by check-call-graph) is the one signed for, and a url() that writes to `this` throws.
+    const definitions = given.map((definition) => Object.freeze({ ...definition }));
     for (const { service, target } of definitions) {
       if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(target)) {
         throw new TypeError(`client of ${service}: target "${target}" is not a workload name`);
@@ -152,6 +156,9 @@ export class GrpcClientsModule {
     const proxyTokens = definitions.map((d) => Symbol(`${d.service}:proxy`));
     const providers: Provider[] = definitions.flatMap((definition, index) => {
       const { pkg, name } = splitService(definition.service);
+      const { target } = definition;
+      const protoFiles = [...definition.protoFiles];
+      const timeoutMs = definition.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       const proxyToken = proxyTokens[index] as symbol;
       return [
         {
@@ -173,14 +180,14 @@ export class GrpcClientsModule {
                   typeof caFile === 'string' ? caFile : undefined,
                 ),
                 package: pkg,
-                packageDefinition: loadProtoPackage(definition.protoFiles),
+                packageDefinition: loadProtoPackage(protoFiles),
                 channelOptions: {
                   'grpc.service_config': SERVICE_CONFIG,
                   'grpc.keepalive_time_ms': 30_000,
                   interceptors: [
                     outboundContextInterceptor(
-                      definition.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-                      definition.target,
+                      timeoutMs,
+                      target,
                       identity,
                       () => db?.inTransaction() ?? false,
                     ),

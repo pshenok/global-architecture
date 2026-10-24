@@ -11,6 +11,7 @@ ever talks to a queue: which store holds the events is private to this service.
 | --------------------------------------- | ----------------------------------------------------------- |
 | `src/domain/topics.ts`                  | The event catalog: who publishes each type, who receives it |
 | `src/domain/retry.ts`                   | Backoff of failed deliveries                                |
+| `src/domain/retention.ts`               | Retention cap and replay window (21 days)                   |
 | `src/application/event-bus.service.ts`  | Publish, Pull, Ack, Nack use cases (catalog checks)         |
 | `src/application/ports/event-broker.ts` | `EventBroker`: the seam a queue plugs into                  |
 | `src/infrastructure/persistence/`       | `PostgresEventBroker` (default backend), schema, migrations |
@@ -28,7 +29,9 @@ Nack retries it after 1 s, 2 s, 4 s ... (at most 5 min); after `EVENT_BUS_MAX_AT
 (10) leases, or a Nack with `dead_letter`, it becomes a dead letter, which stays until
 someone redrives it. Consumers deduplicate by event id (the kit's `processed_events`,
 kept 30 days), so `EVENT_BUS_RETENTION_DAYS` (7) is capped at 21: a replayed event must
-still be remembered by every consumer that already applied it.
+still be remembered by every consumer that already applied it. For the same reason
+`events:replay` queues only events from the last 21 days; older ones that another
+subscriber's delivery still keeps are skipped and counted.
 
 ## Adding an event type, a producer or a subscriber
 
@@ -50,8 +53,9 @@ subscriber leaving a topic): when `pnpm events:status` shows nothing pending for
 pair, deploy the consumer without its handler (Pull refuses a type the catalog does not
 list), then remove the pair from the catalog (and the workload from the `@Access` lists
 if it leaves the bus) and deploy the bus. `events:status` then marks leftover rows
-`orphaned`: nothing pulls, dead-letters or redrives them, and they keep their events from
-retention, so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.
+`orphaned`: nothing leases or redrives them (the subscriber's next pull still turns one
+whose last lease ran out into a dead letter), and they keep their events from retention,
+so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.
 
 ## Another queue behind the bus
 

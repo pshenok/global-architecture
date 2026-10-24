@@ -1,5 +1,6 @@
 import { databaseConfigSchema, grpcServiceConfigSchema } from '@ga/service-kit';
 import { z } from 'zod';
+import { MAX_RETENTION_DAYS } from './domain/retention.ts';
 import { DEFAULT_MAX_ATTEMPTS } from './domain/retry.ts';
 
 /** Environment of the event bus, validated at boot (also in .env.example). */
@@ -9,11 +10,10 @@ export const ConfigSchema = grpcServiceConfigSchema.extend(databaseConfigSchema.
   /** Leases a delivery gets before it becomes a dead letter. */
   EVENT_BUS_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(DEFAULT_MAX_ATTEMPTS),
   /**
-   * Days a fully delivered event is kept for `pnpm events:replay`. At most 21: consumers
-   * remember processed event ids for 30 days (the kit's EventConsumer), which must exceed
-   * retention plus the ~14 minute retry window, or a replay runs handlers twice.
+   * Days a fully delivered event is kept for `pnpm events:replay`. At most
+   * MAX_RETENTION_DAYS (21): consumers forget processed event ids after 30 days.
    */
-  EVENT_BUS_RETENTION_DAYS: z.coerce.number().int().min(1).max(21).default(7),
+  EVENT_BUS_RETENTION_DAYS: z.coerce.number().int().min(1).max(MAX_RETENTION_DAYS).default(7),
 });
 
 export type Config = z.output<typeof ConfigSchema>;

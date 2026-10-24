@@ -16,9 +16,11 @@ import {
   HOST_ID,
   HOUSE_ID,
   InMemoryBookingRepository,
+  OTHER_HOUSE,
   PassThroughUnitOfWork,
   SequentialIds,
   STRANGER_ID,
+  TERMS,
 } from '../../test/fakes.ts';
 import { BookingService } from './booking.service.ts';
 
@@ -138,21 +140,28 @@ describe('BookingService', () => {
       });
       return booking;
     };
-
-    it("cancels a deleted house's open stays, once, and keeps finished ones", async () => {
-      const upcoming = await service.create(guest, stay(10, 13));
-      const ongoing = await service.create(guest, stay(0, 3));
-      const finished = await service.create(guest, stay(20, 21));
-      // Move it into the past (checked out today), which the API itself refuses.
-      repository.rows.set(finished.id, {
-        ...finished.toState(),
+    /** A stay that checked out today, which the API itself refuses to create. */
+    const finishedStay = async (houseId = HOUSE_ID) => {
+      const booking = await service.create(guest, { ...stay(40, 41), houseId });
+      repository.rows.set(booking.id, {
+        ...booking.toState(),
         checkIn: day(-5, clock.now()),
         checkOut: day(0, clock.now()),
       });
+      return booking;
+    };
+
+    it("cancels a deleted house's open stays, once, and keeps finished ones", async () => {
+      houses.houses.set(OTHER_HOUSE, TERMS);
+      const upcoming = await service.create(guest, stay(10, 13));
+      const ongoing = await service.create(guest, stay(0, 3));
+      const finished = await finishedStay();
+      const elsewhere = await service.create(guest, { ...stay(10, 13), houseId: OTHER_HOUSE });
       expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(2);
       expect(await statusOf(upcoming.id)).toBe('CANCELLED');
       expect(await statusOf(ongoing.id)).toBe('CANCELLED');
       expect(await statusOf(finished.id)).toBe('CONFIRMED');
+      expect(await statusOf(elsewhere.id)).toBe('CONFIRMED');
       expect((await repository.findById(upcoming.id))?.toState().cancelledAt).toEqual(clock.now());
       expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(0);
     });
@@ -165,14 +174,21 @@ describe('BookingService', () => {
     });
 
     it("cancels a deleted guest's stays, not the stays it hosts", async () => {
+      houses.houses.set(OTHER_HOUSE, TERMS);
       const asGuest = await service.create(guest, stay(10, 13));
       const inProgress = await stayInProgress();
+      // Another house: it would overlap the stay in progress.
+      const finished = await finishedStay(OTHER_HOUSE);
+      const cancelledBefore = await service.create(guest, stay(20, 21));
+      await service.cancel(guest, cancelledBefore.id);
       expect(await service.cancelOpenStaysOfGuest(workload, HOST_ID)).toBe(0);
       expect(await statusOf(asGuest.id)).toBe('CONFIRMED');
       expect(await statusOf(inProgress.id)).toBe('CONFIRMED');
+      // Neither the finished stay nor the booking cancelled before.
       expect(await service.cancelOpenStaysOfGuest(workload, GUEST_ID)).toBe(2);
       expect(await statusOf(asGuest.id)).toBe('CANCELLED');
       expect(await statusOf(inProgress.id)).toBe('CANCELLED');
+      expect(await statusOf(finished.id)).toBe('CONFIRMED');
     });
   });
 });

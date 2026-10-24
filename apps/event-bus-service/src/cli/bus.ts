@@ -10,6 +10,7 @@
 import { parseArgs } from 'node:util';
 import { createPool, databaseConfigSchema, parseConfig } from '@ga/service-kit';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { MAX_RETENTION_DAYS } from '../domain/retention.ts';
 import { SERVICE } from '../service.ts';
 import { drop, redrive, replay, status } from './bus-admin.ts';
 
@@ -31,7 +32,7 @@ const since = values.since ? new Date(values.since) : undefined;
 if (
   !(
     command === 'status' ||
-    (command === 'redrive' && values.subscriber) ||
+    (command === 'redrive' && values.subscriber && values.type !== '') ||
     (command === 'replay' &&
       values.subscriber &&
       values.type &&
@@ -69,9 +70,9 @@ try {
       type: values.type as string,
       since: since as Date,
     };
-    const count = await replay(db, target);
+    const { queued, skipped } = await replay(db, target);
     console.log(
-      `${SERVICE.name}: queued ${count} ${target.type} event(s) since ${target.since.toISOString()} for ${target.subscriber}`,
+      `${SERVICE.name}: queued ${queued} ${target.type} event(s) since ${target.since.toISOString()} for ${target.subscriber}${skipped > 0 ? `, skipped ${skipped} older than ${MAX_RETENTION_DAYS} days (too old to replay safely)` : ''}`,
     );
   }
 } finally {

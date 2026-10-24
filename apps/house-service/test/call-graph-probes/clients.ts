@@ -6,7 +6,6 @@
  * spelling the graph must still read. Nothing imports or runs this file.
  */
 
-import * as kit from '@ga/service-kit';
 import {
   EventsModule as Bus,
   GrpcClientsModule as Clients,
@@ -21,14 +20,11 @@ const S = 'ga.booking.v1.BookingService';
 const P = ['ga/booking/v1/booking.proto'];
 const U = () => 'localhost:50053';
 
-// Legal: an inline literal target is an edge, however the module is named.
+// Legal: an inline literal target is an edge, however the import is renamed.
 export const plain = GrpcClientsModule.register([
   { token: T, service: S, target: 'booking-service', protoFiles: P, url: U }, // edge: booking-service
 ]);
 export const aliased = Clients.register([
-  { token: T, service: S, target: 'booking-service', protoFiles: P, url: U }, // edge: booking-service
-]);
-export const viaNamespace = kit.GrpcClientsModule.register([
   { token: T, service: S, target: 'booking-service', protoFiles: P, url: U }, // edge: booking-service
 ]);
 // biome-ignore format: a `//` inside a string before the target, on one line

@@ -153,12 +153,24 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
   kit's `grpc-clients.module.ts` and `events.module.ts` excepted); outside the kit and
   `tools/`, code may not build a gRPC client without the kit (Nest's `ClientProxyFactory`,
   `ClientsModule`, `ClientGrpcProxy`, `@Client`; grpc-js `Client`, `Channel`,
-  `loadPackageDefinition`, `makeClientConstructor`) or reach into another app's code. It
-  fails on a cycle or any call made by the bus, and checks itself every run: on synthetic
-  graphs, and on the probes in `apps/house-service/test/call-graph-probes` (a line marked
-  `// refused` must be refused, no other line; a line marked `// edge: <workload>` must
-  yield exactly that edge, no other line any). When a review finds a new way to hide a
-  call, add a probe line, then the rule.
+  `loadPackageDefinition`, `makeClientConstructor`) or reach into another app's code. In
+  apps' `src` and the template no namespace import, `export *` or `import()` is allowed
+  (what is read from a whole module has no name to resolve); elsewhere outside the kit and
+  `tools/`, none may bind the kit, `@nestjs/microservices`, `@grpc/grpc-js`, an app's code
+  or a module that exports a client builder or app code, and nowhere outside them may a
+  default or named import be such a module (a CommonJS default import is the whole
+  module). It fails on a cycle or any call made by the bus, and checks itself every run:
+  on synthetic graphs, and on the probes in `apps/house-service/test/call-graph-probes`
+  (its `package/` folder read as a package; a line marked `// refused` must be refused, no
+  other line; a line marked `// edge: <workload>` must yield exactly that edge, no other
+  line any). When a review finds a new way to hide a call, add a probe line, then the
+  rule. TypeScript is not sound, so a deliberate structural cast can still hide a client
+  from the checker; review covers that, with run-time backstops.
+  `GrpcClientsModule.register` works on frozen copies of its definitions, so a client
+  signs only for the target that register() validated and the checker read, whatever its
+  `url()` does. The kit's `WorkloadIdentity` signs no caller assertion as
+  `event-bus-service` and every service refuses a call without one (`CALLER_MISSING`), so
+  the bus cannot call a service whatever code it contains.
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the whole
   service kit, the event catalog (`apps/event-bus-service/src/domain/topics.ts`), `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
   `http/openapi.ts` and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and

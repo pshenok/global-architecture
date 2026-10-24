@@ -101,16 +101,21 @@ per change (keep it, it is the only record), and check the catalog of the build 
 from: `replay` and `redrive --type` refuse a pair it does not list (`redrive` without
 `--type` skips and counts those rows), `drop` refuses a pair it lists. Retention keeps
 delivered events for `EVENT_BUS_RETENTION_DAYS` (7, at most 21: consumers remember
-processed event ids for 30 days); dead letters keep their event until redriven.
+processed event ids for 30 days); dead letters keep their event until redriven, so
+`replay` queues only events from the last 21 days and skips (and counts) older ones.
 - **Lag** shows in `events:status` (bus side) and in the producer's `outbox` table: a row
   that stays has `last_error` and a future `available_at` (`ga-database` has the query).
 - **Dead letters**: a delivery is dead after `EVENT_BUS_MAX_ATTEMPTS` (10) leases, or at
   once for a deterministic failure; the consumer logs `dead-lettered <type> <id>: <reason>`.
-  Fix the cause, then `events:redrive`: the failed handler rolled back, so a redriven dead
-  letter runs once.
+  Fix the cause, then `events:redrive`. A failed handler rolled back, so that dead letter
+  runs once. A `LEASE_EXPIRED` one may have been applied: the consumer acks a batch only
+  at its end, so the batch-mates of a delivery that crashes the process commit but are
+  never acked. The consumer's `processed_events` skips them on redrive only while it
+  remembers their ids (30 days).
 - **Orphaned rows**: `events:status` marks `orphaned` the deliveries of a pair the catalog
   no longer lists (a retired type, a subscriber moved to a v2 type or removed from a
-  topic). Nothing pulls, dead-letters or redrives them, and they keep their events from
+  topic). Nothing leases or redrives them (the subscriber's next pull still turns one
+  whose last lease ran out into a dead letter), and they keep their events from
   retention: `pnpm events:drop --subscriber <name> --type <fqn>` deletes them.
 - **Shutdown**: relay and consumer stop claiming and wait for the in-flight round at most
   `EVENTS_DRAIN_MS` (5000). Keep `EVENTS_DRAIN_MS` + `SHUTDOWN_DELAY_MS` below PM2's
@@ -234,4 +239,4 @@ same image as a release job.
 | a cleanup never happens; producer logs `event ... not published ...: REJECTED EVENT_TYPE_UNKNOWN`  | the bus catalog lacks the type (or the bus runs an old build): add it to `topics.ts`, rebuild and restart `event-bus-service`; the row goes out on its own                  |
 | `pnpm events:status` shows dead deliveries                                                         | read the consumer's `dead-lettered ...` line, fix the cause, then `pnpm events:redrive --subscriber <name>`                                                                 |
 | `pnpm events:status` shows `orphaned` rows, or `events:redrive` reports skipped ones               | the catalog no longer lists that pair: restore the entry if it should, else `pnpm events:drop --subscriber <name> --type <fqn>` (retention then purges the events)          |
-| `Invalid configuration: - EVENT_BUS_RETENTION_DAYS ...`                                            | at most 21: consumers forget processed event ids after 30 days, so a longer retention would let `events:replay` run handlers twice                                          |
+| `Invalid configuration: - EVENT_BUS_RETENTION_DAYS ...`                                            | at most 21: consumers forget processed event ids after 30 days, so `events:replay` never queues older events                                                                |

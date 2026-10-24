@@ -60,3 +60,35 @@ describe('WorkloadIdentity.load', () => {
     gateway.onApplicationShutdown();
   });
 });
+
+describe('WorkloadIdentity.callerToken', () => {
+  let keys: TestWorkloadKeys;
+  const load = (name: string) =>
+    WorkloadIdentity.load(name, {
+      ...keys.env(name),
+      WORKLOAD_KEYS_RELOAD_S: 3600,
+      PRINCIPAL_ISSUERS: ['gateway'],
+    });
+
+  beforeAll(async () => {
+    keys = await createTestWorkloadKeys(['event-bus-service', 'house-service']);
+  });
+  afterAll(() => keys.dispose());
+
+  it('signs nothing for event-bus-service, which calls nobody (ADR-0005)', async () => {
+    const bus = await load('event-bus-service');
+    const house = await load('house-service');
+    try {
+      await expect(bus.callerToken('house-service')).rejects.toThrow(
+        'event-bus-service calls no service (ADR-0005)',
+      );
+      // Calls to the bus are signed and verified as before.
+      await expect(bus.verifyCaller(await house.callerToken('event-bus-service'))).resolves.toBe(
+        'house-service',
+      );
+    } finally {
+      bus.onApplicationShutdown();
+      house.onApplicationShutdown();
+    }
+  });
+});
