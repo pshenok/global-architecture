@@ -1,7 +1,7 @@
 ---
 
 name: ga-architecture
-description: Map and ground rules of the global-architecture platform (NestJS 12 gRPC microservices, HTTPS gateway, shared kernel/contracts/service-kit, Drizzle + Postgres, pnpm/Turborepo, OIDC at the gateway and signed identity between services). Use this first whenever you work in this repository or on any service built from its template, even for a "small" change, and whenever you need to decide where code belongs, which package to import, which layer may depend on which, how errors/ids/pagination/logging/identity and access work, or which other ga-* skill applies.
+description: Map and ground rules of the global-architecture platform (NestJS 12 gRPC microservices, HTTPS gateway, shared kernel/contracts/service-kit, Drizzle + Postgres, pnpm/Turborepo, OIDC at the gateway and signed identity between services, asynchronous events through event-bus-service). Use this first whenever you work in this repository or on any service built from its template, even for a "small" change, and whenever you need to decide where code belongs, which package to import, which layer may depend on which, how errors/ids/pagination/logging/identity and access work, or which other ga-* skill applies.
 ---
 
 # global-architecture: platform map
@@ -13,19 +13,20 @@ the chassis reaches every service.
 
 ## Repository layout
 
-| Path                    | What                                                                                                                                                                                         | Package                                              |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `apps/<name>-service/`  | gRPC domain service, owns one Postgres database                                                                                                                                              | `@ga/<name>-service`                                 |
-| `apps/gateway/`         | HTTPS REST API (HTTP/2 + HTTP/1.1) -> gRPC; authenticates every request                                                                                                                      | `@ga/gateway`                                        |
-| `packages/kernel/`      | Framework-free domain primitives: errors, actors, ports, Money, pagination                                                                                                                   | `@ga/kernel`                                         |
-| `packages/contracts/`   | All `.proto` contracts (one buf module), generated TS, proto runtime                                                                                                                         | `@ga/contracts`                                      |
-| `packages/service-kit/` | Chassis: config, logging, request context, auth (workload identity, `@Access` guard), gRPC server/clients with TLS, health, reflection, errors, DB, UoW, migrations, test helpers, telemetry | `@ga/service-kit`                                    |
-| `templates/service/`    | The service template (`SampleItem` placeholder, owned by the user who creates it)                                                                                                            | not a workspace package                              |
-| `tools/`                | Generator, template check, db setup, local stack, dev certs and keys, dev IdP, `grpc:call`, access check                                                                                     | run through the root `pnpm` scripts (pinned Node 26) |
-| `tests/e2e/`            | End-to-end suite against the running local stack                                                                                                                                             |                                                      |
-| `security/`             | `public-endpoints.json`: every endpoint reachable without a signed-in user, with its reason                                                                                                  | checked by `pnpm lint`; CODEOWNERS                   |
-| `services.json`         | Registry: ports, databases, env var names of every service                                                                                                                                   | managed by the generator                             |
-| `docs/architecture/`    | Overview and ADRs (the "why")                                                                                                                                                                |                                                      |
+| Path                      | What                                                                                                                                                                                                                                          | Package                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `apps/<name>-service/`    | gRPC domain service, owns one Postgres database                                                                                                                                                                                               | `@ga/<name>-service`                                 |
+| `apps/event-bus-service/` | The platform's pub/sub service (ADR-0005): event catalog, `EventBroker` port, Postgres backend, `events:*` CLI                                                                                                                                | `@ga/event-bus-service`                              |
+| `apps/gateway/`           | HTTPS REST API (HTTP/2 + HTTP/1.1) -> gRPC; authenticates every request                                                                                                                                                                       | `@ga/gateway`                                        |
+| `packages/kernel/`        | Framework-free domain primitives: errors, actors, ports, Money, pagination                                                                                                                                                                    | `@ga/kernel`                                         |
+| `packages/contracts/`     | All `.proto` contracts (one buf module), generated TS, proto runtime                                                                                                                                                                          | `@ga/contracts`                                      |
+| `packages/service-kit/`   | Chassis: config, logging, request context, auth (workload identity, `@Access` guard), gRPC server/clients with TLS, health, reflection, errors, DB, UoW, migrations, events (`src/events/`: outbox, relay, consumer), test helpers, telemetry | `@ga/service-kit`                                    |
+| `templates/service/`      | The service template (`SampleItem` placeholder, owned by the user who creates it)                                                                                                                                                             | not a workspace package                              |
+| `tools/`                  | Generator, template check, db setup, local stack, dev certs and keys, dev IdP, `grpc:call`, access check, call-graph check                                                                                                                    | run through the root `pnpm` scripts (pinned Node 26) |
+| `tests/e2e/`              | End-to-end suite against the running local stack                                                                                                                                                                                              |                                                      |
+| `security/`               | `public-endpoints.json`: every endpoint reachable without a signed-in user, with its reason                                                                                                                                                   | checked by `pnpm lint`; CODEOWNERS                   |
+| `services.json`           | Registry: ports, databases, env var names of every service                                                                                                                                                                                    | managed by the generator                             |
+| `docs/architecture/`      | Overview and ADRs (the "why")                                                                                                                                                                                                                 |                                                      |
 
 The current services, their ports, databases and env var names are in `services.json`;
 the dependency graph is in `docs/architecture/overview.md`. The gateway listens on 8443.
@@ -34,10 +35,11 @@ the dependency graph is in `docs/architecture/overview.md`. The gateway listens 
 
 ```
 transport/grpc  ->  application  ->  domain  <-  infrastructure
-(controllers,       (use cases,      (aggregates,   (Drizzle repos,
- Zod requests,       ports of        invariants,     gRPC clients of
- mappers)            other systems)  repo ports,     other services)
-                                     domain errors)
+transport/events    (use cases,      (aggregates,   (Drizzle repos,
+(controllers,        ports of        invariants,     gRPC clients of
+ @OnEvent handlers,  other systems)  repo ports,     other services,
+ Zod requests,                       domain errors)  outbox adapters)
+ mappers)
 app.module.ts = composition root: binds every port to its adapter.
 ```
 
@@ -79,6 +81,12 @@ Details and examples: the `ga-domain-logic` skill.
 - **Money** is integer minor units (`Money` in `@ga/kernel`), never floats.
 - **Database per service.** No service reads another service's tables, and there are no
   cross-service foreign keys. Other services' data comes through their gRPC API.
+- **Calls form a DAG; reactions are events** (ADR-0005). Synchronous calls never close a
+  cycle and never run inside a transaction (the kit refuses them). When a service must
+  react to what happened in another (a delete), the producer records an event with
+  `Outbox.add` in the change's transaction and consumers handle it with `@OnEvent`,
+  through `event-bus-service`, which calls nobody. `tools/check-call-graph.ts` (in
+  `pnpm lint`) enforces both.
 - **Invariants that involve concurrency live in Postgres** (unique, check, exclusion
   constraints) and are translated with `translateDbError`; check-then-insert is a race.
 - **Config** is a Zod schema in `src/config.ts`, validated at boot; add every new variable
@@ -125,6 +133,9 @@ Details: `ga-domain-logic` (rules), `ga-service-communication` (forwarding, `via
 | Who may call an RPC, see or change a resource             | `@Access` on the controller method; ownership, visibility and list scope in the domain | `ga-domain-logic`          |
 | A table / column / constraint / migration                 | `src/infrastructure/persistence/schema.ts` + `drizzle/`                                | `ga-database`              |
 | Data from another service                                 | a port in `application/ports`, adapter in `infrastructure/clients`                     | `ga-service-communication` |
+| Tell other services something happened (an event)         | a port in `application/ports`, outbox adapter in `infrastructure/events`               | `ga-service-communication` |
+| React to another service's event                          | an `@OnEvent` handler in `src/transport/events`                                        | `ga-service-communication` |
+| A new event type, producer or subscriber                  | `ga/<domain>/v1/<domain>_events.proto` + the catalog in `apps/event-bus-service`       | `ga-grpc-contracts`        |
 | A public REST endpoint                                    | `apps/gateway/src/<resource>/`                                                         | `ga-gateway-endpoint`      |
 | Tests                                                     | `*.spec.ts` next to code, `test/*.spec.ts` for gRPC + Postgres                         | `ga-testing`               |
 | Run / debug everything locally                            | `pnpm stack:up`                                                                        | `ga-local-stack`           |
@@ -145,7 +156,8 @@ pnpm dev:token alice --email alice@example.com   # access token from the local d
 
 ## Known gaps (do not paper over them)
 
-- **No asynchronous messaging yet.** Cross-service consistency on delete (e.g. bookings
-  of a deleted house, houses of a deleted user) is not handled; the planned outbox +
-  broker design is in `docs/architecture/adr/0005-asynchronous-events.md`.
+- **Late writes after a delete can stay orphaned.** Creating a house or a booking checks
+  that its owner, guest or house exists, then inserts without a lock; one created between
+  that check and the delete's cleanup event is not cleaned up (ADR-0005). Tombstones
+  checked on create are the follow-up if it matters.
 - **No idempotency keys** on create RPCs yet (AIP-155 `request_id` is the planned shape).

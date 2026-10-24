@@ -1,7 +1,7 @@
 ---
 
 name: ga-local-stack
-description: Run, observe and debug the whole global-architecture system locally - pnpm stack:up/down with PM2 and local Postgres, db:setup (and --reset) and migrations, dev TLS certificates and the gRPC CA, workload keys and their rotation, the local dev IdP and access tokens (pnpm dev:token), registering and granting admin, calling RPCs with pnpm grpc:call and buf curl over TLS, watch mode, logs with request ids, health checks, OpenTelemetry tracing, Docker images, and troubleshooting (ports, pnpm release-age gate, PM2, Postgres roles, 401/403/503 auth errors, CALLER_*/PRINCIPAL_* rejections, TLS and key errors). Use it whenever someone wants to start, restart, inspect or debug services locally, get a token, reproduce a bug across services, read logs, call a gRPC method by hand, or when something fails to boot.
+description: Run, observe and debug the whole global-architecture system locally - pnpm stack:up/down with PM2 and local Postgres, db:setup (and --reset) and migrations, dev TLS certificates and the gRPC CA, workload keys and their rotation, the local dev IdP and access tokens (pnpm dev:token), registering and granting admin, calling RPCs with pnpm grpc:call and buf curl over TLS, watch mode, logs with request ids, health checks, event-bus-service and pnpm events:status/redrive/replay (event lag, dead letters, backfills), OpenTelemetry tracing, Docker images, and troubleshooting (ports, pnpm release-age gate, PM2, Postgres roles, 401/403/503 auth errors, CALLER_*/PRINCIPAL_* rejections, TLS and key errors, events that do not arrive). Use it whenever someone wants to start, restart, inspect or debug services locally, get a token, reproduce a bug across services, read logs, call a gRPC method by hand, see why an event or a cleanup did not happen, or when something fails to boot.
 ---
 
 # Local stack
@@ -19,8 +19,8 @@ pnpm test:e2e         # prove it works end to end
 
 `pnpm stack:up` creates what is missing in `.certs/` (git-ignored): the gateway's HTTPS
 certificate, a local gRPC CA with a server certificate for `localhost` (`pnpm certs`), and
-an Ed25519 key per workload plus the public key map (`pnpm keys`). PM2 runs every service,
-the gateway and `dev-idp`, a local OIDC provider on `http://127.0.0.1:8090`
+an Ed25519 key per workload plus the public key map (`pnpm keys`). PM2 runs every service
+(`event-bus-service` on 50050 included), the gateway and `dev-idp`, a local OIDC provider on `http://127.0.0.1:8090`
 (`services.json` `devIdp.port`) that signs any subject it is asked for; it listens on
 loopback only and refuses `NODE_ENV=production`. The command waits until every service is
 SERVING and the gateway's `/readyz` is 200 with `status: "ok"` (it reaches every service
@@ -80,6 +80,40 @@ service registered by the generator is started automatically, with `GRPC_PORT`,
 `DATABASE_URL`, every `*_SERVICE_URL` (`localhost:<port>`), the gRPC TLS files and its
 workload key files injected; the gateway also gets `AUTH_ISSUERS` pointing at the dev IdP.
 Values in a service's `.env` are used only for variables PM2 does not set.
+
+## Events (ADR-0005)
+
+`event-bus-service` (`grpcs://localhost:50050`, database `ga_event_bus`) is a service like
+the others: PM2 starts it and injects `EVENT_BUS_SERVICE_URL` into every process. Each
+producer's relay publishes its `outbox` rows within about half a second
+(`EVENTS_POLL_MS`, default 500), and each consumer pulls at the same pace, so a cleanup
+reaches the next service in about a second and user -> house -> booking in two to three.
+
+```bash
+pnpm events:status                                                     # pending, dead, oldest pending age per subscriber and type
+pnpm events:redrive --subscriber booking-service [--type ga.house.v1.HouseDeletedEvent]   # dead letters back to pending, fresh attempts
+pnpm events:replay --subscriber house-service --type ga.user.v1.UserDeletedEvent --since 2026-10-01T00:00:00Z   # backfill retained events
+```
+
+They run against the bus's own database (`apps/event-bus-service/.env`), print one line
+per change (keep it, it is the only record), and `replay` refuses a subscriber the catalog
+does not list for that type. Retention keeps delivered events for
+`EVENT_BUS_RETENTION_DAYS` (7); dead letters keep their event until redriven.
+- **Lag** shows in `events:status` (bus side) and in the producer's `outbox` table: a row
+  that stays has `last_error` and a future `available_at` (`ga-database` has the query).
+- **Dead letters**: a delivery is dead after `EVENT_BUS_MAX_ATTEMPTS` (10) leases, or at
+  once for a deterministic failure; the consumer logs `dead-lettered <type> <id>: <reason>`.
+  Fix the cause, then `events:redrive`; `processed_events` makes a redrive of something
+  already applied a no-op.
+- **Shutdown**: relay and consumer stop claiming and wait for the in-flight round at most
+  `EVENTS_DRAIN_MS` (5000). Keep `EVENTS_DRAIN_MS` + `SHUTDOWN_DELAY_MS` below PM2's
+  `kill_timeout` (15000), or the process is killed mid-publish (harmless: the row is
+  published again, the delivery redelivered).
+- A service run outside PM2 (`pnpm --filter ... dev`) reads its own `.env`: files created
+  before events existed need `EVENT_BUS_SERVICE_URL=localhost:50050` added by hand
+  (`db:setup` creates only missing `.env` files).
+- Asynchronous parts register no health checks: a bus outage leaves every API SERVING and
+  only grows outbox rows and consumer lag.
 
 ## Following one request through the system
 
@@ -187,3 +221,8 @@ same image as a release job.
 | migration fails: `bookings has rows from before ADR-0004`                                          | dev data from before `host_id`: `pnpm db:setup --reset ga_booking --yes --adopt` (`--adopt`: that database predates the reset marker), then `pnpm stack:up`                 |
 | `Nest can't resolve dependencies of X (?, ...)`                                                    | a constructor class was imported with `import type`, or a circular import; see `ga-architecture`                                                                            |
 | `does not provide an export named ...` at startup                                                  | a type imported as a value; `pnpm build` runs `check-esm` to catch it                                                                                                       |
+| `EventsModule: table outbox is missing or differs` (or `processed_events`) at boot                 | migrations not applied (`pnpm stack:up`), or the table copy in `schema.ts` drifted from `ga-database`                                                                       |
+| `EventsModule: the service config lacks the events variables`                                      | spread `...eventsConfigSchema.shape` into the service's `ConfigSchema`                                                                                                      |
+| `Invalid configuration: - EVENT_BUS_SERVICE_URL ...` with `pnpm dev`                               | its `.env` predates events: add `EVENT_BUS_SERVICE_URL=localhost:50050`                                                                                                     |
+| a cleanup never happens; producer logs `event ... not published ...: REJECTED EVENT_TYPE_UNKNOWN`  | the bus catalog lacks the type (or the bus runs an old build): add it to `topics.ts`, rebuild and restart `event-bus-service`; the row goes out on its own                  |
+| `pnpm events:status` shows dead deliveries                                                         | read the consumer's `dead-lettered ...` line, fix the cause, then `pnpm events:redrive --subscriber <name>`                                                                 |

@@ -1,7 +1,7 @@
 ---
 
 name: ga-code-review
-description: Review checklist for changes in the global-architecture monorepo - layering and dependency rule, DI-safe imports, contract compatibility, access control (@Access policies, via lists, actors, NOT_FOUND vs PERMISSION_DENIED, scoped lists, public endpoints), error model, data integrity under concurrency, migrations, service-to-service calls, gateway API shape, tests, security and observability. Use it whenever asked to review a PR, diff, branch or a just-finished change in this repo (including your own work before declaring it done), or to check that a service follows the platform standards.
+description: Review checklist for changes in the global-architecture monorepo - layering and dependency rule, DI-safe imports, contract compatibility, access control (@Access policies, via lists, actors, NOT_FOUND vs PERMISSION_DENIED, scoped lists, public endpoints), error model, data integrity under concurrency, migrations, service-to-service calls, asynchronous events (outbox, handlers, catalog, payloads), gateway API shape, tests, security and observability. Use it whenever asked to review a PR, diff, branch or a just-finished change in this repo (including your own work before declaring it done), or to check that a service follows the platform standards.
 ---
 
 # Reviewing a change
@@ -15,7 +15,7 @@ running the relevant command rather than guessing.
 ## Automated gate (must be green)
 
 ```bash
-pnpm lint && pnpm typecheck && pnpm test && pnpm build   # lint = biome ci + check-access + oxlint
+pnpm lint && pnpm typecheck && pnpm test && pnpm build   # lint = biome ci + check-access + check-call-graph + oxlint
 pnpm --filter @ga/contracts breaking        # any .proto change
 pnpm template:verify                         # any change to templates/ or packages/
 git status                                   # the gate must not leave changes behind
@@ -27,8 +27,11 @@ git status                                   # the gate must not leave changes b
   contracts or `@nestjs/microservices` (Biome enforces, but check new folders).
 - [ ] Business rules live in aggregates or use cases, not in controllers, repositories or the gateway.
 - [ ] New external dependency = port (abstract class, domain terms) + adapter + binding in `app.module.ts`.
-- [ ] No reads of another service's tables; no new call cycle between services.
-- [ ] No remote call while a DB transaction is open.
+- [ ] No reads of another service's tables; no new call cycle between services
+  (`check-call-graph` reads every client `target`; it must stay a string literal).
+- [ ] No remote call while a DB transaction is open (the kit refuses it at run time with
+  `RemoteCallInTransactionError`; the review catches it before a test does).
+- [ ] A reaction to what happened in another service is an event, not a new call.
 
 ## Imports and DI (silent production breakers)
 
@@ -80,6 +83,27 @@ git status                                   # the gate must not leave changes b
   TypeScript is unsound: if you see a new way to get an actor past the checker, add it
   to `apps/*/test/access-probes` with a rule. Code that defeats types at run time
   (`eval`) and edits to the guardrails are yours to refuse.
+
+## Events (ADR-0005)
+
+- [ ] Events are recorded through a domain-named port whose adapter calls `Outbox.add`,
+  inside the same `UnitOfWork.run` as the change; a use case never publishes directly or
+  talks to the bus or a queue.
+- [ ] Handlers are `@OnEvent` methods in `src/transport/events`, one per type, calling one
+  use case with `currentService()`; no actor parameter, no remote call, no business logic.
+- [ ] Each handler is idempotent and commutative: it filters by state ("still CONFIRMED",
+  "still exists") and works whatever arrives first; a redelivery changes nothing.
+- [ ] Use cases only workloads may run take `ServiceActor` first and are exposed by no controller.
+- [ ] Payloads carry domain facts and ids only: no personal data, no principal, nothing
+  that belongs in the envelope (event id, time, request id).
+- [ ] Event names follow `ga.<domain>.v<N>.<Aggregate><PastFact>Event` in
+  `<domain>_events.proto`; changes are additive, an incompatible one is a new `v2` type.
+- [ ] A new type, producer or subscriber edits all three reviewed places: the catalog in
+  `apps/event-bus-service/src/domain/topics.ts`, the bus controller's `@Access.service`
+  lists and `security/public-endpoints.json`. The producer's descriptor names the owner
+  the catalog names.
+- [ ] Tests: the producer's outbox after the RPC (and nothing after a refused call); the
+  consumer's effect, a duplicate delivery and an unexpected producer (`deliverEvent`).
 
 ## Errors
 

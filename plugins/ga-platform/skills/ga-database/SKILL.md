@@ -1,7 +1,7 @@
 ---
 
 name: ga-database
-description: Postgres and Drizzle ORM (1.0 RC, core query builder) in global-architecture services - schema.ts as the source of truth, drizzle-kit migrations (generate, custom SQL, never push), advisory-locked migration runs, constraints that enforce invariants, translateDbError, DbContext/UnitOfWork transactions, keyset pagination and scoped list queries, money/date/timestamp/role column types, database-per-service rules and zero-downtime schema changes (expand -> backfill -> contract for required columns). Use it for any table, column, index, constraint, migration, query, repository or transaction work, and whenever a race condition or data-integrity rule is involved.
+description: Postgres and Drizzle ORM (1.0 RC, core query builder) in global-architecture services - schema.ts as the source of truth, drizzle-kit migrations (generate, custom SQL, never push), advisory-locked migration runs, constraints that enforce invariants, translateDbError, DbContext/UnitOfWork transactions (nested runs join the outer one), the outbox and processed_events tables of asynchronous events, keyset pagination and scoped list queries, money/date/timestamp/role column types, database-per-service rules and zero-downtime schema changes (expand -> backfill -> contract for required columns). Use it for any table, column, index, constraint, migration, query, repository or transaction work, and whenever a race condition or data-integrity rule is involved.
 ---
 
 # Database
@@ -100,6 +100,9 @@ export class DrizzleHouseRepository extends HouseRepository {
 ```
 
 - `this.db.tx` is the current transaction inside `UnitOfWork.run()`, otherwise the pool.
+  A `UnitOfWork.run()` nested inside another joins the outer transaction
+  (`Propagation.Required`): there is no savepoint, so an inner failure rolls back
+  everything. `DbContext.inTransaction()` tells whether one is open.
 - Map rows to aggregates with `X.restore(...)` and back with `toState()`; the repository is
   the only place that knows both shapes.
 - Use the core query builder (`select/insert/update/delete`), not the relational query
@@ -180,6 +183,80 @@ UNAVAILABLE `DATABASE_TIMEOUT` before the caller gives up with a bare DEADLINE_E
 stay below the server's `max_connections`; beyond that, put PgBouncer in front and keep
 migrations on a direct connection. A `select 1` health check flips the service to
 NOT_SERVING when the database is unreachable.
+
+## Event tables (ADR-0005)
+
+A service that publishes events needs `outbox`; one that consumes them needs
+`processed_events`; one that does both needs both. Services own them like any table: copy
+these definitions **verbatim** into `schema.ts` (imports: `bytea`, `check`, `index`,
+`integer`, `pgTable`, `primaryKey`, `text`, `timestamp`, `uuid` from `drizzle-orm/pg-core`,
+`sql` from `drizzle-orm`) and generate a migration (the existing ones are named `outbox` in
+user-service, `events` in house-service and `processed_events` in booking-service):
+
+```ts
+/**
+ * Events committed with the change that caused them, until the kit's relay publishes
+ * them (ADR-0005). Copied verbatim from the ga-database skill; EventsModule checks it.
+ */
+export const outbox = pgTable(
+  'outbox',
+  {
+    id: uuid('id').primaryKey(),
+    type: text('type').notNull(),
+    aggregateId: text('aggregate_id').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true, precision: 3 }).notNull(),
+    payload: bytea('payload').notNull(),
+    requestId: text('request_id'),
+    traceparent: text('traceparent'),
+    attempts: integer('attempts').notNull().default(0),
+    availableAt: timestamp('available_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    leaseToken: uuid('lease_token'),
+    lastError: text('last_error'),
+  },
+  (table) => [
+    index('outbox_available_at_idx').on(table.availableAt, table.id),
+    check('outbox_payload_size_check', sql`octet_length(${table.payload}) <= 65536`),
+  ],
+);
+
+/**
+ * Events this service's handlers have applied, so a redelivery is skipped (ADR-0005).
+ * Copied verbatim from the ga-database skill; EventsModule checks it.
+ */
+export const processedEvents = pgTable(
+  'processed_events',
+  {
+    subscription: text('subscription').notNull(),
+    eventId: uuid('event_id').notNull(),
+    type: text('type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.subscription, table.eventId] }),
+    index('processed_events_processed_at_idx').on(table.processedAt),
+  ],
+);
+```
+
+- Only the kit reads and writes them (`Outbox`, the relay, the consumer); repositories
+  never touch them. Raw SQL in the kit never schema-qualifies them, so tests' per-schema
+  `search_path` works.
+- `EventsModule` checks them at boot: a missing or drifted table, or `processed_events`
+  without its unique key on `(subscription, event_id)`, fails startup with "copy the event
+  tables from the ga-database skill into schema.ts and run db:generate".
+- The relay deletes published rows; a row that stays has `last_error` and a future
+  `available_at`. The consumer purges `processed_events` older than 30 days, hourly.
+- Lag at a glance, in the producer's database:
+
+  ```sql
+  select type, count(*), min(occurred_at), max(attempts), max(last_error) from outbox group by type;
+  ```
+
+  and on the bus, `pnpm events:status` (`ga-local-stack`).
 
 ## Tests
 

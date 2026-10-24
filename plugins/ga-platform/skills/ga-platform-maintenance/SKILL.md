@@ -1,7 +1,7 @@
 ---
 
 name: ga-platform-maintenance
-description: Maintain the global-architecture platform itself - upgrading dependency versions in the pnpm catalog under the supply-chain policy (jose included), changing the shared service kit, kernel or contracts runtime without breaking services, keeping templates/service and generated services in sync, rotating workload keys and adding identity providers, the access guardrails (check-access, CODEOWNERS), the known sharp edges of the stack (TypeScript 7, SWC decorator metadata, ESM, Drizzle 1.0 RC, ts-proto, pnpm 12, Biome, grpc-js TLS, jose), and recording decisions as ADRs. Use it for any dependency bump, Renovate/Dependabot PR, change under packages/ or templates/, toolchain or config change (tsconfig, .swcrc, biome.json, turbo.json, pnpm-workspace.yaml), key rotation or IdP change, or architectural decision.
+description: Maintain the global-architecture platform itself - upgrading dependency versions in the pnpm catalog under the supply-chain policy (jose included), changing the shared service kit, kernel or contracts runtime without breaking services, keeping templates/service and generated services in sync, the kit's events module and the event bus, rotating workload keys and adding identity providers, the guardrails (check-access, check-call-graph, CODEOWNERS), the known sharp edges of the stack (TypeScript 7, SWC decorator metadata, ESM, Drizzle 1.0 RC, ts-proto, pnpm 12, Biome, grpc-js TLS, jose), and recording decisions as ADRs. Use it for any dependency bump, Renovate/Dependabot PR, change under packages/ or templates/, toolchain or config change (tsconfig, .swcrc, biome.json, turbo.json, pnpm-workspace.yaml), key rotation or IdP change, or architectural decision.
 ---
 
 # Maintaining the platform
@@ -50,6 +50,7 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
 | ESM                  | circular imports of injectables crash at load (TDZ)                                                                                                                                                  | no cycles; `Ref<T>` as last resort                                                                            |
 | ESM + generated code | interfaces imported as values crash at link time                                                                                                                                                     | `postgen.ts` rewrites to `import type`; `check-esm` in every build                                            |
 | Timestamps           | without wrappers a Date is sent as 1970-01-01                                                                                                                                                        | `installWellKnownTypes()` in every entrypoint                                                                 |
+| Event payload codec  | a protobufjs copy other than proto-loader's has no well-known-type wrappers, so payload Timestamps would differ from RPCs                                                                            | `messageCodec` builds on `wellKnownProtobuf()` (proto-loader's copy, wrappers installed)                      |
 | SWC target           | `es2025` unsupported by SWC 1.16                                                                                                                                                                     | `target: es2024` in tsconfig and `.swcrc`                                                                     |
 | Vitest 5             | Vite 8 oxc emits wrong enum metadata                                                                                                                                                                 | `unplugin-swc` in `vitest.shared.ts`                                                                          |
 | Drizzle 1.0 RC       | relational query API still changing                                                                                                                                                                  | core query builder only; exact pin                                                                            |
@@ -74,7 +75,29 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
   token functions (`signCallerToken`, `signPrincipalToken`, `readSigningKey`) are exported
   only from `@ga/service-kit/testing`, for tests and local tools.
 - `packages/contracts/src/runtime`: the loader options must stay in lock-step with
-  `buf.gen.yaml`.
+  `buf.gen.yaml`, and `messageCodec`'s conversions (`codec.ts` `TO_OBJECT`) in lock-step
+  with `GRPC_LOADER_OPTIONS`, so event payloads look exactly like RPC messages.
+- `packages/service-kit/src/events` (ADR-0005): the outbox, relay and consumer are what
+  every producer and consumer runs, so their rules hold for all of them:
+  - always a fresh request context per relay round and per delivery
+    (`cls.run({ ifNested: 'override' })`), so no user's principal or request id rides
+    along, and a delivery acts only as the service itself (`enterEventDelivery` stays
+    unexported);
+  - never export `OutboxRelay`, `EventConsumer` or their `flush`/`pollOnce`/`process`:
+    tests reach them only through `flushOutbox` and `deliverEvent` from
+    `@ga/service-kit/testing`, which production code cannot import;
+  - no health checks for asynchronous parts: a bus outage must not take healthy APIs out
+    of rotation; lag shows in logs and `pnpm events:status`;
+  - the kit's view of the tables (`tables.ts`) and the definitions in the `ga-database`
+    skill change together, with a migration in every service that copied them; the boot
+    check (`assertEventTables`) is what catches a drifted copy;
+  - shutdown stays bounded: `EVENTS_DRAIN_MS` (max 14000) plus `SHUTDOWN_DELAY_MS` under
+    the process manager's kill timeout.
+- `apps/event-bus-service`: the topic catalog (`src/domain/topics.ts`, CODEOWNERS) is the
+  ACL for event types. Storage sits behind the `EventBroker` port; a new backend is an
+  adapter that passes `test/event-broker.contract.ts` (`describeEventBroker`) and is bound
+  in `app.module.ts` by a literal switch, never a computed `import()` (check-access
+  refuses it). The bus must call no service; `check-call-graph` enforces it.
 - `templates/service`: after any change run `pnpm template:verify`; then apply the same
   change to existing services (they are generated copies, not linked to the template).
   Keep `SampleItem` naming so the generator's replacements still match, keep the five
@@ -118,10 +141,16 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
 - Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument/-member-access/-call`
   (outside tests) keep `any` from turning request data into an actor or reaching the
   raw server.
+- `tools/check-call-graph.ts` runs in `pnpm lint` after check-access. It builds the
+  synchronous call graph from every client `target` (a string literal in a file that
+  calls `GrpcClientsModule.register`) plus an edge to `event-bus-service` from each app
+  that calls `EventsModule.forRoot`, and fails on a non-literal or unknown target, a
+  cycle, or any call made by the bus. It checks itself on synthetic graphs every run.
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the whole
-  service kit, `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
+  service kit, the event catalog (`apps/event-bus-service/src/domain/topics.ts`), `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
   `http/openapi.ts` and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and
-  `index.ts`, `tools/check-access.ts`, `lib.ts` and `verify-template.ts`, and everything
+  `index.ts`, `tools/check-access.ts`, `check-call-graph.ts`, `lib.ts` and
+  `verify-template.ts`, and everything
   that decides whether and how the guardrails run: package manifests, tsconfigs, `.swcrc`,
   `vitest` configs, `turbo.json`, `pnpm-workspace.yaml`, every Biome and oxlint config,
   the workflows and CODEOWNERS itself.
@@ -173,4 +202,5 @@ accounts), never linking logins by email; platform roles stay in user-service.
 Architectural decisions go to `docs/architecture/adr/NNNN-title.md` (Nygard format:
 Status, Context, Decision, Consequences). Update an ADR's status instead of rewriting
 history. ADR-0001 records the stack and why each alternative was rejected; ADR-0004
-records identity and authorization.
+records identity and authorization; ADR-0005 records asynchronous events (its original
+proposal is kept below the accepted decision).
