@@ -126,23 +126,23 @@ Details: `ga-domain-logic` (rules), `ga-service-communication` (forwarding, `via
 
 ## Where does it go?
 
-| You need to...                                            | Put it in                                                                              | Skill                      |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------- |
-| A new microservice                                        | `pnpm new:service <noun>`                                                              | `ga-new-service`           |
-| A new RPC / field / enum                                  | `packages/contracts/proto/ga/<domain>/v1/*.proto`                                      | `ga-grpc-contracts`        |
-| A business rule                                           | domain aggregate or use case                                                           | `ga-domain-logic`          |
-| Who may call an RPC, see or change a resource             | `@Access` on the controller method; ownership, visibility and list scope in the domain | `ga-domain-logic`          |
-| A table / column / constraint / migration                 | `src/infrastructure/persistence/schema.ts` + `drizzle/`                                | `ga-database`              |
-| Data from another service                                 | a port in `application/ports`, adapter in `infrastructure/clients`                     | `ga-service-communication` |
-| Tell other services something happened (an event)         | a port in `application/ports`, outbox adapter in `infrastructure/events`               | `ga-service-communication` |
-| React to another service's event                          | an `@OnEvent` handler in `src/transport/events`                                        | `ga-service-communication` |
-| A new event payload                                       | `ga/<domain>/v1/<domain>_events.proto`                                                 | `ga-grpc-contracts`        |
-| Register an event type, producer or subscriber            | `apps/event-bus-service/src/domain/topics.ts` (+ `@Access` lists if a workload joins)  | `ga-service-communication` |
-| A public REST endpoint                                    | `apps/gateway/src/<resource>/`                                                         | `ga-gateway-endpoint`      |
-| Tests                                                     | `*.spec.ts` next to code, `test/*.spec.ts` for gRPC + Postgres                         | `ga-testing`               |
-| Run / debug everything locally                            | `pnpm stack:up`                                                                        | `ga-local-stack`           |
-| Review a change                                           |                                                                                        | `ga-code-review`           |
-| Change the chassis, template, dependency versions or keys | `packages/*`, `templates/service`, `pnpm-workspace.yaml`                               | `ga-platform-maintenance`  |
+| You need to...                                            | Put it in                                                                                                                                    | Skill                      |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| A new microservice                                        | `pnpm new:service <noun>`                                                                                                                    | `ga-new-service`           |
+| A new RPC / field / enum                                  | `packages/contracts/proto/ga/<domain>/v1/*.proto`                                                                                            | `ga-grpc-contracts`        |
+| A business rule                                           | domain aggregate or use case                                                                                                                 | `ga-domain-logic`          |
+| Who may call an RPC, see or change a resource             | `@Access` on the controller method; ownership, visibility and list scope in the domain                                                       | `ga-domain-logic`          |
+| A table / column / constraint / migration                 | `src/infrastructure/persistence/schema.ts` + `drizzle/`                                                                                      | `ga-database`              |
+| Data from another service                                 | a port in `application/ports`, adapter in `infrastructure/clients`                                                                           | `ga-service-communication` |
+| Tell other services something happened (an event)         | a port in `application/ports`, outbox adapter in `infrastructure/events`                                                                     | `ga-service-communication` |
+| React to another service's event                          | an `@OnEvent` handler in `src/transport/events`                                                                                              | `ga-service-communication` |
+| A new event payload                                       | `ga/<domain>/v1/<domain>_events.proto`                                                                                                       | `ga-grpc-contracts`        |
+| Register an event type, producer or subscriber            | `apps/event-bus-service/src/domain/topics.ts` (+ the bus's `@Access.service` lists and `security/public-endpoints.json` if a workload joins) | `ga-service-communication` |
+| A public REST endpoint                                    | `apps/gateway/src/<resource>/`                                                                                                               | `ga-gateway-endpoint`      |
+| Tests                                                     | `*.spec.ts` next to code, `test/*.spec.ts` for gRPC + Postgres                                                                               | `ga-testing`               |
+| Run / debug everything locally                            | `pnpm stack:up`                                                                                                                              | `ga-local-stack`           |
+| Review a change                                           |                                                                                                                                              | `ga-code-review`           |
+| Change the chassis, template, dependency versions or keys | `packages/*`, `templates/service`, `pnpm-workspace.yaml`                                                                                     | `ga-platform-maintenance`  |
 
 ## Everyday commands (repo root)
 

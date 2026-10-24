@@ -13,7 +13,8 @@ const PURGE_BATCH = 1_000;
 /**
  * EventBrokerAdmin on the tables of PostgresEventBroker. It takes a Drizzle database, so
  * the CLI builds it from a pool without booting the service; no decorators or parameter
- * properties, so the CLI can run unbuilt. Ages use the database clock.
+ * properties, so the CLI can run unbuilt. purgeDelivered ages events with the database
+ * clock; replay bounds and status ages come from EventBusAdmin's Clock.
  */
 export class PostgresEventBrokerAdmin extends EventBrokerAdmin {
   private readonly db: Database;
@@ -83,8 +84,9 @@ export class PostgresEventBrokerAdmin extends EventBrokerAdmin {
   }
 
   /**
-   * In batches of 1000; one replica at a time (advisory lock), the others return 0. The
-   * lock is per schema, like migrations in tests, so test schemas never block each other.
+   * In batches of 1000, one batch at a time across replicas (a transaction-scoped advisory
+   * lock); a replica that finds the lock taken stops and returns what it deleted so far.
+   * The lock is per schema, like migrations in tests, so test schemas never block each other.
    */
   async purgeDelivered(olderThanDays: number): Promise<number> {
     let total = 0;

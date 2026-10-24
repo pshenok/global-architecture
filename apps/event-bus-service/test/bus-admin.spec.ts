@@ -147,6 +147,14 @@ describe('bus administration', () => {
     ]);
     await deadLetter('house-service', USER_DELETED);
     await orphan(houseDeleted.id, 'DEAD');
+    // Not counted as skipped: a pending orphan, and another workload's dead orphan.
+    const pendingOrphan = busEvent();
+    await broker.publish(pendingOrphan, ['booking-service']);
+    await orphan(pendingOrphan.id, 'PENDING');
+    await db.pool.query(
+      `insert into deliveries (subscriber, event_id, type, status) values ('user-service', $1, $2, 'DEAD')`,
+      [houseDeleted.id, HOUSE_DELETED],
+    );
     await expect(
       admin.redrive({ subscriber: 'house-service', type: HOUSE_DELETED }),
     ).rejects.toThrow(/does not list house-service/);
@@ -158,10 +166,11 @@ describe('bus administration', () => {
       skipped: 1,
     });
     const left = await db.pool.query(
-      `select type, status from deliveries where subscriber = 'house-service' order by type`,
+      `select type, status from deliveries where subscriber = 'house-service' order by type, status`,
     );
     expect(left.rows).toEqual([
       { type: HOUSE_DELETED, status: 'DEAD' },
+      { type: HOUSE_DELETED, status: 'PENDING' },
       { type: USER_DELETED, status: 'PENDING' },
     ]);
   });

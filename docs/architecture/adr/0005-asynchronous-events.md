@@ -102,8 +102,9 @@ Constraints at the time of the decision:
    builds its admin adapter itself. Changing the backend redeploys the bus only. A sketch
    for NATS JetStream and Kafka follows this list.
 10. **Operations.** Asynchronous parts register no health checks (a failing check would
-    take a healthy API out of rotation); lag and dead letters show in logs and
-    `events:status`. Relay and consumer stop claiming and drain in `onModuleDestroy`,
+    take a healthy API out of rotation); lag and dead letters show in `events:status`,
+    and the consumer logs each failure (`dead-lettered` for a deterministic one, `will
+    retry` otherwise). Relay and consumer stop claiming and drain in `onModuleDestroy`,
     within `EVENTS_DRAIN_MS`, before the pool and clients close.
 11. **First reactions.** `ga.house.v1.HouseDeletedEvent` makes booking-service cancel the
     house's open stays. `ga.user.v1.UserDeletedEvent` makes house-service delete the

@@ -44,8 +44,8 @@ verified it. Services check both against `@Access` on each method.
   both in `pnpm lint`).
 - **Event bus** (ADR-0005): producers record events in their own `outbox` table in the
   transaction of the change; the kit's relay publishes them; consumers pull, apply each
-  event once (`processed_events`) and ack. The queue behind the bus is its private
-  `EventBroker` adapter (Postgres today).
+  event once (`processed_events`) and ack. The queue behind the bus sits behind its
+  private `EventBroker` and `EventBrokerAdmin` ports (Postgres adapters today).
 
 ## Inside a service
 

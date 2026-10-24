@@ -152,6 +152,49 @@ export function describeEventBrokerAdmin(name: string, harness: () => BrokerAdmi
       ).toEqual({ queued: 0, skipped: 1 });
     });
 
+    it('honours since inside the window, and counts as skipped only events the subscriber lacks', async () => {
+      const [dayOld, threeDaysOld, oldHeld, oldMissing] = [
+        userDeleted(),
+        userDeleted(),
+        userDeleted(),
+        userDeleted(),
+      ];
+      for (const event of [dayOld, threeDaysOld, oldMissing]) {
+        await h.broker.publish(event, [BOOKING]);
+      }
+      await h.broker.publish(oldHeld, [BOOKING, HOUSE]);
+      await h.backdate([dayOld.id], 1);
+      await h.backdate([threeDaysOld.id], 3);
+      await h.backdate([oldHeld.id, oldMissing.id], 30);
+      const now = Date.now();
+      const sinceTwoDays = {
+        since: new Date(now - 2 * DAY_MS),
+        notBefore: new Date(now - 21 * DAY_MS),
+      };
+      expect(await h.admin.replay(HOUSE, USER_DELETED, sinceTwoDays)).toEqual({
+        queued: 1,
+        skipped: 0,
+      });
+      const everything = { since: new Date(0), notBefore: new Date(now - 21 * DAY_MS) };
+      expect(await h.admin.replay(HOUSE, USER_DELETED, everything)).toEqual({
+        queued: 1,
+        skipped: 1,
+      });
+      const replayed = await pullAll(HOUSE, USER_DELETED);
+      expect(replayed.map((d) => d.event.id).sort()).toEqual(
+        [dayOld.id, threeDaysOld.id, oldHeld.id].sort(),
+      );
+    });
+
+    it('lists queues by subscriber, then type', async () => {
+      await h.broker.publish(userDeleted(), [BOOKING]);
+      await h.broker.publish(busEvent(), [HOUSE]);
+      expect((await h.admin.queues()).map((q) => [q.subscriber, q.type])).toEqual([
+        [BOOKING, USER_DELETED],
+        [HOUSE, HOUSE_DELETED],
+      ]);
+    });
+
     it('drops the deliveries of one pair, pending and dead', async () => {
       const [dead, pending] = [busEvent(), busEvent()];
       for (const event of [dead, pending]) await h.broker.publish(event, [BOOKING]);

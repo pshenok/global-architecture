@@ -13,7 +13,7 @@ const EVERY_MS = 10 * 60_000;
 /**
  * Deletes fully delivered events older than EVENT_BUS_RETENTION_DAYS, every 10 minutes.
  * Events that still have a delivery (pending or dead) are kept, so a dead letter can
- * always be redriven. The broker lets one replica purge at a time.
+ * always be redriven. Replicas take turns batch by batch (the adapter's advisory lock).
  */
 @Injectable()
 export class EventRetention implements OnApplicationBootstrap, OnModuleDestroy {
@@ -40,7 +40,7 @@ export class EventRetention implements OnApplicationBootstrap, OnModuleDestroy {
     await this.running;
   }
 
-  /** One full pass; returns how many events it deleted (0 while another replica purges). */
+  /** One pass; returns how many events it deleted (it stops when another replica holds the lock). */
   async purge(): Promise<number> {
     const total = await this.admin.purgeDelivered(this.config.EVENT_BUS_RETENTION_DAYS);
     if (total > 0) this.logger.log(`deleted ${total} delivered event(s) past retention`);

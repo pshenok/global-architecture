@@ -94,6 +94,7 @@ export class EventConsumer implements OnModuleInit, OnApplicationBootstrap, OnMo
    * exist, or more types than one Pull asks for.
    */
   onModuleInit(): void {
+    const found = new Map<string, Omit<Handler, 'codec'>>();
     for (const wrapper of this.discovery.getProviders()) {
       const instance: unknown = wrapper.instance;
       if (!instance || typeof instance !== 'object' || !wrapper.isDependencyTreeStatic()) continue;
@@ -104,20 +105,23 @@ export class EventConsumer implements OnModuleInit, OnApplicationBootstrap, OnMo
         const event = handledEventOf(method);
         if (!event) continue;
         const member = `${instance.constructor.name}.${name}`;
-        const existing = this.handlers.get(event.type);
+        const existing = found.get(event.type);
         if (existing) {
           throw new Error(`two handlers of ${event.type}: ${existing.member} and ${member}`);
         }
         const invoke = method as (this: object, payload: unknown) => Promise<void>;
-        this.handlers.set(event.type, {
+        found.set(event.type, {
           event,
           member,
-          codec: messageCodec(event.protoFile, event.type),
           invoke: (payload) => invoke.call(instance, payload),
         });
       }
     }
-    assertPullableTypes([...this.handlers.keys()]);
+    // Before the codecs, so the limit is reported even when a payload is also missing.
+    assertPullableTypes([...found.keys()]);
+    for (const [type, handler] of found) {
+      this.handlers.set(type, { ...handler, codec: messageCodec(handler.event.protoFile, type) });
+    }
     if (this.handlers.size === 0) {
       this.logger.warn('EventsModule consumes, but no provider has an @OnEvent handler');
     }
