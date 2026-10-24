@@ -128,3 +128,23 @@ export function grantAdmin(userId: string): void {
     stdio: 'pipe',
   });
 }
+
+/**
+ * Polls `check` until it returns without throwing, or the deadline passes (then its last
+ * error is thrown). The one sanctioned wait in these tests: for eventually consistent
+ * effects of events (ADR-0005), which arrive within a few seconds on the local stack.
+ */
+export async function eventually<T>(
+  check: () => Promise<T>,
+  { timeoutMs = 15_000, intervalMs = 200 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await check();
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+}

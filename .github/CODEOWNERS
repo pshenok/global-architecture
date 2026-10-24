@@ -14,6 +14,7 @@
 /apps/gateway/src/http/openapi.ts @pshenok
 /apps/gateway/test/harness.ts @pshenok
 /tools/check-access.ts @pshenok
+/tools/check-call-graph.ts @pshenok
 /tools/lib.ts @pshenok
 /tools/verify-template.ts @pshenok
 /package.json @pshenok
