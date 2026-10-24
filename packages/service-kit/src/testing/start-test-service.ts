@@ -83,6 +83,9 @@ export async function startTestService(options: {
     LOG_LEVEL: process.env.LOG_LEVEL ?? 'silent',
     GRPC_HOST: '127.0.0.1',
     GRPC_PORT: String(port),
+    // Event loops stay off (tests drive them with flushOutbox/deliverEvent); nothing listens here.
+    EVENTS_AUTOSTART: 'false',
+    EVENT_BUS_SERVICE_URL: '127.0.0.1:1',
     ...keys.env(self),
     ...options.env,
   });

@@ -5,10 +5,11 @@
  * Nothing imports or runs this file.
  */
 
+import type { UserDeletedEvent } from '@ga/contracts/ga/user/v1/user_events';
 import type * as kernel from '@ga/kernel';
-import { type Actor, isAdmin, type UserActor } from '@ga/kernel';
+import { type Actor, isAdmin, type ServiceActor, type UserActor } from '@ga/kernel';
 import { userActor } from '@ga/kernel/testing'; // refused
-import { currentUser } from '@ga/service-kit';
+import { currentUser, defineEvent, OnEvent } from '@ga/service-kit';
 import { Body, Controller, Inject, Injectable, Post } from '@nestjs/common';
 
 type Verified = UserActor;
@@ -85,6 +86,17 @@ export class ProbeController {
   revoke(@Body() actor: UserActor) {
     // refused
     return isAdmin(actor);
+  }
+}
+const PROBE_EVENT = defineEvent<UserDeletedEvent>('ga.user.v1.UserDeletedEvent', {
+  producer: 'user-service',
+});
+@Injectable()
+export class ProbeConsumer {
+  @OnEvent(PROBE_EVENT)
+  async handle(_event: UserDeletedEvent, actor?: ServiceActor): Promise<void> {
+    // refused
+    await Promise.resolve(actor?.name);
   }
 }
 export const fromCallback = JSON.parse('[]').map((actor: Verified) => actor.userId); // refused
