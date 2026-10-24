@@ -107,7 +107,8 @@ Constraints at the time of the decision:
 - The bus is trusted like any broker: envelopes are not signed by producers, because
   workload public keys are pruned 120 s after rotation (ADR-0004) and events can be
   retried or redriven days later. Someone with write access to `ga_event_bus` could forge
-  a delivery; replays are absorbed by `processed_events`, forgeries are not.
+  a delivery; replays within the 30 days `processed_events` remembers an id are absorbed,
+  forgeries are not.
 - A booking or house created between a create's existence check and the cleanup can stay
   orphaned (creates check, then insert without a lock). Tombstones checked on create are
   the follow-up if this matters.

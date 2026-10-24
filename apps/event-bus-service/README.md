@@ -31,7 +31,9 @@ someone redrives it. Consumers deduplicate by event id (the kit's `processed_eve
 kept 30 days), so `EVENT_BUS_RETENTION_DAYS` (7) is capped at 21: a replayed event must
 still be remembered by every consumer that already applied it. For the same reason
 `events:replay` queues only events from the last 21 days; older ones that another
-subscriber's delivery still keeps are skipped and counted.
+subscriber's delivery still keeps are skipped and counted. Run a replay while the
+subscriber is consuming: a replayed delivery still unprocessed 9 days later (30 - 21)
+could run its handler twice.
 
 ## Adding an event type, a producer or a subscriber
 

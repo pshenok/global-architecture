@@ -92,7 +92,7 @@ reaches the next service in about a second and user -> house -> booking in two t
 ```bash
 pnpm events:status                                                     # pending, dead, oldest pending age per subscriber and type
 pnpm events:redrive --subscriber booking-service [--type ga.house.v1.HouseDeletedEvent]   # dead letters back to pending, fresh attempts
-pnpm events:replay --subscriber house-service --type ga.user.v1.UserDeletedEvent --since 2026-10-01T00:00:00Z   # backfill retained events
+pnpm events:replay --subscriber house-service --type ga.user.v1.UserDeletedEvent --since 2026-10-01T00:00:00Z   # backfill retained events (last 21 days)
 pnpm events:drop --subscriber <workload> --type <fqn>                  # delete the rows of a pair the catalog no longer lists
 ```
 
@@ -102,7 +102,9 @@ from: `replay` and `redrive --type` refuse a pair it does not list (`redrive` wi
 `--type` skips and counts those rows), `drop` refuses a pair it lists. Retention keeps
 delivered events for `EVENT_BUS_RETENTION_DAYS` (7, at most 21: consumers remember
 processed event ids for 30 days); dead letters keep their event until redriven, so
-`replay` queues only events from the last 21 days and skips (and counts) older ones.
+`replay` queues only events from the last 21 days and skips (and counts) older ones; run
+it while the subscriber consumes (a replayed delivery unprocessed 9 days later could run
+twice). `--since` takes a full ISO time with a zone, e.g. `2026-10-01T00:00:00Z`.
 - **Lag** shows in `events:status` (bus side) and in the producer's `outbox` table: a row
   that stays has `last_error` and a future `available_at` (`ga-database` has the query).
 - **Dead letters**: a delivery is dead after `EVENT_BUS_MAX_ATTEMPTS` (10) leases, or at

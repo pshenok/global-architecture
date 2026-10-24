@@ -96,13 +96,13 @@ describe('booking events', () => {
    * A stay inserted directly, without the API's own date checks: it refuses stays that
    * checked in before today, and checks "today" with the server's clock, not the test's.
    */
-  const insertStay = async (houseId: string, from: number, to: number) => {
+  const insertStay = async (houseId: string, from: number, to: number, guestId = GUEST_ID) => {
     const id = randomUUID();
     await db.pool.query(
       `insert into bookings (id, house_id, guest_id, host_id, check_in, check_out, guests,
          total_price_minor, currency_code, status, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, 1, 100, 'USD', 'CONFIRMED', now(), now())`,
-      [id, houseId, GUEST_ID, HOST_ID, day(from), day(to)],
+      [id, houseId, guestId, HOST_ID, day(from), day(to)],
     );
     return id;
   };
@@ -113,6 +113,8 @@ describe('booking events', () => {
     await client.cancelBooking({ id: cancelledBefore }, await service.as(GUEST_ID));
     const asCancelled = await statusOf(cancelledBefore);
     const elsewhere = await book(OTHER_HOUSE, 10, 12);
+    // The deleted house's owner travelling as a guest elsewhere: HouseDeletedEvent leaves it.
+    const ownersTrip = await insertStay(OTHER_HOUSE, 20, 22, HOST_ID);
     // Finished first: if midnight passes in between, the ongoing stay moves later, not onto it.
     const finished = await insertStay(HOUSE_ID, -3, 0);
     const ongoing = await insertStay(HOUSE_ID, 0, 2);
@@ -127,6 +129,7 @@ describe('booking events', () => {
       });
     }
     expect((await statusOf(elsewhere)).status).toBe('CONFIRMED');
+    expect((await statusOf(ownersTrip)).status).toBe('CONFIRMED');
     expect((await statusOf(finished)).status).toBe('CONFIRMED');
     expect(await statusOf(cancelledBefore)).toEqual(asCancelled);
     expect(await deliverEvent(service.app, HOUSE_DELETED, event, { id })).toBe('duplicate');

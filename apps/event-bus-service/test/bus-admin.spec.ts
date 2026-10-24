@@ -9,7 +9,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
 import { EventBroker } from '../src/application/ports/event-broker.ts';
-import { drop, redrive, replay, status } from '../src/cli/bus-admin.ts';
+import { drop, parseSince, redrive, replay, status } from '../src/cli/bus-admin.ts';
 import { MAX_RETENTION_DAYS } from '../src/domain/retention.ts';
 import { EventRetention } from '../src/infrastructure/retention.ts';
 import { SERVICE } from '../src/service.ts';
@@ -204,6 +204,40 @@ describe('bus administration', () => {
     expect(await replay(orm(), target)).toEqual({ queued: 0, skipped: 1 });
     const replayed = await broker.pull('house-service', [USER_DELETED], 10);
     expect(replayed.map((d) => d.event.id)).toEqual([recent.id]);
+  });
+
+  it('replays exactly up to MAX_RETENTION_DAYS', async () => {
+    const inside = busEvent({ type: USER_DELETED, producer: 'user-service' });
+    const outside = busEvent({ type: USER_DELETED, producer: 'user-service' });
+    for (const event of [inside, outside]) await broker.publish(event, ['booking-service']);
+    await deadLetter('booking-service', USER_DELETED);
+    await deadLetter('booking-service', USER_DELETED);
+    const age = (id: string, minutes: number) =>
+      db.pool.query(
+        `update events set published_at = now() - make_interval(days => $2, mins => $3)
+         where id = $1`,
+        [id, MAX_RETENTION_DAYS, minutes],
+      );
+    await age(inside.id, -1);
+    await age(outside.id, 1);
+    const since = new Date(0);
+    expect(await replay(orm(), { subscriber: 'house-service', type: USER_DELETED, since })).toEqual(
+      { queued: 1, skipped: 1 },
+    );
+    const [queued] = await broker.pull('house-service', [USER_DELETED], 10);
+    expect(queued?.event.id).toBe(inside.id);
+  });
+
+  it('takes --since only as a full ISO time with a zone', () => {
+    expect(parseSince('2026-10-01T00:00:00Z')).toEqual(new Date('2026-10-01T00:00:00Z'));
+    expect(parseSince('2026-10-01T02:30+02:30')).toEqual(new Date('2026-10-01T00:00:00Z'));
+    expect(parseSince('2026-10-01T23:30:00.500-05:00')?.toISOString()).toBe(
+      '2026-10-02T04:30:00.500Z',
+    );
+    for (const typo of ['2026-02-30T00:00:00Z', '2026-10-01', '1', '0', '', '2026-10-01T25:00Z']) {
+      expect(parseSince(typo)).toBeUndefined();
+    }
+    expect(parseSince(undefined)).toBeUndefined();
   });
 
   it('deletes delivered events past retention and keeps those with a delivery', async () => {

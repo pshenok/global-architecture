@@ -54,6 +54,7 @@ export { type RunMigrationsOptions, runMigrations } from './database/migrate.ts'
 export { PG_ERROR, type PgErrorInfo, pgErrorInfo, translateDbError } from './database/pg-errors.ts';
 export { type Database, DRIZZLE, PG_POOL } from './database/tokens.ts';
 export { type EventsConfig, eventsConfigSchema } from './events/config.ts';
+export { PROCESSED_EVENTS_KEPT_DAYS } from './events/event-consumer.ts';
 export { defineEvent, type EventType } from './events/event-type.ts';
 export { EventsModule, type EventsModuleOptions } from './events/events.module.ts';
 export { OnEvent } from './events/on-event.ts';

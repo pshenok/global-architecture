@@ -12,7 +12,7 @@ import { createPool, databaseConfigSchema, parseConfig } from '@ga/service-kit';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { MAX_RETENTION_DAYS } from '../domain/retention.ts';
 import { SERVICE } from '../service.ts';
-import { drop, redrive, replay, status } from './bus-admin.ts';
+import { drop, parseSince, redrive, replay, status } from './bus-admin.ts';
 
 const USAGE = `usage: bus.js status
        bus.js redrive --subscriber <workload> [--type <fqn>]
@@ -28,16 +28,12 @@ const { positionals, values } = parseArgs({
   },
 });
 const command = positionals[0];
-const since = values.since ? new Date(values.since) : undefined;
+const since = parseSince(values.since);
 if (
   !(
     command === 'status' ||
     (command === 'redrive' && values.subscriber && values.type !== '') ||
-    (command === 'replay' &&
-      values.subscriber &&
-      values.type &&
-      since &&
-      !Number.isNaN(since.getTime())) ||
+    (command === 'replay' && values.subscriber && values.type && since) ||
     (command === 'drop' && values.subscriber && values.type)
   )
 ) {

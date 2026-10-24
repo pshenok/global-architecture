@@ -28,11 +28,12 @@ import { EVENTS_CONFIG } from './tokens.ts';
 export const CONSUMER_BATCH = 10;
 const PURGE_EVERY_MS = 60 * 60_000;
 /**
- * Longer than the bus's MAX_RETENTION_DAYS (21: the retention cap and the window of
- * events:replay) plus its ~14 minute retry window, so a redelivered or replayed event is
- * skipped. Raise that cap only together with this.
+ * Days a consumer remembers a processed event id. Longer than event-bus-service's
+ * MAX_RETENTION_DAYS (the retention cap and the window of events:replay) plus its retry
+ * window, so a redelivered or replayed event is skipped; a bus test checks the margin.
  */
-const PROCESSED_EVENTS_KEPT = sql`interval '30 days'`;
+export const PROCESSED_EVENTS_KEPT_DAYS = 30;
+const PROCESSED_EVENTS_KEPT = sql`make_interval(days => ${PROCESSED_EVENTS_KEPT_DAYS})`;
 
 /** What became of one delivery: acked, or nacked with a reason to retry or dead-letter. */
 export type DeliveryOutcome =
@@ -215,7 +216,7 @@ export class EventConsumer implements OnModuleInit, OnApplicationBootstrap, OnMo
     }
   }
 
-  /** Forgets processed events older than 30 days, in batches. */
+  /** Forgets processed events older than PROCESSED_EVENTS_KEPT_DAYS, in batches. */
   private async purge(): Promise<void> {
     for (;;) {
       const deleted = await this.db.tx.execute<{ event_id: string }>(sql`

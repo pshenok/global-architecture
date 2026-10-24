@@ -28,5 +28,7 @@ describe('stay rules', () => {
   it('puts the open-stay cutoff on the current UTC day', () => {
     expect(openStayCutoff(now)).toBe('2026-06-01');
     expect(openStayCutoff(new Date('2026-06-02T00:30:00+02:00'))).toBe('2026-06-01');
+    // Just after UTC midnight: a local-time cutoff would say yesterday west of UTC.
+    expect(openStayCutoff(new Date('2026-06-02T00:30:00Z'))).toBe('2026-06-02');
   });
 });

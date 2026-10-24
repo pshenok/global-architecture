@@ -82,10 +82,12 @@ export async function redrive(
  * Queues retained events of a type published since `since` for a subscriber again, e.g.
  * to backfill a new subscriber. Refused unless the catalog lists that subscriber for that
  * type. Events it already holds a delivery for are skipped; ones it already processed are
- * skipped by its processed_events, which remembers them 30 days. Only events published in
- * the last MAX_RETENTION_DAYS are queued: retention keeps an older one while another
- * subscriber's delivery holds it, and this subscriber may have forgotten it. Those are
- * skipped and counted.
+ * skipped by its processed_events, which remembers them PROCESSED_EVENTS_KEPT_DAYS (30).
+ * Only events published in the last MAX_RETENTION_DAYS (21) are queued: retention keeps
+ * an older one while another subscriber's delivery holds it, and this subscriber may have
+ * forgotten it. Those are skipped and counted. The window is checked when queuing, so run
+ * it while the subscriber consumes: a replayed delivery still unprocessed 9 days later
+ * (30 - 21) could run its handler twice.
  */
 export async function replay(
   db: NodePgDatabase,
@@ -129,4 +131,19 @@ export async function drop(
     .where(and(eq(deliveries.subscriber, target.subscriber), eq(deliveries.type, target.type)))
     .returning({ eventId: deliveries.eventId });
   return rows.length;
+}
+
+const ISO_TIME =
+  /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(Z|([+-])(\d{2}):(\d{2}))$/;
+
+/** `--since`: a full ISO time with a zone; refuses typos such as 2026-02-30, which Date rolls over. */
+export function parseSince(value: string | undefined): Date | undefined {
+  const match = value === undefined ? null : ISO_TIME.exec(value);
+  if (!value || !match) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const [, day, zone, sign, hours, minutes] = match;
+  const offsetMinutes = zone === 'Z' ? 0 : Number(hours) * 60 + Number(minutes);
+  const local = new Date(date.getTime() + (sign === '-' ? -1 : 1) * offsetMinutes * 60_000);
+  return local.toISOString().slice(0, 10) === day ? date : undefined;
 }

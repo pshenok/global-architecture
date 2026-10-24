@@ -39,7 +39,7 @@ function catalog(topics: Readonly<Record<string, Topic>>): Readonly<Record<strin
  * A change here goes together with the @Access lists in event-bus.grpc-controller.ts and
  * their entries in security/public-endpoints.json (a test compares all three). A new
  * subscriber only receives events published after it is listed; `pnpm events:replay`
- * backfills retained ones.
+ * backfills retained ones from the last MAX_RETENTION_DAYS (21).
  */
 export const TOPICS = catalog({
   'ga.house.v1.HouseDeletedEvent': { producer: 'house-service', subscribers: ['booking-service'] },

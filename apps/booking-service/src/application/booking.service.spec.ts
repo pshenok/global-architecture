@@ -173,6 +173,17 @@ describe('BookingService', () => {
       expect(await statusOf(inProgress.id)).toBe('CANCELLED');
     });
 
+    it('cancels a stay that checks out tomorrow: the cutoff is today, not later', async () => {
+      const booking = await service.create(guest, stay(30, 33));
+      repository.rows.set(booking.id, {
+        ...booking.toState(),
+        checkIn: day(-1, clock.now()),
+        checkOut: day(1, clock.now()),
+      });
+      expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(1);
+      expect(await statusOf(booking.id)).toBe('CANCELLED');
+    });
+
     it("cancels a deleted guest's stays, not the stays it hosts", async () => {
       houses.houses.set(OTHER_HOUSE, TERMS);
       const asGuest = await service.create(guest, stay(10, 13));
