@@ -128,6 +128,16 @@ describe('BookingService', () => {
   describe('cleanup after deletions (ADR-0005)', () => {
     const workload = serviceActor('booking-service');
     const statusOf = async (id: string) => (await repository.findById(id))?.toState().status;
+    /** A stay that checked in yesterday, which the API itself refuses to create. */
+    const stayInProgress = async () => {
+      const booking = await service.create(guest, stay(30, 33));
+      repository.rows.set(booking.id, {
+        ...booking.toState(),
+        checkIn: day(-1, clock.now()),
+        checkOut: day(2, clock.now()),
+      });
+      return booking;
+    };
 
     it("cancels a deleted house's open stays, once, and keeps finished ones", async () => {
       const upcoming = await service.create(guest, stay(10, 13));
@@ -147,12 +157,22 @@ describe('BookingService', () => {
       expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(0);
     });
 
+    it("cancels a deleted house's stay that checked in before today", async () => {
+      // Apart from the test above: it would overlap the stays checking in and out today.
+      const inProgress = await stayInProgress();
+      expect(await service.cancelOpenStaysOfHouse(workload, HOUSE_ID)).toBe(1);
+      expect(await statusOf(inProgress.id)).toBe('CANCELLED');
+    });
+
     it("cancels a deleted guest's stays, not the stays it hosts", async () => {
       const asGuest = await service.create(guest, stay(10, 13));
+      const inProgress = await stayInProgress();
       expect(await service.cancelOpenStaysOfGuest(workload, HOST_ID)).toBe(0);
       expect(await statusOf(asGuest.id)).toBe('CONFIRMED');
-      expect(await service.cancelOpenStaysOfGuest(workload, GUEST_ID)).toBe(1);
+      expect(await statusOf(inProgress.id)).toBe('CONFIRMED');
+      expect(await service.cancelOpenStaysOfGuest(workload, GUEST_ID)).toBe(2);
       expect(await statusOf(asGuest.id)).toBe('CANCELLED');
+      expect(await statusOf(inProgress.id)).toBe('CANCELLED');
     });
   });
 });

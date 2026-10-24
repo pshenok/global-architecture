@@ -274,4 +274,9 @@ keeps retrying it (logged as an error) and never drops it. Deploy the catalog be
 consumer that handles a new type: Pull refuses the whole request (EVENT_TYPE_NOT_SUBSCRIBED)
 while any requested type does not list the consumer, so none of its events arrive. A new
 subscriber receives only events published after it is listed; `pnpm events:replay`
-backfills retained ones.
+backfills retained ones. Retiring goes the other way round (a v1 type every subscriber
+replaced with v2, or a subscriber leaving a topic): when `pnpm events:status` shows
+nothing pending for the pair, deploy the consumer without its handler first, then remove
+the pair from the catalog and deploy the bus. Leftover rows show as `orphaned` in
+`events:status`; nothing pulls or redrives them and they keep their events from
+retention, so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.

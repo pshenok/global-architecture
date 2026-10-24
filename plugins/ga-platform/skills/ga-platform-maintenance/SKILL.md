@@ -141,11 +141,24 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
 - Biome `noExplicitAny` and oxlint `no-unsafe-assignment/-return/-argument/-member-access/-call`
   (outside tests) keep `any` from turning request data into an actor or reaching the
   raw server.
-- `tools/check-call-graph.ts` runs in `pnpm lint` after check-access. It builds the
-  synchronous call graph from every client `target` (a string literal in a file that
-  calls `GrpcClientsModule.register`) plus an edge to `event-bus-service` from each app
-  that calls `EventsModule.forRoot`, and fails on a non-literal or unknown target, a
-  cycle, or any call made by the bus. It checks itself on synthetic graphs every run.
+- `tools/check-call-graph.ts` runs in `pnpm lint` after check-access and reads the same
+  production code with the same TypeScript 7 checker, so aliases, namespaces and
+  re-exports resolve. Every reference to the kit's `GrpcClientsModule.register` in an
+  app's `src` must be a direct call with one inline array of inline objects, each with
+  `target: '<workload>'` as a string literal naming a registered workload; each target is
+  an edge. Definitions built elsewhere, spreads, computed keys, shorthand or accessor
+  targets, `register` used as a value and `GrpcClientsModule` used other than as
+  `.register(...)` fail. Any use of the kit's `EventsModule` adds an edge to
+  `event-bus-service`. Outside apps' `src` both are only imported or re-exported (the
+  kit's `grpc-clients.module.ts` and `events.module.ts` excepted); outside the kit and
+  `tools/`, code may not build a gRPC client without the kit (Nest's `ClientProxyFactory`,
+  `ClientsModule`, `ClientGrpcProxy`, `@Client`; grpc-js `Client`, `Channel`,
+  `loadPackageDefinition`, `makeClientConstructor`) or reach into another app's code. It
+  fails on a cycle or any call made by the bus, and checks itself every run: on synthetic
+  graphs, and on the probes in `apps/house-service/test/call-graph-probes` (a line marked
+  `// refused` must be refused, no other line; a line marked `// edge: <workload>` must
+  yield exactly that edge, no other line any). When a review finds a new way to hide a
+  call, add a probe line, then the rule.
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the whole
   service kit, the event catalog (`apps/event-bus-service/src/domain/topics.ts`), `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
   `http/openapi.ts` and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and

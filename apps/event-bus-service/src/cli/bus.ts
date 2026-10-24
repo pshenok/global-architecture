@@ -3,18 +3,20 @@
  *   pnpm events:status                                         (repo root, local stack)
  *   pnpm events:redrive --subscriber <workload> [--type <fqn>]
  *   pnpm events:replay --subscriber <workload> --type <fqn> --since <ISO time>
- *   node dist/cli/bus.js status|redrive|replay ...                (DATABASE_URL set)
+ *   pnpm events:drop --subscriber <workload> --type <fqn>
+ *   node dist/cli/bus.js status|redrive|replay|drop ...           (DATABASE_URL set)
  * Each change prints one line; keep it (job log, ticket), it is the only record.
  */
 import { parseArgs } from 'node:util';
 import { createPool, databaseConfigSchema, parseConfig } from '@ga/service-kit';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { SERVICE } from '../service.ts';
-import { redrive, replay, status } from './bus-admin.ts';
+import { drop, redrive, replay, status } from './bus-admin.ts';
 
 const USAGE = `usage: bus.js status
        bus.js redrive --subscriber <workload> [--type <fqn>]
-       bus.js replay --subscriber <workload> --type <fqn> --since <ISO time>`;
+       bus.js replay --subscriber <workload> --type <fqn> --since <ISO time>
+       bus.js drop --subscriber <workload> --type <fqn>`;
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -34,7 +36,8 @@ if (
       values.subscriber &&
       values.type &&
       since &&
-      !Number.isNaN(since.getTime()))
+      !Number.isNaN(since.getTime())) ||
+    (command === 'drop' && values.subscriber && values.type)
   )
 ) {
   console.error(USAGE);
@@ -50,9 +53,15 @@ try {
     else console.table(rows);
   } else if (command === 'redrive') {
     const subscriber = values.subscriber as string;
-    const count = await redrive(db, { subscriber, type: values.type });
+    const { redriven, skipped } = await redrive(db, { subscriber, type: values.type });
     console.log(
-      `${SERVICE.name}: redrove ${count} dead letter(s) of ${subscriber}${values.type ? ` (${values.type})` : ''}`,
+      `${SERVICE.name}: redrove ${redriven} dead letter(s) of ${subscriber}${values.type ? ` (${values.type})` : ''}${skipped > 0 ? `, skipped ${skipped} of types the catalog does not list for it (events:status, events:drop)` : ''}`,
+    );
+  } else if (command === 'drop') {
+    const target = { subscriber: values.subscriber as string, type: values.type as string };
+    const count = await drop(db, target);
+    console.log(
+      `${SERVICE.name}: dropped ${count} delivery row(s) of ${target.type} for ${target.subscriber}`,
     );
   } else {
     const target = {

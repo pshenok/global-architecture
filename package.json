@@ -41,6 +41,7 @@
     "events:status": "pnpm --filter @ga/event-bus-service bus status",
     "events:redrive": "pnpm --filter @ga/event-bus-service bus redrive",
     "events:replay": "pnpm --filter @ga/event-bus-service bus replay",
+    "events:drop": "pnpm --filter @ga/event-bus-service bus drop",
     "stack:up": "node tools/stack.ts up",
     "stack:down": "node tools/stack.ts down",
     "stack:status": "pm2 status",

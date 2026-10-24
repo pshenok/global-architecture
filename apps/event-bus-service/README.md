@@ -16,7 +16,7 @@ ever talks to a queue: which store holds the events is private to this service.
 | `src/infrastructure/persistence/`       | `PostgresEventBroker` (default backend), schema, migrations |
 | `src/infrastructure/retention.ts`       | Deletes delivered events after `EVENT_BUS_RETENTION_DAYS`   |
 | `src/transport/grpc/`                   | Controller (`@Access.service` lists), request limits        |
-| `src/cli/`                              | `pnpm events:status`, `events:redrive`, `events:replay`     |
+| `src/cli/`                              | `pnpm events:*`: status, redrive, replay, drop              |
 | `test/event-broker.contract.ts`         | The semantics every backend must pass                       |
 
 Contract: `packages/contracts/proto/ga/event_bus/v1/event_bus.proto`.
@@ -26,7 +26,9 @@ Contract: `packages/contracts/proto/ga/event_bus/v1/event_bus.proto`.
 At least once, unordered. A delivery is leased for `EVENT_BUS_LEASE_S` (30 s) per Pull;
 Nack retries it after 1 s, 2 s, 4 s ... (at most 5 min); after `EVENT_BUS_MAX_ATTEMPTS`
 (10) leases, or a Nack with `dead_letter`, it becomes a dead letter, which stays until
-someone redrives it. Consumers deduplicate by event id (the kit's `processed_events`).
+someone redrives it. Consumers deduplicate by event id (the kit's `processed_events`,
+kept 30 days), so `EVENT_BUS_RETENTION_DAYS` (7) is capped at 21: a replayed event must
+still be remembered by every consumer that already applied it.
 
 ## Adding an event type, a producer or a subscriber
 
@@ -43,6 +45,14 @@ someone redrives it. Consumers deduplicate by event id (the kit's `processed_eve
    `pnpm events:replay --subscriber <it> --type <fqn> --since <time>` backfills
    retained ones.
 
+To retire a type or a subscriber (a v1 type once every subscriber handles v2, or a
+subscriber leaving a topic): when `pnpm events:status` shows nothing pending for the
+pair, deploy the consumer without its handler (Pull refuses a type the catalog does not
+list), then remove the pair from the catalog (and the workload from the `@Access` lists
+if it leaves the bus) and deploy the bus. `events:status` then marks leftover rows
+`orphaned`: nothing pulls, dead-letters or redrives them, and they keep their events from
+retention, so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.
+
 ## Another queue behind the bus
 
 Write an `EventBroker` adapter in `src/infrastructure/<backend>/`, run
@@ -58,6 +68,7 @@ pnpm --filter @ga/event-bus-service db:generate  # schema.ts change -> new SQL m
 pnpm events:status                               # lag and dead letters per subscriber
 pnpm events:redrive --subscriber booking-service [--type ga.house.v1.HouseDeletedEvent]
 pnpm events:replay --subscriber house-service --type ga.user.v1.UserDeletedEvent --since 2026-10-01T00:00:00Z
+pnpm events:drop --subscriber <workload> --type <fqn>   # only a pair the catalog no longer lists
 ```
 
 Configuration lives in `.env` (copied from `.env.example`) and is validated at boot by

@@ -27,7 +27,11 @@ import { EVENTS_CONFIG } from './tokens.ts';
 /** Deliveries leased per pull; processed one after another. */
 export const CONSUMER_BATCH = 10;
 const PURGE_EVERY_MS = 60 * 60_000;
-/** Longer than the bus's retention plus its retry window, so every redelivery dedupes. */
+/**
+ * Longer than the bus's EVENT_BUS_RETENTION_DAYS (capped at 21) plus its ~14 minute retry
+ * window, so a redelivered or replayed event is skipped. Raise that cap only together
+ * with this.
+ */
 const PROCESSED_EVENTS_KEPT = sql`interval '30 days'`;
 
 /** What became of one delivery: acked, or nacked with a reason to retry or dead-letter. */

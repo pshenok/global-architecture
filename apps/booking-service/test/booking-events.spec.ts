@@ -87,16 +87,19 @@ describe('booking events', () => {
       )
     ).booking?.id as string;
   const statusOf = async (id: string) =>
-    (await db.pool.query('select status, cancelled_at from bookings where id = $1', [id]))
-      .rows[0] as { status: string; cancelled_at: Date | null };
-  /** A stay that checked out today, which the API itself refuses to create. */
-  const finishedStay = async () => {
+    (
+      await db.pool.query('select status, cancelled_at, updated_at from bookings where id = $1', [
+        id,
+      ])
+    ).rows[0] as { status: string; cancelled_at: Date | null; updated_at: Date };
+  /** A stay that checked in before today, which the API itself refuses to create. */
+  const startedStay = async (from: number, to: number) => {
     const id = randomUUID();
     await db.pool.query(
       `insert into bookings (id, house_id, guest_id, host_id, check_in, check_out, guests,
          total_price_minor, currency_code, status, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, 1, 100, 'USD', 'CONFIRMED', now(), now())`,
-      [id, HOUSE_ID, GUEST_ID, HOST_ID, day(-3), day(0)],
+      [id, HOUSE_ID, GUEST_ID, HOST_ID, day(from), day(to)],
     );
     return id;
   };
@@ -106,8 +109,9 @@ describe('booking events', () => {
     const ongoing = await book(HOUSE_ID, 0, 2);
     const cancelledBefore = await book(HOUSE_ID, 20, 21);
     await client.cancelBooking({ id: cancelledBefore }, await service.as(GUEST_ID));
+    const asCancelled = await statusOf(cancelledBefore);
     const elsewhere = await book(OTHER_HOUSE, 10, 12);
-    const finished = await finishedStay();
+    const finished = await startedStay(-3, 0);
     const event = { houseId: HOUSE_ID, ownerId: HOST_ID };
     const id = '01900000-0000-7000-8000-00000000e0b1';
 
@@ -120,18 +124,31 @@ describe('booking events', () => {
     }
     expect((await statusOf(elsewhere)).status).toBe('CONFIRMED');
     expect((await statusOf(finished)).status).toBe('CONFIRMED');
-    const before = await statusOf(cancelledBefore);
+    expect(await statusOf(cancelledBefore)).toEqual(asCancelled);
     expect(await deliverEvent(service.app, HOUSE_DELETED, event, { id })).toBe('duplicate');
-    expect(await statusOf(cancelledBefore)).toEqual(before);
+    expect(await statusOf(cancelledBefore)).toEqual(asCancelled);
     await expect(book(HOUSE_ID, 10, 12)).resolves.toEqual(expect.any(String));
   });
 
+  it("cancels a deleted house's stay that checked in before today", async () => {
+    // Apart from the test above: it would overlap the stays checking in and out today.
+    const inProgress = await startedStay(-1, 2);
+    const event = { houseId: HOUSE_ID, ownerId: HOST_ID };
+    expect(await deliverEvent(service.app, HOUSE_DELETED, event)).toBe('applied');
+    expect((await statusOf(inProgress)).status).toBe('CANCELLED');
+  });
+
   it("cancels a deleted guest's stays, but not the stays that user hosts", async () => {
-    const booking = await book(HOUSE_ID, 10, 12);
+    const upcoming = await book(HOUSE_ID, 10, 12);
+    const inProgress = await startedStay(-1, 2);
     // Its host's stays go with the host's houses (HouseDeletedEvent), not here.
     expect(await deliverEvent(service.app, USER_DELETED, { userId: HOST_ID })).toBe('applied');
-    expect((await statusOf(booking)).status).toBe('CONFIRMED');
+    for (const booking of [upcoming, inProgress]) {
+      expect((await statusOf(booking)).status).toBe('CONFIRMED');
+    }
     expect(await deliverEvent(service.app, USER_DELETED, { userId: GUEST_ID })).toBe('applied');
-    expect((await statusOf(booking)).status).toBe('CANCELLED');
+    for (const booking of [upcoming, inProgress]) {
+      expect((await statusOf(booking)).status).toBe('CANCELLED');
+    }
   });
 });

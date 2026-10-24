@@ -1,7 +1,7 @@
 ---
 
 name: ga-local-stack
-description: Run, observe and debug the whole global-architecture system locally - pnpm stack:up/down with PM2 and local Postgres, db:setup (and --reset) and migrations, dev TLS certificates and the gRPC CA, workload keys and their rotation, the local dev IdP and access tokens (pnpm dev:token), registering and granting admin, calling RPCs with pnpm grpc:call and buf curl over TLS, watch mode, logs with request ids, health checks, event-bus-service and pnpm events:status/redrive/replay (event lag, dead letters, backfills), OpenTelemetry tracing, Docker images, and troubleshooting (ports, pnpm release-age gate, PM2, Postgres roles, 401/403/503 auth errors, CALLER_*/PRINCIPAL_* rejections, TLS and key errors, events that do not arrive). Use it whenever someone wants to start, restart, inspect or debug services locally, get a token, reproduce a bug across services, read logs, call a gRPC method by hand, see why an event or a cleanup did not happen, or when something fails to boot.
+description: Run, observe and debug the whole global-architecture system locally - pnpm stack:up/down with PM2 and local Postgres, db:setup (and --reset) and migrations, dev TLS certificates and the gRPC CA, workload keys and their rotation, the local dev IdP and access tokens (pnpm dev:token), registering and granting admin, calling RPCs with pnpm grpc:call and buf curl over TLS, watch mode, logs with request ids, health checks, event-bus-service and pnpm events:status/redrive/replay/drop (event lag, dead letters, backfills, retired types), OpenTelemetry tracing, Docker images, and troubleshooting (ports, pnpm release-age gate, PM2, Postgres roles, 401/403/503 auth errors, CALLER_*/PRINCIPAL_* rejections, TLS and key errors, events that do not arrive). Use it whenever someone wants to start, restart, inspect or debug services locally, get a token, reproduce a bug across services, read logs, call a gRPC method by hand, see why an event or a cleanup did not happen, or when something fails to boot.
 ---
 
 # Local stack
@@ -93,18 +93,25 @@ reaches the next service in about a second and user -> house -> booking in two t
 pnpm events:status                                                     # pending, dead, oldest pending age per subscriber and type
 pnpm events:redrive --subscriber booking-service [--type ga.house.v1.HouseDeletedEvent]   # dead letters back to pending, fresh attempts
 pnpm events:replay --subscriber house-service --type ga.user.v1.UserDeletedEvent --since 2026-10-01T00:00:00Z   # backfill retained events
+pnpm events:drop --subscriber <workload> --type <fqn>                  # delete the rows of a pair the catalog no longer lists
 ```
 
 They run against the bus's own database (`apps/event-bus-service/.env`), print one line
-per change (keep it, it is the only record), and `replay` refuses a subscriber the catalog
-does not list for that type. Retention keeps delivered events for
-`EVENT_BUS_RETENTION_DAYS` (7); dead letters keep their event until redriven.
+per change (keep it, it is the only record), and check the catalog of the build they run
+from: `replay` and `redrive --type` refuse a pair it does not list (`redrive` without
+`--type` skips and counts those rows), `drop` refuses a pair it lists. Retention keeps
+delivered events for `EVENT_BUS_RETENTION_DAYS` (7, at most 21: consumers remember
+processed event ids for 30 days); dead letters keep their event until redriven.
 - **Lag** shows in `events:status` (bus side) and in the producer's `outbox` table: a row
   that stays has `last_error` and a future `available_at` (`ga-database` has the query).
 - **Dead letters**: a delivery is dead after `EVENT_BUS_MAX_ATTEMPTS` (10) leases, or at
   once for a deterministic failure; the consumer logs `dead-lettered <type> <id>: <reason>`.
-  Fix the cause, then `events:redrive`; `processed_events` makes a redrive of something
-  already applied a no-op.
+  Fix the cause, then `events:redrive`: the failed handler rolled back, so a redriven dead
+  letter runs once.
+- **Orphaned rows**: `events:status` marks `orphaned` the deliveries of a pair the catalog
+  no longer lists (a retired type, a subscriber moved to a v2 type or removed from a
+  topic). Nothing pulls, dead-letters or redrives them, and they keep their events from
+  retention: `pnpm events:drop --subscriber <name> --type <fqn>` deletes them.
 - **Shutdown**: relay and consumer stop claiming and wait for the in-flight round at most
   `EVENTS_DRAIN_MS` (5000). Keep `EVENTS_DRAIN_MS` + `SHUTDOWN_DELAY_MS` below PM2's
   `kill_timeout` (15000), or the process is killed mid-publish (harmless: the row is
@@ -226,3 +233,5 @@ same image as a release job.
 | `Invalid configuration: - EVENT_BUS_SERVICE_URL ...` with `pnpm dev`                               | its `.env` predates events: add `EVENT_BUS_SERVICE_URL=localhost:50050`                                                                                                     |
 | a cleanup never happens; producer logs `event ... not published ...: REJECTED EVENT_TYPE_UNKNOWN`  | the bus catalog lacks the type (or the bus runs an old build): add it to `topics.ts`, rebuild and restart `event-bus-service`; the row goes out on its own                  |
 | `pnpm events:status` shows dead deliveries                                                         | read the consumer's `dead-lettered ...` line, fix the cause, then `pnpm events:redrive --subscriber <name>`                                                                 |
+| `pnpm events:status` shows `orphaned` rows, or `events:redrive` reports skipped ones               | the catalog no longer lists that pair: restore the entry if it should, else `pnpm events:drop --subscriber <name> --type <fqn>` (retention then purges the events)          |
+| `Invalid configuration: - EVENT_BUS_RETENTION_DAYS ...`                                            | at most 21: consumers forget processed event ids after 30 days, so a longer retention would let `events:replay` run handlers twice                                          |
