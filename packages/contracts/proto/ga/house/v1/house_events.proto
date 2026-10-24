@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ga.house.v1;
+
+// Events house-service publishes through event-bus-service (ADR-0005). Each message
+// is the payload of one event type; ids, time and correlation travel in the envelope.
+
+// HouseDeletedEvent: a house was deleted. Aggregate id: the house id.
+// Subscribers: booking-service (cancels the house's open stays).
+message HouseDeletedEvent {
+  // Id of the deleted house.
+  string house_id = 1;
+  // Id of its owner (ga.user.v1.User) when it was deleted.
+  string owner_id = 2;
+}
