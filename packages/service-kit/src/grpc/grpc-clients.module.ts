@@ -16,6 +16,7 @@ import { CALLER_METADATA_KEY, PRINCIPAL_METADATA_KEY } from '../auth/tokens.ts';
 import { WorkloadIdentity } from '../auth/workload-identity.ts';
 import { CONFIG } from '../config/config.ts';
 import { currentRequestId, REQUEST_ID_KEY } from '../context/request-context.ts';
+import { DbContext } from '../database/db-context.ts';
 import { channelCredentials } from './tls.ts';
 
 export interface GrpcClientDefinition {
@@ -54,16 +55,32 @@ const SERVICE_CONFIG = JSON.stringify({
 const logger = new Logger('GrpcClients');
 
 /**
+ * A remote call made while a database transaction is open (ADR-0002). It would hold row
+ * locks for a network round trip, and the callee's effect cannot roll back with ours.
+ * Make the call before `UnitOfWork.run()`, or record an event and react to it instead.
+ */
+export class RemoteCallInTransactionError extends Error {
+  override readonly name = 'RemoteCallInTransactionError';
+
+  constructor(target: string) {
+    super(`remote call to ${target} inside an open transaction (ADR-0002)`);
+  }
+}
+
+/**
  * On every outbound call: a default deadline, the request id, a caller assertion signed
  * by this workload for `target`, and the principal of the current request (if any).
  * Identity metadata is never taken from the call site: anything set there is replaced.
+ * `inTransaction` refuses the call before anything is sent while a transaction is open.
  */
 export function outboundContextInterceptor(
   timeoutMs: number,
   target: string,
   identity: Pick<WorkloadIdentity, 'callerToken'>,
+  inTransaction: () => boolean = () => false,
 ): Interceptor {
   return (callOptions, nextCall) => {
+    if (inTransaction()) throw new RemoteCallInTransactionError(target);
     const options =
       callOptions.deadline === undefined
         ? { ...callOptions, deadline: Date.now() + timeoutMs }
@@ -119,7 +136,8 @@ class GrpcClientsLifecycle implements OnApplicationShutdown {
  *   await firstValueFrom(this.users.getUser({ id }))
  *
  * Every call gets a deadline, the current x-request-id, a caller assertion for `target`,
- * the current request's principal, and retries on UNAVAILABLE.
+ * the current request's principal, and retries on UNAVAILABLE. A call made inside
+ * `UnitOfWork.run()` fails with RemoteCallInTransactionError and is never sent.
  * Calls use TLS when the config has GRPC_TLS_CA_FILE (required for non-loopback targets).
  * Connections are lazy, so a service starts even when its dependencies are down.
  */
@@ -138,8 +156,12 @@ export class GrpcClientsModule {
       return [
         {
           provide: proxyToken,
-          inject: [CONFIG, WorkloadIdentity],
-          useFactory: (config: Record<string, unknown>, identity: WorkloadIdentity) => {
+          inject: [CONFIG, WorkloadIdentity, { token: DbContext, optional: true }],
+          useFactory: (
+            config: Record<string, unknown>,
+            identity: WorkloadIdentity,
+            db: DbContext | undefined,
+          ) => {
             const url = definition.url(config);
             const caFile = config.GRPC_TLS_CA_FILE;
             return ClientProxyFactory.create({
@@ -160,6 +182,7 @@ export class GrpcClientsModule {
                       definition.timeoutMs ?? DEFAULT_TIMEOUT_MS,
                       definition.target,
                       identity,
+                      () => db?.inTransaction() ?? false,
                     ),
                   ],
                 },

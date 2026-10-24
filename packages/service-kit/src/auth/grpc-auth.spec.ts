@@ -22,7 +22,7 @@ import { defineService } from '../platform/service-definition.ts';
 import { type GrpcTestClient, grpcError } from '../testing/grpc-test-client.ts';
 import { startTestService, type TestService } from '../testing/start-test-service.ts';
 import { Access } from './access.ts';
-import { currentActor, currentCaller } from './principal-context.ts';
+import { currentActor, currentCaller, currentEvent, currentService } from './principal-context.ts';
 import { CALLER_METADATA_KEY, PRINCIPAL_METADATA_KEY, PRINCIPAL_TOKEN_TYPE } from './tokens.ts';
 
 const USER = '01900000-0000-7000-8000-000000000001';
@@ -86,7 +86,9 @@ class InnerController implements UserServiceController {
 
   @Access.service(['house-service'])
   updateUser() {
-    return echo('updated');
+    const updated = echo('updated');
+    const event = currentEvent() === undefined ? 'no event' : 'event';
+    return { user: { ...updated.user, fullName: `${currentService().name}, ${event}` } };
   }
 
   @Access.public('kit test: world-readable')
@@ -339,7 +341,10 @@ describe('GrpcAuthGuard', () => {
 
   it('lets only listed workloads call service methods, as themselves', async () => {
     const updated = await users.updateUser({ id: USER }, await inner.asService('house-service'));
-    expect(updated.user).toMatchObject({ fullName: 'service', email: 'house-service@test' });
+    expect(updated.user).toMatchObject({
+      fullName: 'house-service, no event',
+      email: 'house-service@test',
+    });
     expect(
       await code(users.updateUser({ id: USER }, await inner.asService('booking-service'))),
     ).toEqual({

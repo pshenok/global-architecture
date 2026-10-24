@@ -8,10 +8,13 @@ export { PLATFORM_AUTH_FAULTS } from './auth/grpc-auth.guard.ts';
 export {
   currentActor,
   currentCaller,
+  currentEvent,
   currentIdentity,
   currentPrincipalToken,
+  currentService,
   currentUser,
   enterPrincipal,
+  type EventInfo,
   type IssuedPrincipal,
   principalFrom,
   type VerifiedCall,
@@ -61,6 +64,7 @@ export {
   GrpcClientsModule,
   grpcStatusOf,
   outboundContextInterceptor,
+  RemoteCallInTransactionError,
   toDependencyError,
 } from './grpc/grpc-clients.module.ts';
 export { GrpcErrorFilter } from './grpc/grpc-error.filter.ts';

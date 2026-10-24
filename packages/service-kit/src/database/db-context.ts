@@ -16,9 +16,17 @@ export class DbContext {
   get tx(): Database {
     return this.host.tx;
   }
+
+  /** True inside `UnitOfWork.run()`: what the outbox and the no-remote-calls guard check. */
+  inTransaction(): boolean {
+    return this.host.isTransactionActive();
+  }
 }
 
-/** UnitOfWork port backed by nestjs-cls transactions (nested calls become savepoints). */
+/**
+ * UnitOfWork port backed by nestjs-cls transactions. Nested run() calls join the outer
+ * transaction (Propagation.Required); there is no savepoint.
+ */
 @Injectable()
 export class DrizzleUnitOfWork extends UnitOfWork {
   constructor(private readonly host: TransactionHost<TransactionalAdapterDrizzleOrm<Database>>) {

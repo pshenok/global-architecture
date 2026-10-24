@@ -42,6 +42,20 @@ export function principalFrom(context: ExecutionContext): VerifiedCall | undefin
 const CLS_ACTOR = 'ga.auth.actor';
 const CLS_CALLER = 'ga.auth.caller';
 const CLS_PRINCIPAL_TOKEN = 'ga.auth.principalToken';
+const CLS_EVENT = 'ga.events.event';
+
+/** The event a handler is processing (ADR-0005); only the kit's EventConsumer sets it. */
+export interface EventInfo {
+  readonly id: string;
+  /** Fully-qualified payload message, e.g. `ga.house.v1.HouseDeletedEvent`. */
+  readonly type: string;
+  /** Workload that published it, as verified by event-bus-service. */
+  readonly producer: string;
+  readonly aggregateId: string;
+  readonly occurredAt: Date;
+  /** 1 on the first delivery, then one more per redelivery. */
+  readonly attempt: number;
+}
 
 /** Copies a verified call into the request context. Never throws (CLS setup must not). */
 export function enterVerifiedCall(cls: ClsService, call: VerifiedCall | undefined): void {
@@ -49,6 +63,15 @@ export function enterVerifiedCall(cls: ClsService, call: VerifiedCall | undefine
   cls.set(CLS_ACTOR, call.actor);
   cls.set(CLS_CALLER, call.caller);
   if (call.principalToken) cls.set(CLS_PRINCIPAL_TOKEN, call.principalToken);
+}
+
+/**
+ * For the kit's EventConsumer only (not exported from the package): a delivery runs as
+ * this service itself, with no caller and no principal to forward.
+ */
+export function enterEventDelivery(cls: ClsService, self: string, event: EventInfo): void {
+  cls.set(CLS_ACTOR, serviceActorOf(self));
+  cls.set(CLS_EVENT, Object.freeze({ ...event }));
 }
 
 function activeCls(): ClsService | undefined {
@@ -117,6 +140,24 @@ export function currentIdentity(): IdentityActor {
     throw new UnauthenticatedError('IDENTITY_REQUIRED', 'this operation requires an identity');
   }
   return actor;
+}
+
+/**
+ * The platform workload acting now: the caller of an `@Access.service` method, or this
+ * service itself while it handles an event. Throws UNAUTHENTICATED otherwise. Use cases
+ * that only workloads may run take it as their first argument.
+ */
+export function currentService(): ServiceActor {
+  const actor = currentActor();
+  if (actor.kind !== 'service') {
+    throw new UnauthenticatedError('SERVICE_REQUIRED', 'this operation requires a workload');
+  }
+  return actor;
+}
+
+/** The event being handled, inside an `@OnEvent` handler; undefined everywhere else. */
+export function currentEvent(): EventInfo | undefined {
+  return fromCls(CLS_EVENT) as EventInfo | undefined;
 }
 
 /** The workload that called the current RPC, if any. */
