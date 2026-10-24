@@ -90,14 +90,27 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
     of rotation; lag shows in logs and `pnpm events:status`;
   - the kit's view of the tables (`tables.ts`) and the definitions in the `ga-database`
     skill change together, with a migration in every service that copied them; the boot
-    check (`assertEventTables`) is what catches a drifted copy;
+    check (`assertEventTables`) covers only the tables, the kit's columns and
+    `processed_events`' unique key on `(subscription, event_id)`, not types, defaults or
+    other indexes, so review copies against the skill;
+  - one Pull carries at most 50 types (`MAX_PULL_TYPES`; `assertPullableTypes` fails boot
+    for a service with more `@OnEvent` types), and the bus's `PullRequestSchema` repeats
+    the 50: raise both together;
   - shutdown stays bounded: `EVENTS_DRAIN_MS` (max 14000) plus `SHUTDOWN_DELAY_MS` under
     the process manager's kill timeout.
-- `apps/event-bus-service`: the topic catalog (`src/domain/topics.ts`, CODEOWNERS) is the
-  ACL for event types. Storage sits behind the `EventBroker` port; a new backend is an
-  adapter that passes `test/event-broker.contract.ts` (`describeEventBroker`) and is bound
-  in `app.module.ts` by a literal switch, never a computed `import()` (check-access
-  refuses it). The bus must call no service; `check-call-graph` enforces it.
+- `apps/event-bus-service` (all of `src/` is CODEOWNERS-reviewed): the topic catalog
+  (`src/domain/topics.ts`) is the ACL for event types. Storage sits behind two ports,
+  `EventBroker` (delivery) and `EventBrokerAdmin` (the `events:*` commands and
+  retention); the catalog rules stay above them, in `EventBusService` and
+  `EventBusAdmin`. A new backend implements both ports, passes both contract suites
+  (`describeEventBroker` in `test/event-broker.contract.ts`, `describeEventBrokerAdmin`
+  in `test/event-broker-admin.contract.ts`) and is bound by a literal switch, never a
+  computed `import()` (check-access refuses it), in `app.module.ts` and in
+  `src/cli/bus.ts`, which builds its admin adapter without booting the service. What the
+  CLI imports uses erasable TypeScript only (no decorators or parameter properties), so
+  `node src/cli/bus.ts` runs it from source (with built workspace packages). The bus must
+  call no service; `check-call-graph` enforces it at lint time and `WorkloadIdentity` at
+  run time (below).
 - `templates/service`: after any change run `pnpm template:verify`; then apply the same
   change to existing services (they are generated copies, not linked to the template).
   Keep `SampleItem` naming so the generator's replacements still match, keep the five
@@ -168,17 +181,23 @@ verification (algorithms, claim checks, key handling), and run the auth suites:
   from the checker; review covers that, with run-time backstops.
   `GrpcClientsModule.register` works on frozen copies of its definitions, so a client
   signs only for the target that register() validated and the checker read, whatever its
-  `url()` does. The kit's `WorkloadIdentity` signs no caller assertion as
-  `event-bus-service` and every service refuses a call without one (`CALLER_MISSING`), so
-  the bus cannot call a service whatever code it contains.
+  `url()` does. The kit's `WorkloadIdentity` backs the bus rule from both ends: it signs
+  no caller assertion as `event-bus-service`, and every service refuses a caller
+  assertion that `event-bus-service` issued (`CALLER_INVALID`, public methods included),
+  even one signed with the bus's key directly. A call without an assertion fails with
+  `CALLER_MISSING`, and the bus holds only its own private key, so it cannot call a
+  service whatever code it contains (health checks and reflection, which change nothing,
+  answer anyone). Keep both halves and their tests (`workload-identity.spec.ts`,
+  `grpc-auth.spec.ts`).
 - `.github/CODEOWNERS` requires the platform owner's review for `security/`, the whole
-  service kit, the event catalog (`apps/event-bus-service/src/domain/topics.ts`), `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`,
-  `http/openapi.ts` and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and
-  `index.ts`, `tools/check-access.ts`, `check-call-graph.ts`, `lib.ts` and
-  `verify-template.ts`, and everything
-  that decides whether and how the guardrails run: package manifests, tsconfigs, `.swcrc`,
-  `vitest` configs, `turbo.json`, `pnpm-workspace.yaml`, every Biome and oxlint config,
-  the workflows and CODEOWNERS itself.
+  service kit, all of `apps/event-bus-service/src/` (it enforces the event catalog),
+  `apps/gateway/src/auth/`, the gateway's `bootstrap.ts`, `main.ts`, `http/openapi.ts`
+  and test harness, `packages/kernel/src/actor.ts`, `testing.ts` and `index.ts`,
+  `tools/check-access.ts`, `check-call-graph.ts` and its probes
+  (`apps/house-service/test/call-graph-probes/`), `lib.ts` and `verify-template.ts`, and
+  everything that decides whether and how the guardrails run: package manifests,
+  tsconfigs, `.swcrc`, `vitest` configs, `turbo.json`, `pnpm-workspace.yaml`, every Biome
+  and oxlint config, the workflows and CODEOWNERS itself.
 - Never add a switch that disables authentication or allows plaintext gRPC off loopback;
   ADR-0004 rejects both, because agents would use them.
 

@@ -203,9 +203,10 @@ fields. Rules:
   like) or edits the guardrails themselves; that is what CODEOWNERS review is for.
   `.github/CODEOWNERS` covers `security/`, the whole service kit, the gateway's auth code,
   its bootstrap, main and OpenAPI files and test harness, the kernel's actor, testing and
-  index files, the access check, and everything that decides whether and how the checks
-  run: package manifests, tsconfigs, `.swcrc`, `vitest` configs, `turbo.json`,
-  `pnpm-workspace.yaml`, Biome and oxlint configs, the workflows and itself.
+  index files, the access and call-graph checks and the call-graph probes, the event bus's
+  code (it enforces the topic catalog, ADR-0005), and everything that decides whether and
+  how the checks run: package manifests, tsconfigs, `.swcrc`, `vitest` configs,
+  `turbo.json`, `pnpm-workspace.yaml`, Biome and oxlint configs, the workflows and itself.
 - The template's gRPC spec starts every new service with five access tests (no user,
   another user, admin, a stranger's empty list, an unlisted forwarder).
 - The gateway turns a downstream `UNAUTHENTICATED`, and `PERMISSION_DENIED` with a

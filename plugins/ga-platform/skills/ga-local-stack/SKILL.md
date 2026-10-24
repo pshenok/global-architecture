@@ -20,11 +20,13 @@ pnpm test:e2e         # prove it works end to end
 `pnpm stack:up` creates what is missing in `.certs/` (git-ignored): the gateway's HTTPS
 certificate, a local gRPC CA with a server certificate for `localhost` (`pnpm certs`), and
 an Ed25519 key per workload plus the public key map (`pnpm keys`). PM2 runs every service
-(`event-bus-service` on 50050 included), the gateway and `dev-idp`, a local OIDC provider on `http://127.0.0.1:8090`
-(`services.json` `devIdp.port`) that signs any subject it is asked for; it listens on
-loopback only and refuses `NODE_ENV=production`. The command waits until every service is
-SERVING and the gateway's `/readyz` is 200 with `status: "ok"` (it reaches every service
-itself) and `identityProvider: "ok"` (its IdP keys are loaded), then prints the URLs: API `https://localhost:8443/v1/...`, docs
+(`event-bus-service` on 50050 included), the gateway and `dev-idp`, a local OIDC provider
+on `http://127.0.0.1:8090` (`services.json` `devIdp.port`) that signs any subject it is
+asked for; it listens on loopback only and refuses `NODE_ENV=production`. The command
+waits until every service is SERVING and the gateway's `/readyz` is 200 with
+`status: "ok"` (it probes the services it calls; `event-bus-service`, which it does not
+call, is covered by the stack's own SERVING check) and `identityProvider: "ok"` (its IdP
+keys are loaded), then prints the URLs: API `https://localhost:8443/v1/...`, docs
 `https://localhost:8443/docs`, each service's `grpcs://localhost:<port>`. Everything binds
 to 127.0.0.1, and gRPC runs TLS on every hop.
 
@@ -235,7 +237,7 @@ same image as a release job.
 | migration fails: `bookings has rows from before ADR-0004`                                          | dev data from before `host_id`: `pnpm db:setup --reset ga_booking --yes --adopt` (`--adopt`: that database predates the reset marker), then `pnpm stack:up`                 |
 | `Nest can't resolve dependencies of X (?, ...)`                                                    | a constructor class was imported with `import type`, or a circular import; see `ga-architecture`                                                                            |
 | `does not provide an export named ...` at startup                                                  | a type imported as a value; `pnpm build` runs `check-esm` to catch it                                                                                                       |
-| `EventsModule: table outbox is missing or differs` (or `processed_events`) at boot                 | migrations not applied (`pnpm stack:up`), or the table copy in `schema.ts` drifted from `ga-database`                                                                       |
+| `EventsModule: table outbox is missing or differs` (or `processed_events`) at boot                 | migrations not applied (`pnpm stack:up`), or the copy in `schema.ts` lacks a column the kit uses (see `ga-database`)                                                        |
 | `EventsModule: the service config lacks the events variables`                                      | spread `...eventsConfigSchema.shape` into the service's `ConfigSchema`                                                                                                      |
 | `Invalid configuration: - EVENT_BUS_SERVICE_URL ...` with `pnpm dev`                               | its `.env` predates events: add `EVENT_BUS_SERVICE_URL=localhost:50050`                                                                                                     |
 | a cleanup never happens; producer logs `event ... not published ...: REJECTED EVENT_TYPE_UNKNOWN`  | the bus catalog lacks the type (or the bus runs an old build): add it to `topics.ts`, rebuild and restart `event-bus-service`; the row goes out on its own                  |

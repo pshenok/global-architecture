@@ -165,4 +165,37 @@ describe('booking events', () => {
     expect((await statusOf(finished)).status).toBe('CONFIRMED');
     expect(await statusOf(cancelledBefore)).toEqual(asCancelled);
   });
+
+  it('dead-letters an event from an unexpected producer and changes nothing', async () => {
+    const stay = await insertStay(HOUSE_ID, 10, 12);
+    const before = await statusOf(stay);
+    const houseDeleted = { houseId: HOUSE_ID, ownerId: HOST_ID };
+    const userDeleted = { userId: GUEST_ID };
+
+    expect(
+      await deliverEvent(service.app, HOUSE_DELETED, houseDeleted, { producer: 'user-service' }),
+    ).toMatchObject({ dead: 'UNEXPECTED_PRODUCER' });
+    expect(
+      await deliverEvent(service.app, USER_DELETED, userDeleted, { producer: 'house-service' }),
+    ).toMatchObject({ dead: 'UNEXPECTED_PRODUCER' });
+    expect(await statusOf(stay)).toEqual(before);
+    // Refused before the dedupe insert: neither event id is spent.
+    expect((await db.pool.query('select 1 from processed_events')).rowCount).toBe(0);
+  });
+
+  it('skips a redelivered UserDeletedEvent', async () => {
+    const upcoming = await insertStay(HOUSE_ID, 10, 12);
+    const event = { userId: GUEST_ID };
+    const id = '01900000-0000-7000-8000-00000000e0b2';
+
+    expect(await deliverEvent(service.app, USER_DELETED, event, { id })).toBe('applied');
+    const asCancelled = await statusOf(upcoming);
+    expect(asCancelled.status).toBe('CANCELLED');
+    // Inserted after the first delivery: only a handler that ran again would cancel it.
+    const later = await insertStay(HOUSE_ID, 20, 22);
+    const asConfirmed = await statusOf(later);
+    expect(await deliverEvent(service.app, USER_DELETED, event, { id })).toBe('duplicate');
+    expect(await statusOf(upcoming)).toEqual(asCancelled);
+    expect(await statusOf(later)).toEqual(asConfirmed);
+  });
 });

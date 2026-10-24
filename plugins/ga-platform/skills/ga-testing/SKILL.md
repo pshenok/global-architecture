@@ -141,15 +141,27 @@ drive both by hand with the helpers from `@ga/service-kit/testing`.
 | `testDelivery(EVENT, payload, options)`                                                                  | a delivery as the bus would hand it out, to push into `FakeEventBus.queue`                                                                                          |
 
 Producer specs assert the outbox after the RPC (`recordedEvents`), including that a refused
-call recorded nothing (`apps/user-service/test/user-events.spec.ts`). Consumer specs call
-`deliverEvent` with the same `id` twice (`'applied'`, then `'duplicate'`, effect once),
-with a wrong `producer` (`{ dead: 'UNEXPECTED_PRODUCER' }`), and check what the handler
-changed (`apps/booking-service/test/booking-events.spec.ts`; data in the past goes in
-through `db.pool`). Handlers declare their descriptor privately; the spec declares its own
-copy with `defineEvent`. The kit's own behaviour (leases, backoff, dedupe races, failure
-classification, drain) is covered in `packages/service-kit/src/events/*.spec.ts`; the bus
-keeps `apps/event-bus-service/test/event-broker.contract.ts`, which every broker adapter
-must pass.
+call recorded nothing (`apps/user-service/test/user-events.spec.ts`,
+`apps/house-service/test/house-events.spec.ts`). Consumer specs check what the handler
+changed, plus two patterns (`apps/booking-service/test/booking-events.spec.ts` has both
+for each event it handles; `house-events.spec.ts` for `UserDeletedEvent`):
+- **Duplicate**: `deliverEvent` twice with the same `id` gives `'applied'`, then
+  `'duplicate'`. Before the second delivery add data the handler would change if it ran
+  again ("skips a redelivered UserDeletedEvent" inserts a new stay), so the test proves
+  the skip, not just an idempotent handler.
+- **Wrong producer**: `{ producer: '<another workload>' }` gives
+  `{ dead: 'UNEXPECTED_PRODUCER' }`, changes nothing and leaves `processed_events` empty,
+  since it is refused before the dedupe insert ("dead-letters an event from an unexpected
+  producer and changes nothing").
+
+Data in the past goes in through `db.pool` (`insertStay`). Handlers declare their
+descriptor privately; the spec declares its own copy with `defineEvent`. The kit's own
+behaviour (leases, backoff, dedupe races, failure classification, the 50-type limit,
+drain) is covered in `packages/service-kit/src/events/*.spec.ts`. The bus
+(`apps/event-bus-service/test/`) keeps two contract suites every backend must pass,
+`event-broker.contract.ts` (delivery) and `event-broker-admin.contract.ts` (the
+`events:*` commands and retention), run against Postgres by
+`postgres-event-broker.spec.ts`; `bus-admin.spec.ts` covers the commands' catalog rules.
 
 ## The five access tests (every service keeps them)
 

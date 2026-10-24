@@ -54,9 +54,12 @@ flowchart TB
   subgraph transport [transport/grpc]
     ctl[Controller\nZod request validation\nmappers]
   end
+  subgraph events [transport/events]
+    con["@OnEvent consumers\ncurrentService() to one use case"]
+  end
   subgraph application [application]
     uc[Use cases]
-    ports[Ports to other systems]
+    ports[Ports to other systems\nand event ports]
   end
   subgraph domain [domain]
     agg[Aggregates + invariants]
@@ -66,12 +69,15 @@ flowchart TB
   subgraph infrastructure [infrastructure]
     drz[Drizzle repositories]
     cli[gRPC client adapters]
+    obx[Outbox event adapters\nOutbox.add in the transaction]
   end
   ctl --> uc --> agg
+  con --> uc
   uc --> repo
   uc --> ports
   drz -. implements .-> repo
   cli -. implements .-> ports
+  obx -. implements .-> ports
 ```
 
 The composition root (`app.module.ts`) binds ports to adapters. Biome blocks framework
@@ -101,21 +107,21 @@ and persistence packages and relative imports of the wrong layers in `src/domain
 
 ## Cross-cutting conventions
 
-| Concern    | Convention                                                                  | Where                                                                         |
-| ---------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Errors     | `DomainError` kinds -> gRPC status + ErrorInfo/BadRequest -> RFC 9457       | ADR-0003, `@ga/kernel`, kit `GrpcErrorFilter`, gateway `ProblemDetailsFilter` |
-| Identity   | OIDC at the gateway; signed caller + principal per hop; `@Access` per RPC   | ADR-0004, kit `auth/`, gateway `auth/`, `security/public-endpoints.json`      |
-| Transport  | gRPC over TLS off loopback; host-name targets                               | kit `grpc/tls.ts`, `pnpm certs`                                               |
-| Ids        | UUIDv7 from `IdGenerator`                                                   | `@ga/kernel`, kit                                                             |
-| Pagination | keyset on id, opaque filter-bound tokens, max 100                           | `@ga/kernel`                                                                  |
-| Money      | integer minor units + ISO currency                                          | `@ga/kernel` `Money`, `ga.common.v1.Money`                                    |
-| Config     | Zod schema per process, fail fast at boot                                   | kit `parseConfig`                                                             |
-| Logging    | pino JSON, one line per RPC/request, request id on every line               | kit, nestjs-pino                                                              |
-| Tracing    | OpenTelemetry, enabled by `OTEL_EXPORTER_OTLP_ENDPOINT`                     | `@ga/service-kit/telemetry`                                                   |
-| Health     | `grpc.health.v1` per service (DB-aware); gateway `/healthz`, `/readyz`      | kit `HealthStatus`                                                            |
-| Shutdown   | NOT_SERVING -> optional drain delay -> graceful gRPC shutdown -> close pool | kit                                                                           |
-| Contracts  | one buf module, STANDARD lint, FILE breaking check, committed codegen       | `packages/contracts`                                                          |
-| Events     | outbox + relay, pull consumers deduped by event id, catalog as the ACL      | ADR-0005, kit `events/`, `apps/event-bus-service`                             |
+| Concern    | Convention                                                                                                                         | Where                                                                         |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Errors     | `DomainError` kinds -> gRPC status + ErrorInfo/BadRequest -> RFC 9457                                                              | ADR-0003, `@ga/kernel`, kit `GrpcErrorFilter`, gateway `ProblemDetailsFilter` |
+| Identity   | OIDC at the gateway; signed caller + principal per hop; `@Access` per RPC                                                          | ADR-0004, kit `auth/`, gateway `auth/`, `security/public-endpoints.json`      |
+| Transport  | gRPC over TLS off loopback; host-name targets                                                                                      | kit `grpc/tls.ts`, `pnpm certs`                                               |
+| Ids        | UUIDv7 from `IdGenerator`                                                                                                          | `@ga/kernel`, kit                                                             |
+| Pagination | keyset on id, opaque filter-bound tokens, max 100                                                                                  | `@ga/kernel`                                                                  |
+| Money      | integer minor units + ISO currency                                                                                                 | `@ga/kernel` `Money`, `ga.common.v1.Money`                                    |
+| Config     | Zod schema per process, fail fast at boot                                                                                          | kit `parseConfig`                                                             |
+| Logging    | pino JSON, one line per RPC/request, request id on every line                                                                      | kit, nestjs-pino                                                              |
+| Tracing    | OpenTelemetry, enabled by `OTEL_EXPORTER_OTLP_ENDPOINT`                                                                            | `@ga/service-kit/telemetry`                                                   |
+| Health     | `grpc.health.v1` per service (DB-aware); gateway `/healthz`, `/readyz`                                                             | kit `HealthStatus`                                                            |
+| Shutdown   | event drain (`EVENTS_DRAIN_MS`: relay and consumer) -> NOT_SERVING -> optional drain delay -> graceful gRPC shutdown -> close pool | kit                                                                           |
+| Contracts  | one buf module, STANDARD lint, FILE breaking check, committed codegen                                                              | `packages/contracts`                                                          |
+| Events     | outbox + relay, pull consumers deduped by event id, catalog as the ACL                                                             | ADR-0005, kit `events/`, `apps/event-bus-service`                             |
 
 ## Scaling to hundreds of services
 

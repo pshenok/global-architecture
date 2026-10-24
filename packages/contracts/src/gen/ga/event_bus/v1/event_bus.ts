@@ -163,8 +163,8 @@ export interface EventBusServiceClient {
   pull(request: PullRequest, metadata?: Metadata): Observable<PullResponse>;
 
   /**
-   * Ack settles processed deliveries of the caller. Unknown, foreign or expired receipts
-   * are ignored.
+   * Ack settles processed deliveries of the caller. Unknown, foreign or superseded
+   * receipts (the delivery was leased again, nacked or dead-lettered) are ignored.
    * Access: service (booking-service, house-service).
    * Errors: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED (CALLER_NOT_ALLOWED),
    * UNAVAILABLE.
@@ -216,8 +216,8 @@ export interface EventBusServiceController {
   pull(request: PullRequest, metadata?: Metadata): Promise<PullResponse> | Observable<PullResponse> | PullResponse;
 
   /**
-   * Ack settles processed deliveries of the caller. Unknown, foreign or expired receipts
-   * are ignored.
+   * Ack settles processed deliveries of the caller. Unknown, foreign or superseded
+   * receipts (the delivery was leased again, nacked or dead-lettered) are ignored.
    * Access: service (booking-service, house-service).
    * Errors: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED (CALLER_NOT_ALLOWED),
    * UNAVAILABLE.

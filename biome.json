@@ -126,6 +126,10 @@
                     "message": "The application layer depends on domain ports only, never on transport or persistence."
                   },
                   {
+                    "group": ["@ga/service-kit", "@ga/service-kit/*"],
+                    "message": "The application layer depends on ports: outbox adapters live in infrastructure/events, @OnEvent handlers in transport/events."
+                  },
+                  {
                     "group": ["**/infrastructure/**", "**/transport/**"],
                     "message": "The application layer depends on ports, never on adapters; bind adapters in app.module.ts."
                   }

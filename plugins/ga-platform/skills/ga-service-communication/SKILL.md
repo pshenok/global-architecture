@@ -264,19 +264,27 @@ export class HouseEventsConsumer {
 
 ### Registering a topic, a producer or a subscriber
 
-Three reviewed places, kept in agreement by a bus test and `check-access`:
-the catalog entry in `apps/event-bus-service/src/domain/topics.ts` (one producer, its
-subscribers), the `@Access.service([...])` lists in
+Every new type, producer or subscriber changes the catalog entry in
+`apps/event-bus-service/src/domain/topics.ts` (one producer, its subscribers). Only when
+a workload joins or leaves the bus do two more reviewed places change: the
+`@Access.service([...])` lists in
 `apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts` (Publish for
 producers; Pull, Ack and Nack for subscribers) and the same lists in
-`security/public-endpoints.json`. Until the catalog lists a type, the producer's relay
-keeps retrying it (logged as an error) and never drops it. Deploy the catalog before a
-consumer that handles a new type: Pull refuses the whole request (EVENT_TYPE_NOT_SUBSCRIBED)
-while any requested type does not list the consumer, so none of its events arrive. A new
-subscriber receives only events published after it is listed; `pnpm events:replay`
-backfills retained ones from the last 21 days. Retiring goes the other way round (a v1 type every subscriber
-replaced with v2, or a subscriber leaving a topic): when `pnpm events:status` shows
-nothing pending for the pair, deploy the consumer without its handler first, then remove
-the pair from the catalog and deploy the bus. Leftover rows show as `orphaned` in
-`events:status`; nothing pulls or redrives them and they keep their events from
-retention, so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.
+`security/public-endpoints.json`. A bus test and `check-access` keep the three in
+agreement. A service handles at most 50 event types: one Pull carries at most 50, and
+the kit fails boot with more.
+
+Until the catalog lists a type, the producer's relay keeps retrying it (logged as an
+error) and never drops it. Deploy the catalog before a consumer that handles a new type:
+Pull refuses the whole request (`EVENT_TYPE_NOT_SUBSCRIBED`) while any requested type
+does not list the consumer, so none of its events arrive. A new subscriber receives only
+events published after it is listed; `pnpm events:replay` backfills retained ones from
+the last 21 days.
+
+Retiring goes the other way round (a v1 type every subscriber replaced with v2, or a
+subscriber leaving a topic; the steps are also in `apps/event-bus-service/README.md`):
+when `pnpm events:status` shows nothing pending for the pair, deploy the consumer without
+its handler first, then remove the pair from the catalog (and the workload from the
+`@Access` lists if it leaves the bus) and deploy the bus. Leftover rows show as
+`orphaned` in `events:status`; nothing pulls or redrives them and they keep their events
+from retention, so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.

@@ -22,8 +22,8 @@ service EventBusService {
   // Errors: INVALID_ARGUMENT, PERMISSION_DENIED (CALLER_NOT_ALLOWED,
   // EVENT_TYPE_NOT_SUBSCRIBED), UNAUTHENTICATED, UNAVAILABLE.
   rpc Pull(PullRequest) returns (PullResponse);
-  // Ack settles processed deliveries of the caller. Unknown, foreign or expired receipts
-  // are ignored.
+  // Ack settles processed deliveries of the caller. Unknown, foreign or superseded
+  // receipts (the delivery was leased again, nacked or dead-lettered) are ignored.
   // Access: service (booking-service, house-service).
   // Errors: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED (CALLER_NOT_ALLOWED),
   // UNAVAILABLE.

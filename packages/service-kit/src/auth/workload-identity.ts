@@ -16,6 +16,7 @@ import {
   type PrincipalClaims,
   signCallerToken,
   signPrincipalToken,
+  TokenError,
   verifyCallerToken,
   verifyPrincipalToken,
 } from './tokens.ts';
@@ -42,8 +43,9 @@ const publishes = (map: WorkloadKeyMap, name: string, key: SigningKey): boolean 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * The event bus calls no service (ADR-0005 #4), so it never signs a caller assertion,
- * whatever code it runs; every service refuses a call without one (CALLER_MISSING).
+ * The event bus calls no service (ADR-0005 #4). Both ends enforce it: the kit signs no
+ * caller assertion as the bus, and every service refuses one the bus issued
+ * (CALLER_INVALID), even when its code signs with the bus's key directly.
  */
 const EVENT_BUS = 'event-bus-service';
 
@@ -153,9 +155,16 @@ export class WorkloadIdentity implements OnApplicationShutdown {
     return issuedPrincipal(token, actorFromClaims(claims));
   }
 
-  /** Returns the workload that signed a caller assertion addressed to this workload. */
-  verifyCaller(token: string | undefined): Promise<string> {
-    return verifyCallerToken(token, this.name, this.keySets);
+  /**
+   * Returns the workload that signed a caller assertion addressed to this workload.
+   * One the event bus signed is invalid: the bus calls nobody.
+   */
+  async verifyCaller(token: string | undefined): Promise<string> {
+    const caller = await verifyCallerToken(token, this.name, this.keySets);
+    if (caller === EVENT_BUS) {
+      throw new TokenError('invalid', `${EVENT_BUS} calls no service (ADR-0005)`);
+    }
+    return caller;
   }
 
   verifyPrincipal(token: string | undefined): Promise<PrincipalClaims> {

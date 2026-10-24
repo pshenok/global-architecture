@@ -16,7 +16,7 @@ the chassis reaches every service.
 | Path                      | What                                                                                                                                                                                                                                          | Package                                              |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `apps/<name>-service/`    | gRPC domain service, owns one Postgres database                                                                                                                                                                                               | `@ga/<name>-service`                                 |
-| `apps/event-bus-service/` | The platform's pub/sub service (ADR-0005): event catalog, `EventBroker` port, Postgres backend, `events:*` CLI                                                                                                                                | `@ga/event-bus-service`                              |
+| `apps/event-bus-service/` | The platform's pub/sub service (ADR-0005): event catalog, `EventBroker` and `EventBrokerAdmin` ports, Postgres backend, `events:*` CLI                                                                                                        | `@ga/event-bus-service`                              |
 | `apps/gateway/`           | HTTPS REST API (HTTP/2 + HTTP/1.1) -> gRPC; authenticates every request                                                                                                                                                                       | `@ga/gateway`                                        |
 | `packages/kernel/`        | Framework-free domain primitives: errors, actors, ports, Money, pagination                                                                                                                                                                    | `@ga/kernel`                                         |
 | `packages/contracts/`     | All `.proto` contracts (one buf module), generated TS, proto runtime                                                                                                                                                                          | `@ga/contracts`                                      |
@@ -86,7 +86,8 @@ Details and examples: the `ga-domain-logic` skill.
   react to what happened in another (a delete), the producer records an event with
   `Outbox.add` in the change's transaction and consumers handle it with `@OnEvent`,
   through `event-bus-service`, which calls nobody. `tools/check-call-graph.ts` (in
-  `pnpm lint`) enforces both.
+  `pnpm lint`) enforces the DAG and that the bus calls nobody; at run time every service
+  also refuses a call the bus signed.
 - **Invariants that involve concurrency live in Postgres** (unique, check, exclusion
   constraints) and are translated with `translateDbError`; check-then-insert is a race.
 - **Config** is a Zod schema in `src/config.ts`, validated at boot; add every new variable
@@ -135,7 +136,8 @@ Details: `ga-domain-logic` (rules), `ga-service-communication` (forwarding, `via
 | Data from another service                                 | a port in `application/ports`, adapter in `infrastructure/clients`                     | `ga-service-communication` |
 | Tell other services something happened (an event)         | a port in `application/ports`, outbox adapter in `infrastructure/events`               | `ga-service-communication` |
 | React to another service's event                          | an `@OnEvent` handler in `src/transport/events`                                        | `ga-service-communication` |
-| A new event type, producer or subscriber                  | `ga/<domain>/v1/<domain>_events.proto` + the catalog in `apps/event-bus-service`       | `ga-grpc-contracts`        |
+| A new event payload                                       | `ga/<domain>/v1/<domain>_events.proto`                                                 | `ga-grpc-contracts`        |
+| Register an event type, producer or subscriber            | `apps/event-bus-service/src/domain/topics.ts` (+ `@Access` lists if a workload joins)  | `ga-service-communication` |
 | A public REST endpoint                                    | `apps/gateway/src/<resource>/`                                                         | `ga-gateway-endpoint`      |
 | Tests                                                     | `*.spec.ts` next to code, `test/*.spec.ts` for gRPC + Postgres                         | `ga-testing`               |
 | Run / debug everything locally                            | `pnpm stack:up`                                                                        | `ga-local-stack`           |
@@ -146,7 +148,7 @@ Details: `ga-domain-logic` (rules), `ga-service-communication` (forwarding, `via
 
 ```bash
 pnpm install                 # Node 26 and pnpm 12 are downloaded automatically (devEngines)
-pnpm check                   # biome + check-access + oxlint + typecheck + tests
+pnpm check                   # biome + check-access + check-call-graph + oxlint + typecheck + tests
 pnpm build                   # SWC build of everything (turbo-cached)
 pnpm --filter @ga/user-service test
 pnpm stack:up                # whole system on PM2: https://localhost:8443/docs

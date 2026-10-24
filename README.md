@@ -62,7 +62,7 @@ login registers once (`POST /v1/users`). See ADR-0004 for who may do what.
 | Path                                                              |                                                                                                                                     |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/user-service`, `apps/house-service`, `apps/booking-service` | example domain services (users, listings, reservations)                                                                             |
-| `apps/event-bus-service`                                          | the platform's publish/subscribe service; the queue behind it is a pluggable adapter (Postgres today)                               |
+| `apps/event-bus-service`                                          | the platform's publish/subscribe service; the queue plugs in behind its `EventBroker` and `EventBrokerAdmin` ports (Postgres today) |
 | `apps/gateway`                                                    | public REST API -> gRPC, OpenAPI at `/openapi.json`, docs at `/docs`                                                                |
 | `packages/kernel`                                                 | domain primitives: errors, actors, ports, money, pagination                                                                         |
 | `packages/contracts`                                              | all `.proto` contracts (buf), generated TypeScript, proto runtime                                                                   |

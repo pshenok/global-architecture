@@ -245,9 +245,11 @@ export const processedEvents = pgTable(
 - Only the kit reads and writes them (`Outbox`, the relay, the consumer); repositories
   never touch them. Raw SQL in the kit never schema-qualifies them, so tests' per-schema
   `search_path` works.
-- `EventsModule` checks them at boot: a missing or drifted table, or `processed_events`
-  without its unique key on `(subscription, event_id)`, fails startup with "copy the event
-  tables from the ga-database skill into schema.ts and run db:generate".
+- `EventsModule` checks them at boot, but only that each table the enabled side needs
+  exists with the columns the kit uses and that `processed_events` has its unique key on
+  `(subscription, event_id)`; it does not compare types, defaults or other indexes, so
+  copy the definitions verbatim. A failure stops startup with "copy the event tables from
+  the ga-database skill into schema.ts and run db:generate".
 - The relay deletes published rows; a row that stays has `last_error` and a future
   `available_at`. The consumer purges `processed_events` older than 30 days, hourly.
 - Lag at a glance, in the producer's database:

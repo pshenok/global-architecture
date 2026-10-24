@@ -12,8 +12,9 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /**
- * Database schema of the event bus (source of truth for `pnpm db:generate`): the
- * PostgresEventBroker's store. Other backends keep the CLI's view of it (ADR-0005).
+ * Database schema of the event bus (source of truth for `pnpm db:generate`): the store of
+ * the Postgres backend, read and written only by PostgresEventBroker and
+ * PostgresEventBrokerAdmin. Another backend brings its own store (ADR-0005).
  */
 export const events = pgTable(
   'events',
@@ -71,3 +72,10 @@ export const deliveries = pgTable(
     check('deliveries_status_check', sql`${table.status} in ('PENDING', 'DEAD')`),
   ],
 );
+
+/**
+ * What writers store in deliveries.available_at to make a row leasable at once. The
+ * column keeps milliseconds and rounds now() to them, maybe up, so a pull within that
+ * millisecond would not see the row yet: truncate instead.
+ */
+export const leasableNow = sql`date_trunc('milliseconds', now())`;

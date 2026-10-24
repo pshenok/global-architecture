@@ -26,6 +26,8 @@ import { EVENTS_CONFIG } from './tokens.ts';
 
 /** Deliveries leased per pull; processed one after another. */
 export const CONSUMER_BATCH = 10;
+/** Event types one Pull may ask for (ga.event_bus.v1.PullRequest); the bus refuses more. */
+export const MAX_PULL_TYPES = 50;
 const PURGE_EVERY_MS = 60 * 60_000;
 /**
  * Days a consumer remembers a processed event id. Longer than event-bus-service's
@@ -41,6 +43,15 @@ export type DeliveryOutcome =
   | 'duplicate'
   | { readonly retry: string; readonly message: string }
   | { readonly dead: string; readonly message: string };
+
+/** Fails boot when one Pull cannot ask for every handled type: the bus would refuse every pull. */
+export function assertPullableTypes(types: readonly string[]): void {
+  if (types.length > MAX_PULL_TYPES) {
+    throw new Error(
+      `EventsModule: ${types.length} @OnEvent types, but one Pull asks for at most ${MAX_PULL_TYPES} (ga.event_bus.v1.PullRequest); raise the limit in event-bus-service and the kit together`,
+    );
+  }
+}
 
 interface Handler {
   readonly event: EventType<object>;
@@ -78,7 +89,10 @@ export class EventConsumer implements OnModuleInit, OnApplicationBootstrap, OnMo
     @Inject(EVENTS_CONFIG) private readonly config: EventsConfig,
   ) {}
 
-  /** Finds the handlers; fails boot on two handlers of one type or a payload that does not exist. */
+  /**
+   * Finds the handlers; fails boot on two handlers of one type, a payload that does not
+   * exist, or more types than one Pull asks for.
+   */
   onModuleInit(): void {
     for (const wrapper of this.discovery.getProviders()) {
       const instance: unknown = wrapper.instance;
@@ -103,6 +117,7 @@ export class EventConsumer implements OnModuleInit, OnApplicationBootstrap, OnMo
         });
       }
     }
+    assertPullableTypes([...this.handlers.keys()]);
     if (this.handlers.size === 0) {
       this.logger.warn('EventsModule consumes, but no provider has an @OnEvent handler');
     }

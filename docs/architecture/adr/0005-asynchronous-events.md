@@ -38,15 +38,20 @@ Constraints at the time of the decision:
    accepted and backs off the rest. It never drops a row: a refusal (for example an event
    type the bus catalog does not know yet) is retried with capped backoff and logged as an
    error until the catalog is deployed.
-4. **Pull delivery; the bus is a sink.** Consumers pull the event types they handle; the
-   bus calls no service, so no event flow adds a synchronous edge that could close a
+4. **Pull delivery; the bus is a sink.** Consumers pull the event types they handle (at
+   most 50 per service: one Pull carries at most 50, and the kit fails boot with more);
+   the bus calls no service, so no event flow adds a synchronous edge that could close a
    cycle. A pulled delivery is leased; an unsettled one returns when its lease ends.
    `check-call-graph` enforces the call graph at lint time, and `GrpcClientsModule.register`
    works on frozen copies of its definitions, so a client signs only for the target that
    register() validated and the checker read, whatever its `url()` does. At run time the
-   kit's `WorkloadIdentity` signs no caller assertion as event-bus-service and every
-   service refuses a call without one (`CALLER_MISSING`), so the bus cannot call a service
-   whatever code it contains.
+   kit's `WorkloadIdentity` enforces it from both ends: it signs no caller assertion as
+   event-bus-service, and every service refuses a caller assertion that event-bus-service
+   issued (`UNAUTHENTICATED` `CALLER_INVALID`, public methods included), even one the
+   bus's code signed with its key directly. A call without an assertion fails with
+   `CALLER_MISSING`, and the bus holds no other workload's private key, so the bus cannot
+   call a gRPC service whatever code it contains (health checks and reflection, which
+   change nothing, answer anyone).
 5. **Contracts.** The envelope (`ga.event_bus.v1.Event`) carries the event id (UUIDv7,
    the producer's outbox row id), the type (the payload's full protobuf name, which is
    also the topic), the aggregate id, the occur time, the request id and the W3C
@@ -78,14 +83,24 @@ Constraints at the time of the decision:
    to 300 s); other domain errors, undecodable payloads, unexpected producers and remote
    calls inside the handler's transaction are dead-lettered at once. After
    `EVENT_BUS_MAX_ATTEMPTS` (10) leases a delivery is dead, also when the consumer keeps
-   crashing without settling it. `pnpm events:status`,
-   `events:redrive` and `events:replay` (7 days of retention) operate dead letters and
-   backfills.
-9. **The queue behind one port.** Inside the bus, the `EventBroker` port (provision,
-   publish, pull, ack, nack) is the only code that touches storage. The first adapter is
-   Postgres (`events` and `deliveries` tables). NATS JetStream or Kafka is added as
-   another adapter bound by a literal switch on a config enum; every adapter must pass the
-   same broker contract test suite. Changing the backend redeploys the bus only.
+   crashing without settling it. `pnpm events:status` shows lag and dead letters;
+   `events:redrive` returns dead letters to pending, `events:replay` backfills, and
+   `events:drop` deletes the deliveries of a pair the catalog no longer lists. Delivered
+   events are kept for `EVENT_BUS_RETENTION_DAYS` (7, at most 21), and a replay queues
+   only events from the last 21 days, because consumers remember processed ids for 30.
+9. **The queue behind two ports.** Inside the bus, two ports are the only code that
+   touches storage: `EventBroker` (provision, publish, pull, ack, nack: delivery) and
+   `EventBrokerAdmin` (queues, redrive, replay, drop, purgeDelivered: the `events:*`
+   commands and retention). Adapters only store; the catalog rules sit above the ports, in
+   `EventBusService` (the RPCs) and `EventBusAdmin` (the commands), the same for every
+   backend. The first adapters are Postgres (`PostgresEventBroker`,
+   `PostgresEventBrokerAdmin`; `events` and `deliveries` tables). Another backend
+   implements both ports, passes both contract suites (`describeEventBroker` in
+   `test/event-broker.contract.ts`, `describeEventBrokerAdmin` in
+   `test/event-broker-admin.contract.ts`) and is bound by a literal switch on a config
+   enum, in `app.module.ts` and in the CLI (`src/cli/bus.ts`), which boots no service and
+   builds its admin adapter itself. Changing the backend redeploys the bus only. A sketch
+   for NATS JetStream and Kafka follows this list.
 10. **Operations.** Asynchronous parts register no health checks (a failing check would
     take a healthy API out of rotation); lag and dead letters show in logs and
     `events:status`. Relay and consumer stop claiming and drain in `onModuleDestroy`,
@@ -96,14 +111,63 @@ Constraints at the time of the decision:
     booking-service cancel the user's open stays as a guest. An open stay is a CONFIRMED
     booking whose check-out is after today (UTC); finished stays stay as history.
 
+### Sketch: NATS JetStream and Kafka behind the ports (not built)
+
+A sketch for a future adapter, not a tested design: check each point against the
+broker's documentation, and let the two contract suites decide.
+- **Provision.** JetStream: one stream with every event type as a subject (limits
+  retention), a dead-letter stream (`dead.<subscriber>.<type>`), and one durable pull
+  consumer per (subscriber, type) filtering the type and `to.<subscriber>.<type>` (where
+  redrives and replays for that subscriber go), with explicit acks and deliver-new, so a
+  new subscriber gets events from then on. Kafka: a topic per type, `to.` and `dead.`
+  topics per pair, and a share group (KIP-932) per pair starting at the latest offset.
+- **Publish dedupe.** JetStream dedupes `Nats-Msg-Id` (the event id) within the stream's
+  duplicate window; Kafka has no dedupe by id (the idempotent producer drops only its own
+  retries). Both need a small id store (event id -> digest of type, producer and payload)
+  to answer `duplicate` and `reused`.
+- **Pull and lease.** JetStream: a no-wait fetch of at most `max` from the pairs'
+  consumers, `AckWait` = `EVENT_BUS_LEASE_S`. Kafka: a share consumer's poll, with the
+  acquisition lock (`group.share.record.lock.duration.ms`) as the lease. In both the
+  delivery count is the attempt.
+- **Receipt and ack.** JetStream: the receipt is the message's ack subject, which any bus
+  replica can publish to; an ack from an earlier delivery must stay a no-op. Kafka: only
+  the consumer that acquired a record can accept it, so Ack and Nack must reach the bus
+  replica that served the Pull (the receipt names it), or each subscriber is pinned to one
+  replica.
+- **Nack with backoff.** JetStream: a nak with a delay of `retryDelayMs(attempt)`. Kafka:
+  a release redelivers at once, so a backoff needs a retry hop: accept, then produce a
+  copy to `to.<subscriber>.<type>` with a not-before time and the attempt in headers.
+- **Max attempts and dead letters.** JetStream: `MaxDeliver` = attempts + 1; a nack on
+  the last attempt or one asking for it, and a pulled message past the limit (its last
+  lease ran out), are copied to the dead-letter stream and terminated. Kafka: the same
+  cases produce to `dead.<subscriber>.<type>` and accept, before
+  `group.share.delivery.count.limit` (attempts + 1) archives the record. Either way a
+  dead letter keeps its own copy of the event.
+- **Retention.** Logs delete a prefix, not single events: `purgeDelivered` purges each
+  stream or partition below its lowest unsettled position and the age cutoff (JetStream
+  purge up to a sequence, Kafka `deleteRecords`). Age limits (`MaxAge`, `retention.ms`)
+  delete pending deliveries too, so only as a far backstop.
+- **Admin.** `queues`: pending from each consumer's or share group's unsettled count,
+  dead from the dead-letter subject (JetStream) or topic past a redrive cursor (Kafka),
+  the oldest pending time from the first unsettled message. `redrive`: copy dead letters to `to.<subscriber>.<type>` as new messages (fresh
+  attempts), then purge them or move the cursor. `replay`: read the type from `since`
+  (start time, `offsetsForTimes`) and copy to `to.<subscriber>.<type>`. `drop`: delete the
+  pair's consumer or share group and its dead letters.
+- **Gaps.** Neither broker knows which events a subscriber already holds, which `replay`
+  skips: the adapter keeps that index. The harnesses move time (`elapse`, `backdate`) that
+  these brokers stamp themselves, and the purge case deletes events out of publish order:
+  a log adapter needs its own clock and a log-shaped variant of that case. Stored events
+  do not move between backends: switch once `events:status` shows nothing pending.
+
 ## Consequences
 
 - Cleanup after deletes becomes eventual: about one second per hop locally, two to three
   seconds for user -> house -> booking. Lag and dead letters are observable, not silent.
 - Each event is written twice (producer outbox, bus storage) and crosses one extra hop;
   a bus outage only grows outbox backlogs and consumer lag, synchronous APIs keep working.
-- Every new producer or consumer edits three reviewed places: the topic catalog, the bus
-  method's `@Access.service` list and `security/public-endpoints.json`.
+- Every new event type, producer or subscriber edits the reviewed topic catalog; a
+  workload that joins or leaves the bus also edits the bus methods' `@Access.service`
+  lists and `security/public-endpoints.json`.
 - The bus is trusted like any broker: envelopes are not signed by producers, because
   workload public keys are pruned 120 s after rotation (ADR-0004) and events can be
   retried or redriven days later. Someone with write access to `ga_event_bus` could forge
@@ -128,7 +192,8 @@ Constraints at the time of the decision:
   Rejected.
 - **Kit-owned migrations for the event tables**: `runMigrations` and `createTestDatabase`
   apply one folder each; the two small tables are copied into each service's
-  `schema.ts` instead, checked at boot.
+  `schema.ts` instead. The boot check covers the tables, the kit's columns and
+  `processed_events`' unique key, not types, defaults or other indexes.
 - **Producer-signed envelopes, LISTEN/NOTIFY, long-poll, batch acks of offsets**:
   deferred; each can be added without breaking the contract.
 

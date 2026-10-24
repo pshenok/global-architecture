@@ -4,7 +4,8 @@ import { wellKnownProtobuf } from './wkt.ts';
 
 /**
  * Binary protobuf encoding of one message type, outside gRPC (e.g. event payloads).
- * Untyped on purpose: whoever decodes validates the object (a Zod schema) to get a type.
+ * Untyped on purpose: callers type the object (event handlers through defineEvent<T> and
+ * the generated interface). Decoding fills proto3 defaults and validates nothing more.
  */
 export interface MessageCodec {
   /** Fully-qualified message name, e.g. `ga.house.v1.HouseDeletedEvent`. */

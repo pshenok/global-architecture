@@ -36,10 +36,11 @@ export interface Subscription {
 export type PublishResult = 'accepted' | 'duplicate' | 'reused';
 
 /**
- * Where events wait for their subscribers: the one seam a queue plugs into (ADR-0005).
- * Every adapter passes the same contract suite (test/event-broker.contract.ts), so the
- * semantics stay those below whatever stores the events: at-least-once, one delivery
- * per subscriber, leases settled by receipt, retries with backoff, then a dead letter.
+ * Where events wait for their subscribers: with EventBrokerAdmin, the seam a queue plugs
+ * into (ADR-0005). Every adapter passes the same contract suite
+ * (test/event-broker.contract.ts), so the semantics stay those below whatever stores the
+ * events: at-least-once, one delivery per subscriber, leases settled by receipt, retries
+ * with backoff, then a dead letter.
  */
 export abstract class EventBroker {
   /** Creates what the backend needs for the catalog (Postgres: nothing). Called at boot. */

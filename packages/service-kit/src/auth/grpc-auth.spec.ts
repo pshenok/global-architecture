@@ -198,7 +198,7 @@ describe('GrpcAuthGuard', () => {
     inner = await startTestService({
       module: InnerModule,
       service: INNER,
-      callers: ['house-service', 'booking-service'],
+      callers: ['house-service', 'booking-service', 'event-bus-service'],
     });
     users = inner.client<UserServiceClient>('ga.user.v1.UserService');
   });
@@ -225,6 +225,15 @@ describe('GrpcAuthGuard', () => {
   it('rejects a caller assertion addressed to another service', async () => {
     const metadata = await callerAddressedTo(inner, 'booking-service', 'house-service');
     expect(await code(users.deleteUser({ id: USER }, metadata))).toEqual({
+      code: status.UNAUTHENTICATED,
+      reason: 'CALLER_INVALID',
+    });
+  });
+
+  it('rejects the event bus, which calls nobody, even on a public method', async () => {
+    // Signed with the bus's key directly, as code past the kit could (ADR-0005).
+    const bus = await inner.asService('event-bus-service');
+    expect(await code(users.deleteUser({ id: USER }, bus))).toEqual({
       code: status.UNAUTHENTICATED,
       reason: 'CALLER_INVALID',
     });

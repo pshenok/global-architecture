@@ -15,7 +15,8 @@ import type { Database } from '../database/tokens.ts';
 /*
  * The kit's view of the two event tables. Services own them: they copy the definitions
  * from the ga-database skill into their schema.ts, so their migrations create them.
- * assertEventTables checks at boot that the copy matches what the kit uses.
+ * assertEventTables checks at boot that the tables exist with the columns the kit uses,
+ * and processed_events' unique key; it does not compare types, defaults or other indexes.
  */
 
 /** Producer side: events committed with the change that caused them, until published. */
@@ -62,7 +63,10 @@ export const processedEvents = pgTable(
 const COPY_THEM =
   'copy the event tables from the ga-database skill into schema.ts and run db:generate';
 
-/** Fails boot when a table the enabled side needs is missing or differs from the kit's. */
+/**
+ * Fails boot when a table the enabled side needs is missing, lacks a column the kit uses,
+ * or (processed_events) has no unique key on (subscription, event_id).
+ */
 export async function assertEventTables(
   db: Database,
   sides: { readonly publish: boolean; readonly consume: boolean },

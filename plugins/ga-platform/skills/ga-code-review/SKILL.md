@@ -98,10 +98,13 @@ git status                                   # the gate must not leave changes b
   that belongs in the envelope (event id, time, request id).
 - [ ] Event names follow `ga.<domain>.v<N>.<Aggregate><PastFact>Event` in
   `<domain>_events.proto`; changes are additive, an incompatible one is a new `v2` type.
-- [ ] A new type, producer or subscriber edits all three reviewed places: the catalog in
-  `apps/event-bus-service/src/domain/topics.ts`, the bus controller's `@Access.service`
-  lists and `security/public-endpoints.json`. The producer's descriptor names the owner
-  the catalog names.
+- [ ] A new type, producer or subscriber always edits the catalog entry in
+  `apps/event-bus-service/src/domain/topics.ts`. The bus controller's `@Access.service`
+  lists and `security/public-endpoints.json` change only when a workload joins or leaves
+  the bus (a bus test fails while the three disagree). The producer's descriptor names
+  the owner the catalog names.
+- [ ] A service handles at most 50 event types: one Pull carries at most 50, and the kit
+  fails boot with more.
 - [ ] Tests: the producer's outbox after the RPC (and nothing after a refused call); the
   consumer's effect, a duplicate delivery and an unexpected producer (`deliverEvent`).
 

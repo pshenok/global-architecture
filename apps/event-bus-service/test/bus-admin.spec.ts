@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { SystemClock } from '@ga/service-kit';
 import {
   createTestDatabase,
   startTestService,
@@ -8,9 +9,11 @@ import {
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
+import { EventBusAdmin } from '../src/application/event-bus-admin.ts';
 import { EventBroker } from '../src/application/ports/event-broker.ts';
-import { drop, parseSince, redrive, replay, status } from '../src/cli/bus-admin.ts';
+import { parseSince } from '../src/cli/parse-since.ts';
 import { MAX_RETENTION_DAYS } from '../src/domain/retention.ts';
+import { PostgresEventBrokerAdmin } from '../src/infrastructure/persistence/postgres-event-broker-admin.ts';
 import { EventRetention } from '../src/infrastructure/retention.ts';
 import { SERVICE } from '../src/service.ts';
 import { busEvent } from './event-broker.contract.ts';
@@ -18,12 +21,12 @@ import { busEvent } from './event-broker.contract.ts';
 const HOUSE_DELETED = 'ga.house.v1.HouseDeletedEvent';
 const USER_DELETED = 'ga.user.v1.UserDeletedEvent';
 
-/** The operator commands and retention, against real Postgres. */
+/** The operator commands, built as the CLI builds them, and retention, against real Postgres. */
 describe('bus administration', () => {
   let db: TestDatabase;
   let service: TestService;
   let broker: EventBroker;
-  const orm = () => drizzle({ client: db.pool });
+  let admin: EventBusAdmin;
 
   beforeAll(async () => {
     db = await createTestDatabase({
@@ -35,6 +38,10 @@ describe('bus administration', () => {
       env: { DATABASE_URL: db.url, EVENT_BUS_RETENTION_DAYS: '7' },
     });
     broker = service.app.get(EventBroker);
+    admin = new EventBusAdmin(
+      new PostgresEventBrokerAdmin(drizzle({ client: db.pool })),
+      new SystemClock(),
+    );
   });
 
   afterAll(async () => {
@@ -69,10 +76,31 @@ describe('bus administration', () => {
     ]);
     await deadLetter('booking-service', HOUSE_DELETED);
     const listed = { orphaned: false };
-    expect((await status(orm())).map(({ oldestPendingS: _, ...row }) => row)).toEqual([
+    expect((await admin.status()).map(({ oldestPendingS: _, ...row }) => row)).toEqual([
       { ...listed, subscriber: 'booking-service', type: HOUSE_DELETED, pending: 1, dead: 1 },
       { ...listed, subscriber: 'booking-service', type: USER_DELETED, pending: 1, dead: 0 },
       { ...listed, subscriber: 'house-service', type: USER_DELETED, pending: 1, dead: 0 },
+    ]);
+  });
+
+  it('reports the age of the oldest pending delivery in seconds, 0 when none is pending', async () => {
+    const old = busEvent();
+    await broker.publish(old, ['booking-service']);
+    await broker.publish(busEvent({ type: USER_DELETED, producer: 'user-service' }), [
+      'booking-service',
+    ]);
+    await deadLetter('booking-service', USER_DELETED);
+    await db.pool.query(
+      `update events set published_at = now() - interval '1 hour' where id = $1`,
+      [old.id],
+    );
+    const ages = (await admin.status()).map(({ type, oldestPendingS }) => ({
+      type,
+      oldestPendingS,
+    }));
+    expect(ages).toEqual([
+      { type: HOUSE_DELETED, oldestPendingS: expect.closeTo(3600, -1) },
+      { type: USER_DELETED, oldestPendingS: 0 },
     ]);
   });
 
@@ -81,7 +109,7 @@ describe('bus administration', () => {
     await broker.publish(event, ['booking-service']);
     await orphan(event.id, 'DEAD');
     expect(
-      (await status(orm())).map(({ subscriber, type, orphaned }) => ({
+      (await admin.status()).map(({ subscriber, type, orphaned }) => ({
         subscriber,
         type,
         orphaned,
@@ -99,13 +127,13 @@ describe('bus administration', () => {
     ]);
     await deadLetter('booking-service', HOUSE_DELETED);
     await deadLetter('booking-service', USER_DELETED);
-    expect(await redrive(orm(), { subscriber: 'booking-service', type: HOUSE_DELETED })).toEqual({
+    expect(await admin.redrive({ subscriber: 'booking-service', type: HOUSE_DELETED })).toEqual({
       redriven: 1,
       skipped: 0,
     });
     const [again] = await broker.pull('booking-service', [HOUSE_DELETED, USER_DELETED], 10);
     expect(again).toMatchObject({ attempt: 1, event: { type: HOUSE_DELETED } });
-    expect(await redrive(orm(), { subscriber: 'booking-service' })).toEqual({
+    expect(await admin.redrive({ subscriber: 'booking-service' })).toEqual({
       redriven: 1,
       skipped: 0,
     });
@@ -120,12 +148,12 @@ describe('bus administration', () => {
     await deadLetter('house-service', USER_DELETED);
     await orphan(houseDeleted.id, 'DEAD');
     await expect(
-      redrive(orm(), { subscriber: 'house-service', type: HOUSE_DELETED }),
+      admin.redrive({ subscriber: 'house-service', type: HOUSE_DELETED }),
     ).rejects.toThrow(/does not list house-service/);
-    await expect(redrive(orm(), { subscriber: 'house-service', type: '' })).rejects.toThrow(
+    await expect(admin.redrive({ subscriber: 'house-service', type: '' })).rejects.toThrow(
       /does not list house-service/,
     );
-    expect(await redrive(orm(), { subscriber: 'house-service' })).toEqual({
+    expect(await admin.redrive({ subscriber: 'house-service' })).toEqual({
       redriven: 1,
       skipped: 1,
     });
@@ -151,12 +179,12 @@ describe('bus administration', () => {
     const retention = service.app.get(EventRetention);
     expect(await retention.purge()).toBe(0);
     await expect(
-      drop(orm(), { subscriber: 'booking-service', type: HOUSE_DELETED }),
+      admin.drop({ subscriber: 'booking-service', type: HOUSE_DELETED }),
     ).rejects.toThrow(/still lists booking-service/);
-    await expect(drop(orm(), { subscriber: 'house-service', type: USER_DELETED })).rejects.toThrow(
+    await expect(admin.drop({ subscriber: 'house-service', type: USER_DELETED })).rejects.toThrow(
       /still lists house-service/,
     );
-    expect(await drop(orm(), { subscriber: 'house-service', type: HOUSE_DELETED })).toBe(2);
+    expect(await admin.drop({ subscriber: 'house-service', type: HOUSE_DELETED })).toBe(2);
     expect(await retention.purge()).toBe(2);
     const left = await db.pool.query('select subscriber, type from deliveries');
     expect(left.rows).toEqual([{ subscriber: 'house-service', type: USER_DELETED }]);
@@ -167,12 +195,12 @@ describe('bus administration', () => {
     await broker.publish(old, ['booking-service']);
     const since = new Date(Date.now() - 60_000);
     const replayTo = (subscriber: string) =>
-      replay(orm(), { subscriber, type: USER_DELETED, since });
+      admin.replay({ subscriber, type: USER_DELETED, since });
     expect(await replayTo('house-service')).toEqual({ queued: 1, skipped: 0 });
     expect(await replayTo('house-service')).toEqual({ queued: 0, skipped: 0 });
     expect(await replayTo('booking-service')).toEqual({ queued: 0, skipped: 0 });
     await expect(
-      replay(orm(), { subscriber: 'house-service', type: HOUSE_DELETED, since }),
+      admin.replay({ subscriber: 'house-service', type: HOUSE_DELETED, since }),
     ).rejects.toThrow(/does not list house-service/);
     const [replayed] = await broker.pull('house-service', [USER_DELETED], 10);
     expect(replayed?.event.id).toBe(old.id);
@@ -200,8 +228,8 @@ describe('bus administration', () => {
     await age(recent.id, MAX_RETENTION_DAYS - 1);
     const since = new Date(Date.now() - 60 * 86_400_000);
     const target = { subscriber: 'house-service', type: USER_DELETED, since };
-    expect(await replay(orm(), target)).toEqual({ queued: 1, skipped: 1 });
-    expect(await replay(orm(), target)).toEqual({ queued: 0, skipped: 1 });
+    expect(await admin.replay(target)).toEqual({ queued: 1, skipped: 1 });
+    expect(await admin.replay(target)).toEqual({ queued: 0, skipped: 1 });
     const replayed = await broker.pull('house-service', [USER_DELETED], 10);
     expect(replayed.map((d) => d.event.id)).toEqual([recent.id]);
   });
@@ -221,9 +249,10 @@ describe('bus administration', () => {
     await age(inside.id, -1);
     await age(outside.id, 1);
     const since = new Date(0);
-    expect(await replay(orm(), { subscriber: 'house-service', type: USER_DELETED, since })).toEqual(
-      { queued: 1, skipped: 1 },
-    );
+    expect(await admin.replay({ subscriber: 'house-service', type: USER_DELETED, since })).toEqual({
+      queued: 1,
+      skipped: 1,
+    });
     const [queued] = await broker.pull('house-service', [USER_DELETED], 10);
     expect(queued?.event.id).toBe(inside.id);
   });
@@ -260,5 +289,22 @@ describe('bus administration', () => {
     expect(await service.app.get(EventRetention).purge()).toBe(1);
     const left = await db.pool.query('select id from events order by id');
     expect(left.rows.map((r) => r.id).sort()).toEqual([dead.id, recent.id].sort());
+  });
+
+  it('purges on one replica at a time', async () => {
+    await broker.publish(busEvent(), []);
+    await db.pool.query(`update events set published_at = now() - interval '8 days'`);
+    const otherReplica = await db.pool.connect();
+    try {
+      await otherReplica.query('begin');
+      await otherReplica.query(
+        `select pg_advisory_xact_lock(hashtext('event-bus:retention:' || current_schema()))`,
+      );
+      expect(await service.app.get(EventRetention).purge()).toBe(0);
+      await otherReplica.query('commit');
+    } finally {
+      otherReplica.release();
+    }
+    expect(await service.app.get(EventRetention).purge()).toBe(1);
   });
 });

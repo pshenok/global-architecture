@@ -11,7 +11,7 @@ import {
 } from '../../application/ports/event-broker.ts';
 import type { Config } from '../../config.ts';
 import { retryDelayMs } from '../../domain/retry.ts';
-import { deliveries, events } from './schema.ts';
+import { deliveries, events, leasableNow } from './schema.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -66,6 +66,7 @@ export class PostgresEventBroker extends EventBroker {
               eventId: event.id,
               type: event.type,
               status: 'PENDING' as const,
+              availableAt: leasableNow,
             })),
           );
         }

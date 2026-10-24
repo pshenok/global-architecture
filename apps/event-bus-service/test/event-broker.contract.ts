@@ -90,6 +90,17 @@ export function describeEventBroker(name: string, harness: () => BrokerHarness):
       expect((await pullOne()).attempt).toBe(1);
     });
 
+    it('leases at most `max` deliveries per pull', async () => {
+      for (let i = 0; i < 5; i += 1) await h.broker.publish(busEvent(), [BOOKING]);
+      const ids: string[] = [];
+      for (const expected of [2, 2, 1]) {
+        const batch = await h.broker.pull(BOOKING, [HOUSE_DELETED], 2);
+        expect(batch).toHaveLength(expected);
+        ids.push(...batch.map((d) => d.event.id));
+      }
+      expect(new Set(ids).size).toBe(5);
+    });
+
     it('removes a delivery acked with its current receipt', async () => {
       await h.broker.publish(busEvent(), [BOOKING]);
       await h.broker.ack(BOOKING, [(await pullOne()).receipt]);
@@ -165,13 +176,14 @@ export function describeEventBroker(name: string, harness: () => BrokerHarness):
       expect(await h.broker.pull(BOOKING, [HOUSE_DELETED], 10)).toEqual([]);
     });
 
-    it('never leases one delivery to two concurrent pulls', async () => {
+    it('never leases one delivery to two concurrent pulls, nor more than their max', async () => {
       const published = Array.from({ length: 20 }, () => busEvent());
       for (const event of published) await h.broker.publish(event, [BOOKING]);
-      const [a, b, c] = await Promise.all(
+      const batches = await Promise.all(
         [8, 8, 8].map((max) => h.broker.pull(BOOKING, [HOUSE_DELETED], max)),
       );
-      const ids = [...(a ?? []), ...(b ?? []), ...(c ?? [])].map((d) => d.event.id);
+      for (const batch of batches) expect(batch.length).toBeLessThanOrEqual(8);
+      const ids = batches.flat().map((d) => d.event.id);
       expect(ids).toHaveLength(20);
       expect(new Set(ids).size).toBe(20);
     });
