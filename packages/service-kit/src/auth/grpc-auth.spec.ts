@@ -22,7 +22,7 @@ import { defineService } from '../platform/service-definition.ts';
 import { type GrpcTestClient, grpcError } from '../testing/grpc-test-client.ts';
 import { startTestService, type TestService } from '../testing/start-test-service.ts';
 import { Access } from './access.ts';
-import { currentActor, currentCaller } from './principal-context.ts';
+import { currentActor, currentCaller, currentEvent, currentService } from './principal-context.ts';
 import { CALLER_METADATA_KEY, PRINCIPAL_METADATA_KEY, PRINCIPAL_TOKEN_TYPE } from './tokens.ts';
 
 const USER = '01900000-0000-7000-8000-000000000001';
@@ -86,7 +86,9 @@ class InnerController implements UserServiceController {
 
   @Access.service(['house-service'])
   updateUser() {
-    return echo('updated');
+    const updated = echo('updated');
+    const event = currentEvent() === undefined ? 'no event' : 'event';
+    return { user: { ...updated.user, fullName: `${currentService().name}, ${event}` } };
   }
 
   @Access.public('kit test: world-readable')
@@ -196,7 +198,7 @@ describe('GrpcAuthGuard', () => {
     inner = await startTestService({
       module: InnerModule,
       service: INNER,
-      callers: ['house-service', 'booking-service'],
+      callers: ['house-service', 'booking-service', 'event-bus-service'],
     });
     users = inner.client<UserServiceClient>('ga.user.v1.UserService');
   });
@@ -223,6 +225,15 @@ describe('GrpcAuthGuard', () => {
   it('rejects a caller assertion addressed to another service', async () => {
     const metadata = await callerAddressedTo(inner, 'booking-service', 'house-service');
     expect(await code(users.deleteUser({ id: USER }, metadata))).toEqual({
+      code: status.UNAUTHENTICATED,
+      reason: 'CALLER_INVALID',
+    });
+  });
+
+  it('rejects the event bus, which calls nobody, even on a public method', async () => {
+    // Signed with the bus's key directly, as code past the kit could (ADR-0005).
+    const bus = await inner.asService('event-bus-service');
+    expect(await code(users.deleteUser({ id: USER }, bus))).toEqual({
       code: status.UNAUTHENTICATED,
       reason: 'CALLER_INVALID',
     });
@@ -339,7 +350,10 @@ describe('GrpcAuthGuard', () => {
 
   it('lets only listed workloads call service methods, as themselves', async () => {
     const updated = await users.updateUser({ id: USER }, await inner.asService('house-service'));
-    expect(updated.user).toMatchObject({ fullName: 'service', email: 'house-service@test' });
+    expect(updated.user).toMatchObject({
+      fullName: 'house-service, no event',
+      email: 'house-service@test',
+    });
     expect(
       await code(users.updateUser({ id: USER }, await inner.asService('booking-service'))),
     ).toEqual({

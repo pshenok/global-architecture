@@ -16,6 +16,7 @@ import { Injectable } from '@nestjs/common';
 import { userAlreadyRegistered, userNotFound, userNotRegistered } from '../domain/user.errors.ts';
 import { UserRepository } from '../domain/user.repository.ts';
 import { User, type UserChanges } from '../domain/user.ts';
+import { UserEvents } from './ports/user-events.ts';
 
 /** Use cases of the user service. */
 @Injectable()
@@ -25,6 +26,7 @@ export class UserService {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly unitOfWork: UnitOfWork,
+    private readonly events: UserEvents,
   ) {}
 
   /**
@@ -97,12 +99,16 @@ export class UserService {
     });
   }
 
-  /** Deletes the account and its logins. Its houses and bookings stay (ADR-0005 cleanup). */
+  /**
+   * Deletes the account and its logins, and records UserDeletedEvent in the same
+   * transaction: other services clean up its houses and bookings asynchronously (ADR-0005).
+   */
   delete(actor: UserActor, id: string): Promise<void> {
     return this.unitOfWork.run(async () => {
       const user = await this.users.findById(id, { forUpdate: true });
       if (!user?.isVisibleTo(actor)) throw userNotFound(id);
       await this.users.delete(id);
+      await this.events.deleted(id);
     });
   }
 }

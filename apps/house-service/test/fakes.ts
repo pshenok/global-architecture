@@ -7,6 +7,7 @@ import {
   UnitOfWork,
   type UserActor,
 } from '@ga/kernel';
+import { HouseEvents } from '../src/application/ports/house-events.ts';
 import { UserDirectory } from '../src/application/ports/user-directory.ts';
 import { type HouseFilter, HouseRepository } from '../src/domain/house.repository.ts';
 import { House, type HouseState } from '../src/domain/house.ts';
@@ -85,6 +86,21 @@ export class InMemoryHouseRepository extends HouseRepository {
 
   async delete(id: string): Promise<boolean> {
     return this.rows.delete(id);
+  }
+
+  async deleteByOwner(ownerId: string): Promise<readonly House[]> {
+    const owned = [...this.rows.values()].filter((s) => s.ownerId === ownerId);
+    for (const state of owned) this.rows.delete(state.id);
+    return owned.map((s) => House.restore(s));
+  }
+}
+
+/** Records the events a use case raised, in order. */
+export class RecordingHouseEvents extends HouseEvents {
+  readonly deletedHouses: string[] = [];
+
+  async deleted(house: House): Promise<void> {
+    this.deletedHouses.push(house.id);
   }
 }
 

@@ -1,5 +1,5 @@
 import { NotFoundError, PermissionDeniedError, PreconditionFailedError } from '@ga/kernel';
-import { adminActor, userActor } from '@ga/kernel/testing';
+import { adminActor, serviceActor, userActor } from '@ga/kernel/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FakeUserDirectory,
@@ -8,6 +8,7 @@ import {
   InMemoryHouseRepository,
   OWNER_ID,
   PassThroughUnitOfWork,
+  RecordingHouseEvents,
   SequentialIds,
 } from '../../test/fakes.ts';
 import { HouseService } from './house.service.ts';
@@ -16,16 +17,19 @@ const owner = userActor(OWNER_ID);
 
 describe('HouseService', () => {
   let users: FakeUserDirectory;
+  let events: RecordingHouseEvents;
   let service: HouseService;
 
   beforeEach(() => {
     users = new FakeUserDirectory(new Set([OWNER_ID]));
+    events = new RecordingHouseEvents();
     service = new HouseService(
       new InMemoryHouseRepository(),
       users,
       new SequentialIds(),
       new FixedClock(),
       new PassThroughUnitOfWork(),
+      events,
     );
   });
 
@@ -74,7 +78,22 @@ describe('HouseService', () => {
     ).resolves.toMatchObject({
       maxGuests: 2,
     });
+    expect(events.deletedHouses).toEqual([]);
     await service.delete(owner, house.id);
     await expect(service.get(house.id)).rejects.toBeInstanceOf(NotFoundError);
+    expect(events.deletedHouses).toEqual([house.id]);
+  });
+
+  it("removes a gone owner's houses, each with its event, and nobody else's", async () => {
+    const first = await service.create(owner, houseInput());
+    const second = await service.create(owner, houseInput({ title: 'Garden flat' }));
+    const otherOwner = '01900000-0000-7000-8000-0000000000cc';
+    users.known.add(otherOwner);
+    const kept = await service.create(userActor(otherOwner), houseInput());
+    const workload = serviceActor('house-service');
+    expect(await service.removeAllOf(workload, OWNER_ID)).toBe(2);
+    expect(events.deletedHouses.sort()).toEqual([first.id, second.id].sort());
+    await expect(service.get(kept.id)).resolves.toBeDefined();
+    expect(await service.removeAllOf(workload, OWNER_ID)).toBe(0);
   });
 });

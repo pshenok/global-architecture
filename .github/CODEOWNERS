@@ -14,6 +14,8 @@
 /apps/gateway/src/http/openapi.ts @pshenok
 /apps/gateway/test/harness.ts @pshenok
 /tools/check-access.ts @pshenok
+/tools/check-call-graph.ts @pshenok
+/apps/house-service/test/call-graph-probes/ @pshenok
 /tools/lib.ts @pshenok
 /tools/verify-template.ts @pshenok
 /package.json @pshenok
@@ -36,3 +38,5 @@
 **/biome.jsonc @pshenok
 **/.oxlintrc* @pshenok
 **/oxlint.config.* @pshenok
+# The event bus enforces the topic catalog (ADR-0005).
+/apps/event-bus-service/src/ @pshenok

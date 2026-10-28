@@ -39,6 +39,23 @@ describe('workload key map', () => {
       /invalid/,
     ],
     ['broken JSON', '{', /not valid JSON/],
+    [
+      'one key under two workloads',
+      JSON.stringify({
+        workloads: { gateway: { keys: [key('a')] }, 'house-service': { keys: [key('b')] } },
+      }),
+      /gateway and house-service publish the same key/,
+    ],
+    [
+      'one kid under two workloads',
+      JSON.stringify({
+        workloads: {
+          gateway: { keys: [key('a')] },
+          'house-service': { keys: [key('a', { x: 'B'.repeat(43) })] },
+        },
+      }),
+      /publish the same key/,
+    ],
   ])('rejects %s', (_name, text, message) => {
     expect(() => parseWorkloadKeyMap(text, 'test')).toThrow(message);
   });

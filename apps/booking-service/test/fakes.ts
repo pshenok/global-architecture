@@ -18,6 +18,7 @@ export const GUEST_ID = '01900000-0000-7000-8000-0000000000a1';
 export const HOST_ID = '01900000-0000-7000-8000-0000000000c1';
 export const STRANGER_ID = '01900000-0000-7000-8000-0000000000d1';
 export const HOUSE_ID = '01900000-0000-7000-8000-0000000000b1';
+export const OTHER_HOUSE = '01900000-0000-7000-8000-0000000000b2';
 export const TERMS: HouseTerms = {
   maxGuests: 4,
   nightlyPrice: { currencyCode: 'USD', amountMinor: 10_000 },
@@ -112,5 +113,20 @@ export class InMemoryBookingRepository extends BookingRepository {
 
   async update(booking: Booking): Promise<void> {
     this.rows.set(booking.id, booking.toState());
+  }
+
+  async cancelOpenStays(
+    of: { readonly houseId: string } | { readonly guestId: string },
+    cutoff: string,
+    at: Date,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const state of this.rows.values()) {
+      const matches = 'houseId' in of ? state.houseId === of.houseId : state.guestId === of.guestId;
+      if (!matches || state.status !== 'CONFIRMED' || state.checkOut <= cutoff) continue;
+      this.rows.set(state.id, { ...state, status: 'CANCELLED', cancelledAt: at, updatedAt: at });
+      cancelled += 1;
+    }
+    return cancelled;
   }
 }

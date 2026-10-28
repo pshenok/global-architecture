@@ -8,9 +8,12 @@ export { PLATFORM_AUTH_FAULTS } from './auth/grpc-auth.guard.ts';
 export {
   currentActor,
   currentCaller,
+  currentEvent,
   currentIdentity,
   currentPrincipalToken,
+  currentService,
   currentUser,
+  type EventInfo,
   enterPrincipal,
   type IssuedPrincipal,
   principalFrom,
@@ -50,6 +53,12 @@ export { DbContext, DrizzleUnitOfWork } from './database/db-context.ts';
 export { type RunMigrationsOptions, runMigrations } from './database/migrate.ts';
 export { PG_ERROR, type PgErrorInfo, pgErrorInfo, translateDbError } from './database/pg-errors.ts';
 export { type Database, DRIZZLE, PG_POOL } from './database/tokens.ts';
+export { type EventsConfig, eventsConfigSchema } from './events/config.ts';
+export { PROCESSED_EVENTS_KEPT_DAYS } from './events/event-consumer.ts';
+export { defineEvent, type EventType } from './events/event-type.ts';
+export { EventsModule, type EventsModuleOptions } from './events/events.module.ts';
+export { OnEvent } from './events/on-event.ts';
+export { Outbox } from './events/outbox.ts';
 export {
   type BootstrapGrpcOptions,
   bootstrapGrpcService,
@@ -61,6 +70,7 @@ export {
   GrpcClientsModule,
   grpcStatusOf,
   outboundContextInterceptor,
+  RemoteCallInTransactionError,
   toDependencyError,
 } from './grpc/grpc-clients.module.ts';
 export { GrpcErrorFilter } from './grpc/grpc-error.filter.ts';

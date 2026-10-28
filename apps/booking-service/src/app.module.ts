@@ -1,4 +1,4 @@
-import { GrpcPlatformModule } from '@ga/service-kit';
+import { EventsModule, GrpcPlatformModule } from '@ga/service-kit';
 import { Module } from '@nestjs/common';
 import { BookingService } from './application/booking.service.ts';
 import { HouseCatalog } from './application/ports/house-catalog.ts';
@@ -11,6 +11,8 @@ import { HouseServiceClientModule } from './infrastructure/clients/house-service
 import { UserServiceClientModule } from './infrastructure/clients/user-service.client.ts';
 import { DrizzleBookingRepository } from './infrastructure/persistence/drizzle-booking.repository.ts';
 import { SERVICE } from './service.ts';
+import { HouseEventsConsumer } from './transport/events/house-events.consumer.ts';
+import { UserEventsConsumer } from './transport/events/user-events.consumer.ts';
 import { BookingGrpcController } from './transport/grpc/booking.grpc-controller.ts';
 
 /** Composition root: the only place where ports are bound to adapters. */
@@ -19,6 +21,7 @@ import { BookingGrpcController } from './transport/grpc/booking.grpc-controller.
     GrpcPlatformModule.forRoot({ service: SERVICE, config: ConfigSchema }),
     UserServiceClientModule,
     HouseServiceClientModule,
+    EventsModule.forRoot({ consume: true }),
   ],
   controllers: [BookingGrpcController],
   providers: [
@@ -26,6 +29,8 @@ import { BookingGrpcController } from './transport/grpc/booking.grpc-controller.
     { provide: BookingRepository, useClass: DrizzleBookingRepository },
     { provide: UserDirectory, useClass: GrpcUserDirectory },
     { provide: HouseCatalog, useClass: GrpcHouseCatalog },
+    HouseEventsConsumer,
+    UserEventsConsumer,
   ],
 })
 export class AppModule {}

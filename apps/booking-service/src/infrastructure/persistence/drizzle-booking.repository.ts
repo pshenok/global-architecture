@@ -1,7 +1,7 @@
 import { type Page, type PageRequest, toPage } from '@ga/kernel';
 import { DbContext, translateDbError } from '@ga/service-kit';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, lt } from 'drizzle-orm';
 import { datesUnavailable } from '../../domain/booking.errors.ts';
 import { type BookingFilter, BookingRepository } from '../../domain/booking.repository.ts';
 import { Booking } from '../../domain/booking.ts';
@@ -81,5 +81,25 @@ export class DrizzleBookingRepository extends BookingRepository {
   async update(booking: Booking): Promise<void> {
     const { id, ...row } = toRow(booking);
     await this.db.tx.update(bookings).set(row).where(eq(bookings.id, id));
+  }
+
+  /** One statement on bookings_house_id_id_idx or bookings_guest_id_id_idx. */
+  async cancelOpenStays(
+    of: { readonly houseId: string } | { readonly guestId: string },
+    cutoff: string,
+    at: Date,
+  ): Promise<number> {
+    const rows = await this.db.tx
+      .update(bookings)
+      .set({ status: 'CANCELLED', cancelledAt: at, updatedAt: at })
+      .where(
+        and(
+          'houseId' in of ? eq(bookings.houseId, of.houseId) : eq(bookings.guestId, of.guestId),
+          eq(bookings.status, 'CONFIRMED'),
+          gt(bookings.checkOut, cutoff),
+        ),
+      )
+      .returning({ id: bookings.id });
+    return rows.length;
   }
 }

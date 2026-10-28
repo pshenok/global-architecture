@@ -76,10 +76,19 @@ export function parseWorkloadKeyMap(text: string, source: string): WorkloadKeyMa
   const parsed = KeyMap.safeParse(json);
   if (!parsed.success) throw new Error(`${source} is invalid: ${describe(parsed.error)}`);
   const map = new Map<string, readonly PublicWorkloadJwk[]>();
+  // A key (or kid) published under two workloads would let one sign as the other.
+  const owners = new Map<string, string>();
   for (const [name, { keys }] of Object.entries(parsed.data.workloads)) {
     const kids = new Set(keys.map((key) => key.kid));
     if (kids.size !== keys.length)
       throw new Error(`${source}: workload ${name} has duplicate kids`);
+    for (const id of new Set(keys.flatMap((key) => [`x:${key.x}`, `kid:${key.kid}`]))) {
+      const owner = owners.get(id);
+      if (owner !== undefined && owner !== name) {
+        throw new Error(`${source}: workloads ${owner} and ${name} publish the same key`);
+      }
+      owners.set(id, name);
+    }
     map.set(name, Object.freeze(keys.map((key) => Object.freeze({ ...key }))));
   }
   return map;

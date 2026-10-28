@@ -1,7 +1,7 @@
 ---
 
 name: ga-testing
-description: Testing strategy and helpers of global-architecture - Vitest 5 with SWC, domain unit tests, use-case tests with in-memory fakes and test actors (@ga/kernel/testing), gRPC + real Postgres integration tests via @ga/service-kit/testing (createTestDatabase, startTestService with as/asIdentity/asService/anonymous/callers/keys, createGrpcTestClient, grpcError), the five mandatory access tests, provider overrides, gateway tests with a test identity provider and fake clients, the end-to-end suite and concurrency tests. Use it whenever you write, fix or review tests, when a change needs verification, when a test is flaky or slow, when a test fails with UNAUTHENTICATED or PERMISSION_DENIED, or when someone asks "how do I test this" in any service or the gateway.
+description: Testing strategy and helpers of global-architecture - Vitest 5 with SWC, domain unit tests, use-case tests with in-memory fakes and test actors (@ga/kernel/testing), gRPC + real Postgres integration tests via @ga/service-kit/testing (createTestDatabase, startTestService with as/asIdentity/asService/anonymous/callers/keys, createGrpcTestClient, grpcError), event tests (FakeEventBus, flushOutbox, deliverEvent, recordedEvents, eventually in e2e), the five mandatory access tests, provider overrides, gateway tests with a test identity provider and fake clients, the end-to-end suite and concurrency tests. Use it whenever you write, fix or review tests, when a change needs verification, when a test is flaky or slow, when a test fails with UNAUTHENTICATED or PERMISSION_DENIED, or when someone asks "how do I test this" in any service or the gateway.
 ---
 
 # Testing
@@ -55,7 +55,9 @@ Fakes implement the same abstract port and the **same contract** as the real ada
 including its failure modes (the in-memory booking repository rejects overlaps like the
 exclusion constraint does, and filters by the scope like the SQL does). A fake that is
 more permissive than production hides bugs. `SequentialIds` yields sortable UUID-shaped
-ids so pagination behaves like UUIDv7. With a `FixedClock`, build dates relative to the
+ids so pagination behaves like UUIDv7. Event ports get a recording fake
+(`RecordingHouseEvents`, `RecordingUserEvents`): assert the events a use case recorded, and
+that a refused one recorded none. With a `FixedClock`, build dates relative to the
 clock (`day(30, clock.now())` from `test/fakes.ts`), never relative to the real date, or
 "in the past" rules flip silently.
 
@@ -124,6 +126,43 @@ it('books a stay', async () => {
   instance without the port override and with `X_SERVICE_URL: '127.0.0.1:1'`: calls fail
   with `UNAVAILABLE` and reason `<DEP>_SERVICE_UNAVAILABLE`.
 
+## Events (ADR-0005)
+
+`startTestService` sets `EVENTS_AUTOSTART=false` and `EVENT_BUS_SERVICE_URL=127.0.0.1:1`
+(before `env`, so a spec can override them): no relay or consumer loop runs, and tests
+drive both by hand with the helpers from `@ga/service-kit/testing`.
+
+| Helper                                                                                                   | Use                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordedEvents(db.pool, EVENT)`                                                                         | outbox rows of one type, oldest first, `{ id, aggregateId, payload, requestId }` with the payload decoded: what a use case recorded                                 |
+| `new FakeEventBus()` + `overrideProvider(EventBusClient).useValue(bus)`                                  | in-memory bus: `published`, `acked`, `nacked`, `pulls`, `queue`; `respond(fn)` scripts outcomes, `failNext(error)`, `hold()` keeps Publish in flight until released |
+| `flushOutbox(app)`                                                                                       | one relay round (claim, one Publish, settle); returns the rows claimed                                                                                              |
+| `deliverEvent(app, EVENT, payload, { id?, producer?, attempt?, requestId?, aggregateId?, rawPayload? })` | runs the service's handler exactly as the consumer does; returns `'applied'`, `'duplicate'`, `{ retry, message }` or `{ dead, message }`                            |
+| `testDelivery(EVENT, payload, options)`                                                                  | a delivery as the bus would hand it out, to push into `FakeEventBus.queue`                                                                                          |
+
+Producer specs assert the outbox after the RPC (`recordedEvents`), including that a refused
+call recorded nothing (`apps/user-service/test/user-events.spec.ts`,
+`apps/house-service/test/house-events.spec.ts`). Consumer specs check what the handler
+changed, plus two patterns (`apps/booking-service/test/booking-events.spec.ts` has both
+for each event it handles; `house-events.spec.ts` for `UserDeletedEvent`):
+- **Duplicate**: `deliverEvent` twice with the same `id` gives `'applied'`, then
+  `'duplicate'`. Before the second delivery add data the handler would change if it ran
+  again ("skips a redelivered UserDeletedEvent" inserts a new stay), so the test proves
+  the skip, not just an idempotent handler.
+- **Wrong producer**: `{ producer: '<another workload>' }` gives
+  `{ dead: 'UNEXPECTED_PRODUCER' }`, changes nothing and leaves `processed_events` empty,
+  since it is refused before the dedupe insert ("dead-letters an event from an unexpected
+  producer and changes nothing").
+
+Data in the past goes in through `db.pool` (`insertStay`). Handlers declare their
+descriptor privately; the spec declares its own copy with `defineEvent`. The kit's own
+behaviour (leases, backoff, dedupe races, failure classification, the 50-type limit,
+drain) is covered in `packages/service-kit/src/events/*.spec.ts`. The bus
+(`apps/event-bus-service/test/`) keeps two contract suites every backend must pass,
+`event-broker.contract.ts` (delivery) and `event-broker-admin.contract.ts` (the
+`events:*` commands and retention), run against Postgres by
+`postgres-event-broker.spec.ts`; `bus-admin.spec.ts` covers the commands' catalog rules.
+
 ## The five access tests (every service keeps them)
 
 `templates/service/test/sample-item.grpc.spec.ts` ships them in a `describe('access')`
@@ -139,6 +178,12 @@ block; a generated service adapts them to its resources and never deletes them:
    `INVALID_ARGUMENT`.
 5. **An unlisted forwarder** (`service.as(OWNER, { caller: 'other-service' })` with
    `callers: ['other-service']`) is `PERMISSION_DENIED` with reason `CALLER_NOT_ALLOWED`.
+
+A service whose API is only for workloads (`@Access.service`, like event-bus-service)
+adapts them: the gateway's anonymous call, an admin user and an unlisted workload all get
+`PERMISSION_DENIED`; a listed workload acting outside its share (publishing another
+producer's type, pulling a type it does not subscribe to, settling another subscriber's
+receipt) is refused or changes nothing (`apps/event-bus-service/test/event-bus.grpc.spec.ts`).
 
 When a method lists forwarders in `via`, also prove that a listed one gets through.
 Build lists of failing calls as **thunks**, so each call starts when it is awaited: an
@@ -200,8 +245,11 @@ add its URL to `TEST_ENV`.
 `pnpm users:grant-role` (call it right after `signUp`, before the session's next request:
 the gateway caches roles per login); `idpToken(sub, options)`, `bearer(token)` and
 `api(...)` send raw requests. `tests/e2e/grpc.ts` signs caller and principal tokens with
-the local keys, so `access.e2e.spec.ts` can prove that services refuse calls that do not
-come from the platform.
+the local keys, so `access.e2e.spec.ts` can prove that services (the event bus included)
+refuse calls that do not come from the platform. `events.e2e.spec.ts` deletes a house, a
+guest and a host and waits for the bookings to be cancelled with
+`eventually(check, { timeoutMs = 15_000, intervalMs = 200 })`. Never `Pull` as a real
+consumer in e2e: it would steal live deliveries.
 
 ## Conventions and pitfalls
 
@@ -214,7 +262,11 @@ come from the platform.
 - Flows that need data in the past (a finished stay) cannot be produced through the
   running stack (bookings in the past are rejected); cover their happy path in the
   integration layer with fakes behind the port, and their error paths end to end.
-- Never use `setTimeout`-based waits for async results; await the call.
+- Never use `setTimeout`-based waits for async results; await the call. The one
+  sanctioned wait is `eventually()` in `tests/e2e`, polling with a deadline for the
+  eventually consistent effects of events. Unit and integration tests use deferred
+  promises instead (`FakeEventBus.hold()`, a handler gate, `expect.poll` on a row) and
+  move lease and backoff times by updating `available_at` through `db.pool`.
 - Never point tests at a service's real database or at the PM2 stack (except `tests/e2e`).
 - `@ga/kernel/testing` and `@ga/service-kit/testing` are for tests and local tools only;
   `pnpm lint` rejects them in production code.

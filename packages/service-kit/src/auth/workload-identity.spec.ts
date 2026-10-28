@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { calculateJwkThumbprint, exportJWK, generateKeyPair } from 'jose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestWorkloadKeys, type TestWorkloadKeys } from '../testing/workload-keys.ts';
-import { signCallerToken } from './tokens.ts';
+import { signCallerToken, TokenError } from './tokens.ts';
 import { WorkloadIdentity } from './workload-identity.ts';
 import { parseSigningKey } from './workload-keys.ts';
 
@@ -58,5 +58,72 @@ describe('WorkloadIdentity.load', () => {
     const token = await signCallerToken(rotated, 'house-service', 'gateway');
     await expect(gateway.verifyCaller(token)).resolves.toBe('house-service');
     gateway.onApplicationShutdown();
+  });
+});
+
+describe('WorkloadIdentity.callerToken', () => {
+  let keys: TestWorkloadKeys;
+  const load = (name: string) =>
+    WorkloadIdentity.load(name, {
+      ...keys.env(name),
+      WORKLOAD_KEYS_RELOAD_S: 3600,
+      PRINCIPAL_ISSUERS: ['gateway'],
+    });
+
+  beforeAll(async () => {
+    keys = await createTestWorkloadKeys(['event-bus-service', 'house-service']);
+  });
+  afterAll(() => keys.dispose());
+
+  it('signs nothing for event-bus-service, which calls nobody (ADR-0005)', async () => {
+    const bus = await load('event-bus-service');
+    const house = await load('house-service');
+    try {
+      await expect(bus.callerToken('house-service')).rejects.toThrow(
+        'event-bus-service calls no service (ADR-0005)',
+      );
+      // Calls to the bus are signed and verified as before.
+      await expect(bus.verifyCaller(await house.callerToken('event-bus-service'))).resolves.toBe(
+        'house-service',
+      );
+    } finally {
+      bus.onApplicationShutdown();
+      house.onApplicationShutdown();
+    }
+  });
+});
+
+describe('WorkloadIdentity.verifyCaller', () => {
+  let keys: TestWorkloadKeys;
+
+  beforeAll(async () => {
+    keys = await createTestWorkloadKeys(['event-bus-service', 'house-service', 'booking-service']);
+  });
+  afterAll(() => keys.dispose());
+
+  it('refuses a caller assertion the event bus signed, even past the kit (ADR-0005)', async () => {
+    const house = await WorkloadIdentity.load('house-service', {
+      ...keys.env('house-service'),
+      WORKLOAD_KEYS_RELOAD_S: 3600,
+      PRINCIPAL_ISSUERS: ['gateway'],
+    });
+    try {
+      // Bus code that signs with its own key directly, not through callerToken.
+      const bus = await keys.signingKey('event-bus-service');
+      const refused = await house
+        .verifyCaller(await signCallerToken(bus, 'event-bus-service', 'house-service'))
+        .catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(TokenError);
+      expect(refused).toMatchObject({
+        reason: 'invalid',
+        message: 'event-bus-service calls no service (ADR-0005)',
+      });
+      const booking = await keys.signingKey('booking-service');
+      await expect(
+        house.verifyCaller(await signCallerToken(booking, 'booking-service', 'house-service')),
+      ).resolves.toBe('booking-service');
+    } finally {
+      house.onApplicationShutdown();
+    }
   });
 });

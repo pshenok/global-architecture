@@ -6,6 +6,19 @@ export {
   signPrincipalToken,
 } from '../auth/tokens.ts';
 export { readSigningKey } from '../auth/workload-keys.ts';
+export {
+  type DeliveryOutcome,
+  deliverEvent,
+  EventBusClient,
+  FakeEventBus,
+  flushOutbox,
+  type PublishStatus,
+  recordedEvents,
+  testDelivery,
+  type WireDelivery,
+  type WireEvent,
+  type WireFailure,
+} from './events.ts';
 export { freePort } from './free-port.ts';
 export {
   type CaughtGrpcError,

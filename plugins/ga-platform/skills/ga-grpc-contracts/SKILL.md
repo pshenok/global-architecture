@@ -1,7 +1,7 @@
 ---
 
 name: ga-grpc-contracts
-description: Design and change gRPC/protobuf contracts in packages/contracts of the global-architecture monorepo, buf lint (STANDARD) and breaking-change rules, versioning (ga.<domain>.v1), access and error documentation per RPC, never carrying the acting user in a request, deprecate-then-reserve, ts-proto code generation and its runtime quirks (Timestamp as Date, null message fields, string enums, int64 as number). Use it whenever a .proto file, an RPC, a request/response message, a field, an enum or service-to-service API is added, renamed, removed or reviewed, or when generated code in src/gen looks wrong.
+description: Design and change gRPC/protobuf contracts in packages/contracts of the global-architecture monorepo, buf lint (STANDARD) and breaking-change rules, versioning (ga.<domain>.v1), access and error documentation per RPC, never carrying the acting user in a request, deprecate-then-reserve, event payload messages (<domain>_events.proto, *Event naming, envelope versus payload, messageCodec), ts-proto code generation and its runtime quirks (Timestamp as Date, null message fields, string enums, int64 as number). Use it whenever a .proto file, an RPC, a request/response message, an event, a field, an enum or service-to-service API is added, renamed, removed or reviewed, or when generated code in src/gen looks wrong.
 ---
 
 # gRPC contracts
@@ -122,6 +122,42 @@ Services use `@grpc/proto-loader` at runtime with fixed options (see
 - `Timestamp` is a JS `Date` only because `installWellKnownTypes()` (called by the kit's
   bootstrap, the gateway and the test client) teaches protobufjs. Without it a `Date` is
   silently sent as 1970-01-01. Any new entrypoint that makes gRPC calls must call it.
+
+## Event payloads (ADR-0005)
+
+An event's payload is a protobuf message in the **producer's** package, in its own file:
+`proto/ga/<domain>/v<N>/<domain>_events.proto` (`ga/house/v1/house_events.proto`). The
+message is named `<Aggregate><PastFact>Event` (`HouseDeletedEvent`, `UserDeletedEvent`);
+its full name (`ga.house.v1.HouseDeletedEvent`) is also the topic. The kit's
+`defineEvent` refuses any other name, and derives the file from it.
+
+```proto
+// HouseDeletedEvent: a house was deleted. Aggregate id: the house id.
+// Subscribers: booking-service (cancels the house's open stays).
+message HouseDeletedEvent {
+  // Id of the deleted house.
+  string house_id = 1;
+  // Id of its owner (ga.user.v1.User) when it was deleted.
+  string owner_id = 2;
+}
+```
+
+- **Envelope versus payload.** The event id, occur time, aggregate id, request id and
+  traceparent travel in the bus envelope (`ga.event_bus.v1.Event`); the producer is the
+  verified caller of `Publish`. The payload holds domain facts and ids only: never
+  personal data (no email in `UserDeletedEvent`) and never a principal.
+- Document the aggregate id and the subscribers on the message.
+- **Changes are additive only** (same rules as RPC messages above). An incompatible change
+  is a new `ga.<domain>.v2.XEvent`, published alongside `v1` until every subscriber has
+  moved; then `v1` is retired.
+- Payload bytes are encoded with `messageCodec(protoFile, fullName)` from
+  `@ga/contracts/runtime`: the protobufjs copy and the conversions RPCs use (camelCase
+  keys, scalar defaults, unset messages as `null`, `Timestamp` as `Date` with the
+  well-known-type wrappers installed), so a payload looks exactly like an RPC message.
+  Codecs are untyped (`decode` returns `Readonly<Record<string, unknown>>`): check-access
+  refuses generic casts in production code, so the typed view comes from
+  `defineEvent<HouseDeletedEvent>` and the generated interface. Services never call the
+  codec themselves; `Outbox.add` and `@OnEvent` do.
 
 More detail, the reasons behind the post-generation step and how to call a running
 service by hand (TLS, tokens): `references/codegen.md`.

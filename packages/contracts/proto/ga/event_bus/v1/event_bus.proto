@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package ga.event_bus.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// EventBusService is the platform publish/subscribe API (ADR-0005). Producers publish
+// from their transactional outbox; consumers pull. The bus calls no service, and which
+// queue stores events is private to it. Delivery is at least once and unordered:
+// consumers deduplicate by Event.id.
+service EventBusService {
+  // Publish stores each event once (idempotent by id) and queues it for every
+  // subscriber of its type. Results are per event, in request order.
+  // Access: service (house-service, user-service).
+  // Errors: INVALID_ARGUMENT (0 or more than 50 events), UNAUTHENTICATED,
+  // PERMISSION_DENIED (CALLER_NOT_ALLOWED), UNAVAILABLE.
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  // Pull leases up to max_deliveries ready deliveries of the given types to the calling
+  // workload and returns at once, possibly empty. A delivery that is neither acked nor
+  // nacked comes back when its lease ends.
+  // Access: service (booking-service, house-service).
+  // Errors: INVALID_ARGUMENT, PERMISSION_DENIED (CALLER_NOT_ALLOWED,
+  // EVENT_TYPE_NOT_SUBSCRIBED), UNAUTHENTICATED, UNAVAILABLE.
+  rpc Pull(PullRequest) returns (PullResponse);
+  // Ack settles processed deliveries of the caller. Unknown, foreign or superseded
+  // receipts (the delivery was leased again, nacked or dead-lettered) are ignored.
+  // Access: service (booking-service, house-service).
+  // Errors: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED (CALLER_NOT_ALLOWED),
+  // UNAVAILABLE.
+  rpc Ack(AckRequest) returns (AckResponse);
+  // Nack re-queues one delivery after the bus's backoff, or dead-letters it when
+  // dead_letter is set or its attempts are exhausted. Stale receipts are ignored.
+  // Access: service (booking-service, house-service).
+  // Errors: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED (CALLER_NOT_ALLOWED),
+  // UNAVAILABLE.
+  rpc Nack(NackRequest) returns (NackResponse);
+}
+
+// Event is one event as its producer recorded it.
+message Event {
+  // UUID the producer assigned (its outbox row id): the idempotency key end to end.
+  string id = 1;
+  // Full name of the payload message, e.g. "ga.house.v1.HouseDeletedEvent"; also the topic.
+  string type = 2;
+  // Id of the aggregate the event is about, 1..128 chars. Not an ordering promise.
+  string aggregate_id = 3;
+  // When the producer recorded it, inside the committing transaction.
+  google.protobuf.Timestamp occur_time = 4;
+  // The `type` message in protobuf binary, at most 64 KiB.
+  bytes payload = 5;
+  // x-request-id of the request that caused it; empty when none.
+  string request_id = 6;
+  // W3C traceparent of that request; empty when tracing is off.
+  string traceparent = 7;
+}
+
+// Delivery is one event leased to one subscriber.
+message Delivery {
+  // The event as published.
+  Event event = 1;
+  // The workload that called Publish, as the bus verified it.
+  string producer = 2;
+  // When the bus stored the event.
+  google.protobuf.Timestamp publish_time = 3;
+  // 1 on the first delivery to this subscriber, then one more per redelivery.
+  int32 attempt = 4;
+  // Opaque lease handle for Ack and Nack.
+  string receipt = 5;
+}
+
+// PublishRequest carries 1..50 events.
+message PublishRequest {
+  // Events to publish, each handled on its own.
+  repeated Event events = 1;
+}
+
+// PublishResponse has one result per event, in request order.
+message PublishResponse {
+  // Outcome of each event.
+  repeated PublishResult results = 1;
+}
+
+// PublishResult is the outcome of one published event.
+message PublishResult {
+  // Id of the event, as sent.
+  string event_id = 1;
+  // What happened to it.
+  PublishOutcome outcome = 2;
+  // For REJECTED and UNAVAILABLE: EVENT_TYPE_UNKNOWN, EVENT_TYPE_NOT_OWNED,
+  // EVENT_ID_REUSED, INVALID_EVENT, STORE_UNAVAILABLE.
+  string reason = 3;
+}
+
+// PublishOutcome says whether the bus now holds an event.
+enum PublishOutcome {
+  // Never sent.
+  PUBLISH_OUTCOME_UNSPECIFIED = 0;
+  // Stored and queued for every subscriber.
+  PUBLISH_OUTCOME_ACCEPTED = 1;
+  // Already stored with the same content: nothing changed.
+  PUBLISH_OUTCOME_DUPLICATE = 2;
+  // Refused for good until the event or the catalog changes; see reason.
+  PUBLISH_OUTCOME_REJECTED = 3;
+  // Not stored now; publish it again later.
+  PUBLISH_OUTCOME_UNAVAILABLE = 4;
+}
+
+// PullRequest asks for deliveries of some event types.
+message PullRequest {
+  // 1..50 event types; the catalog must list the caller as a subscriber of each.
+  repeated string types = 1;
+  // 1..100.
+  int32 max_deliveries = 2;
+}
+
+// PullResponse holds the leased deliveries, possibly none.
+message PullResponse {
+  // Deliveries leased to the caller.
+  repeated Delivery deliveries = 1;
+}
+
+// AckRequest settles processed deliveries.
+message AckRequest {
+  // 1..100 receipts from Pull.
+  repeated string receipts = 1;
+}
+
+// AckResponse is empty.
+message AckResponse {}
+
+// NackRequest hands one delivery back.
+message NackRequest {
+  // Receipt from Pull.
+  string receipt = 1;
+  // Why it failed, UPPER_SNAKE.
+  string reason = 2;
+  // Details for operators, at most 1000 chars; never the payload.
+  string message = 3;
+  // Stop retrying now: the failure will not go away by itself.
+  bool dead_letter = 4;
+}
+
+// NackResponse is empty.
+message NackResponse {}

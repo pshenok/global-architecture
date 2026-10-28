@@ -1,7 +1,7 @@
 ---
 
 name: ga-new-service
-description: Create a new gRPC microservice in the global-architecture monorepo from the service template (generator `pnpm new:service`), then turn the SampleItem-shaped scaffold into a real domain with contract, access policies and ownership rules, schema, migrations, use cases, tests (including the five access tests) and registry entry. Use it whenever someone wants a new service, microservice, bounded context or "a separate service for X", or asks to split functionality out of an existing service, even if they do not say "generator" or "template".
+description: Create a new gRPC microservice in the global-architecture monorepo from the service template (generator `pnpm new:service`), then turn the SampleItem-shaped scaffold into a real domain with contract, access policies and ownership rules, schema, migrations, use cases, tests (including the five access tests), registry entry and, when it publishes or reacts to events, the events wiring. Use it whenever someone wants a new service, microservice, bounded context or "a separate service for X", or asks to split functionality out of an existing service, even if they do not say "generator" or "template".
 ---
 
 # Create a new service
@@ -23,6 +23,8 @@ A service owns one business capability and its data. Before generating, write do
   it on a user's behalf (they go into `via` lists);
 - which **other services it calls** (only "downward"; a call cycle such as A -> B -> A
   is not allowed, use events for back-references, see `ga-service-communication`);
+- which **events it publishes or reacts to** (what other services must learn when its
+  data changes or disappears, and what it must clean up when theirs does);
 - which **data it must not own** (e.g. booking-service stores `guest_id`, never user emails).
 
 If the capability fits an existing service's aggregate, add an aggregate there instead
@@ -35,6 +37,9 @@ pnpm new:service <noun>                 # e.g. review, payment-method (kebab-cas
 pnpm new:service person --plural people # irregular plural
 pnpm new:service invoice --port 50070   # explicit port (default: next after the highest)
 ```
+
+Pass `--port` explicitly when another branch or worktree has already taken the next port
+(the default reads only this checkout's `services.json`).
 
 Creates:
 
@@ -67,8 +72,8 @@ pnpm --filter @ga/review-service test           # the scaffold is green before y
 ## 2. Reshape, in this order
 
 Steps 1-5 are one unit: changing the contract breaks the scaffold's controller, mapper
-and tests until transport (5) and tests (7) are reshaped. Run `typecheck` after step 5 and
-the tests after step 7.
+and tests until transport (5) and tests (8) are reshaped. Run `typecheck` after step 5 and
+the tests after step 8.
 1. **Contract** (`packages/contracts/proto/ga/<noun_snake>/v1/<noun_snake>.proto`): real
    fields, RPCs and doc comments with an `// Access:` line and the error codes of each
    RPC. No request field carries the acting user. Then
@@ -104,15 +109,30 @@ the tests after step 7.
    `GrpcClientsModule.register(...)` with `target`, adapters, bindings in `app.module.ts`,
    the `.env`/`.env.example` entries (`localhost:<port>`), and your service in the
    callee's `via` list. Follow `ga-service-communication`.
-7. **Tests**: domain specs, use-case specs with fakes (`test/fakes.ts`) and test actors,
+7. **Events** (if any, ADR-0005; recipe in `ga-service-communication`):
+   - `EventsModule.forRoot({ publish: true })`, `{ consume: true }` or both in
+     `app.module.ts`; `...eventsConfigSchema.shape` in `src/config.ts`;
+     `EVENT_BUS_SERVICE_URL=localhost:50050` in `.env` and `.env.example`.
+   - The `outbox` and/or `processed_events` table copied from `ga-database` into
+     `schema.ts`, then `db:generate --name events` (boot fails without them).
+   - Publishing: the payload in `ga/<noun_snake>/v1/<noun_snake>_events.proto`
+     (`ga-grpc-contracts`), a port in `src/application/ports/`, an outbox adapter in
+     `src/infrastructure/events/`. Consuming: `@OnEvent` handlers in `src/transport/events/`.
+   - On the bus (reviewed): the catalog in `apps/event-bus-service/src/domain/topics.ts`
+     (your type's entry, or your service among a type's subscribers) and, since your
+     service joins the bus, its name in the matching `@Access.service` lists of
+     `apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts`
+     (Publish to produce; Pull, Ack and Nack to consume) and the same lists in
+     `security/public-endpoints.json`. A service handles at most 50 event types.
+8. **Tests**: domain specs, use-case specs with fakes (`test/fakes.ts`) and test actors,
    and the gRPC + Postgres spec in `test/`. Keep the five access tests, adapted to your
-   resources. Follow `ga-testing`.
-8. **Docs**: the service `README.md` (purpose, RPCs, access rules, dependencies, owned
+   resources. Follow `ga-testing` (it also covers event specs).
+9. **Docs**: the service `README.md` (purpose, RPCs, access rules, dependencies, owned
    tables), and the system views that list services: the container diagram and
    dependency graph in `docs/architecture/overview.md` and the diagram/table in the root
    `README.md`.
-9. **Gateway exposure** (only if clients need it): `ga-gateway-endpoint`, then add the
-   service URL to the gateway config and `apps/gateway/.env.example`.
+10. **Gateway exposure** (only if clients need it): `ga-gateway-endpoint`, then add the
+    service URL to the gateway config and `apps/gateway/.env.example`.
 
 Search for leftovers when done; nothing named after the placeholder may remain:
 
@@ -126,7 +146,7 @@ grep -rniE "sample.?item" apps/<noun>-service packages/contracts/proto/ga/<noun_
 pnpm --filter @ga/contracts lint:proto
 pnpm --filter @ga/<noun>-service typecheck
 pnpm --filter @ga/<noun>-service test
-pnpm lint                                # biome + check-access (public endpoints, actor casts) + oxlint
+pnpm lint                                # biome + check-access (public endpoints, actor casts) + check-call-graph + oxlint
 pnpm build
 pnpm stack:up && pnpm test:e2e          # stack:up waits until every registered service is SERVING
 git status                               # only your intended changes remain
@@ -154,8 +174,16 @@ should be public, also add it to the gateway's health targets (`ga-gateway-endpo
 - Removing a service: first remove every consumer (other services' clients, ports and
   `*_SERVICE_URL` config; gateway routes, `clients.ts`, config, health target, test
   harness env), its name in other services' `via` and `@Access.service` lists, and its
-  entries in `security/public-endpoints.json`, because consumer config validation fails at
-  boot once the URL is gone. Then delete `apps/<noun>-service`, its proto directory and
-  its `services.json` entry, regenerate contracts, update the docs listed in step 8, and
-  drop its database when no environment needs it. `buf breaking` will flag the removed
+  entries in `security/public-endpoints.json`, because consumer config validation fails
+  at boot once the URL is gone. Its events follow the bus's retirement steps
+  (`apps/event-bus-service/README.md`, "To retire a type or a subscriber"): wait until
+  `pnpm events:status` shows nothing pending for its pairs (its types' subscribers and
+  its own subscriptions); deploy the consumers of its events without those handlers
+  first; then remove its topics and subscriptions from
+  `apps/event-bus-service/src/domain/topics.ts` and its name from the bus's
+  `@Access.service` lists, and deploy the bus; then run
+  `pnpm events:drop --subscriber <workload> --type <fqn>` for every pair `events:status`
+  marks `orphaned`. Then delete `apps/<noun>-service`, its proto directory and its
+  `services.json` entry, regenerate contracts, update the docs listed in step 9, and drop
+  its database when no environment needs it. `buf breaking` will flag the removed
   contract; that is expected for a deliberate removal.

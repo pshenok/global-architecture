@@ -1,7 +1,7 @@
 ---
 
 name: ga-domain-logic
-description: How to write business logic inside a global-architecture service with clean architecture - aggregates and invariants in src/domain, use cases in src/application that take the acting user first, authorization rules (ownership, visibility, admin role, 404 vs 403, typed list scopes), ports as abstract classes, DomainError kinds and reasons, validation split between transport and domain, UnitOfWork transactions, ids and time. Use it whenever you add or change a business rule, entity, aggregate, use case, error, permission or ownership check, status/state machine or validation in any *-service, or when deciding which layer a piece of code belongs to.
+description: How to write business logic inside a global-architecture service with clean architecture - aggregates and invariants in src/domain, use cases in src/application that take the acting user first, authorization rules (ownership, visibility, admin role, 404 vs 403, typed list scopes), ports as abstract classes (including event ports that record what happened), workload-only use cases taking a ServiceActor, DomainError kinds and reasons, validation split between transport and domain, UnitOfWork transactions, ids and time. Use it whenever you add or change a business rule, entity, aggregate, use case, error, permission or ownership check, status/state machine or validation in any *-service, or when deciding which layer a piece of code belongs to.
 ---
 
 # Domain and application layers
@@ -158,7 +158,10 @@ export class BookingService {
 ```
 
 - One public method per use case; it reads like the business process. A use case that
-  acts for someone takes the actor first.
+  acts for someone takes the actor first. One that only a workload may run (an event
+  reaction such as `cancelOpenStaysOfHouse`, `removeAllOf`) takes `actor: ServiceActor`
+  first: only the kit can mint one, so no user request can reach it, and no controller
+  exposes it. Name it `_actor` when the rule does not read it.
 - Do cheap local validation before remote calls; run independent remote calls in
   parallel (`Promise.all`).
 - **Never hold a database transaction open across a remote call.**
@@ -167,7 +170,15 @@ export class BookingService {
   overwriting each other. Repositories called inside `run()` join the transaction
   automatically, and a nested `run()` joins the outer transaction too (no savepoint):
   an error anywhere rolls back everything. Do not nest `run()` expecting partial rollback.
-- Single-statement writes (insert, delete) do not need a unit of work.
+- Single-statement writes (insert, delete) do not need a unit of work, unless they record
+  an event.
+- **Record events through a port, in the change's transaction** (ADR-0005). Other
+  services' reactions to what happened here are events, never calls: inject a
+  domain-named port (`HouseEvents.deleted(house)`, `UserEvents.deleted(id)`) and call it
+  inside the same `this.unitOfWork.run(...)` as the change, after the change. The adapter
+  writes the outbox row, so the event exists if and only if the change committed; a
+  refused change (a thrown domain error) records nothing. Use-case tests pass a recording
+  fake (`RecordingHouseEvents` in house-service's `test/fakes.ts`) and assert on it.
 - Imports allowed: domain, `@ga/kernel`, `@nestjs/common` (`Injectable`, `Logger`).
   Constructor parameters that are classes must be **value imports** (DI metadata);
   only interfaces/types use `import type`.
@@ -179,6 +190,9 @@ A port is an abstract class named after what the domain needs, not after the pro
 Keep the port's return types in domain terms (`HouseTerms`), which makes the adapter an
 anti-corruption layer and keeps another service's contract out of your domain.
 Bind it in `app.module.ts`: `{ provide: HouseCatalog, useClass: GrpcHouseCatalog }`.
+Event ports work the same way: `HouseEvents` says what happened in domain terms, and
+`OutboxHouseEvents` (infrastructure) turns it into a payload through the kit's `Outbox`
+(`ga-service-communication`).
 
 ## Logging inside use cases
 

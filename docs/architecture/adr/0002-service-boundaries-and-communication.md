@@ -40,7 +40,8 @@ turning into a distributed monolith.
 ## Consequences
 
 - A referenced entity can disappear after it was checked (a house deleted after a
-  booking). Until ADR-0005 is implemented these cases are not reconciled.
+  booking). Until ADR-0005 is implemented these cases are not reconciled. (2026-10-23:
+  implemented; deleted houses and users are reconciled through events, ADR-0005.)
 - Request latency grows with call depth; keep fan-out shallow, parallelize independent
   calls, and denormalize via events where depth would exceed about three hops.
 - Teams can change their schema freely; contracts are the only coupling.

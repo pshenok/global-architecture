@@ -203,9 +203,10 @@ fields. Rules:
   like) or edits the guardrails themselves; that is what CODEOWNERS review is for.
   `.github/CODEOWNERS` covers `security/`, the whole service kit, the gateway's auth code,
   its bootstrap, main and OpenAPI files and test harness, the kernel's actor, testing and
-  index files, the access check, and everything that decides whether and how the checks
-  run: package manifests, tsconfigs, `.swcrc`, `vitest` configs, `turbo.json`,
-  `pnpm-workspace.yaml`, Biome and oxlint configs, the workflows and itself.
+  index files, the access and call-graph checks and the call-graph probes, the event bus's
+  code (it enforces the topic catalog, ADR-0005), and everything that decides whether and
+  how the checks run: package manifests, tsconfigs, `.swcrc`, `vitest` configs,
+  `turbo.json`, `pnpm-workspace.yaml`, Biome and oxlint configs, the workflows and itself.
 - The template's gRPC spec starts every new service with five access tests (no user,
   another user, admin, a stranger's empty list, an unlisted forwarder).
 - The gateway turns a downstream `UNAUTHENTICATED`, and `PERMISSION_DENIED` with a
@@ -259,12 +260,14 @@ for adopting a real provider.
 - Residual risks: a principal plus a caller key of an allowed forwarder can be replayed
   for up to 60 s; a role change or deletion takes up to `IDENTITY_CACHE_TTL_S` (or the
   stale window during a user-service outage); deleting a user leaves its houses and
-  bookings until ADR-0005 cleans them up.
+  bookings until ADR-0005 cleans them up (implemented 2026-10-23: within seconds).
 - Each workload needs one private key in production (a secret) and the shared public
   key map (config). Rotation: publish the new public key, wait until every workload
   logs it (≤ 60 s after the config propagates), switch the private key, prune the old
   public key after 120 s; on compromise remove the old key at once.
 - Event consumers (ADR-0005) will call as `@Access.service([...])` with their own
-  workload identity; events carry no user principal.
+  workload identity; events carry no user principal. (As built: producers and consumers
+  call event-bus-service, whose methods are `@Access.service([...])`; a handler acts as
+  its own service, `currentService()`.)
 - The `host_id` migration was a dev-data-only exception (guarded: it refuses a
   populated table); with real data, such a change is expand -> backfill -> contract.

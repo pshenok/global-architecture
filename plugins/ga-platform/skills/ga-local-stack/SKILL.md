@@ -1,7 +1,7 @@
 ---
 
 name: ga-local-stack
-description: Run, observe and debug the whole global-architecture system locally - pnpm stack:up/down with PM2 and local Postgres, db:setup (and --reset) and migrations, dev TLS certificates and the gRPC CA, workload keys and their rotation, the local dev IdP and access tokens (pnpm dev:token), registering and granting admin, calling RPCs with pnpm grpc:call and buf curl over TLS, watch mode, logs with request ids, health checks, OpenTelemetry tracing, Docker images, and troubleshooting (ports, pnpm release-age gate, PM2, Postgres roles, 401/403/503 auth errors, CALLER_*/PRINCIPAL_* rejections, TLS and key errors). Use it whenever someone wants to start, restart, inspect or debug services locally, get a token, reproduce a bug across services, read logs, call a gRPC method by hand, or when something fails to boot.
+description: Run, observe and debug the whole global-architecture system locally - pnpm stack:up/down with PM2 and local Postgres, db:setup (and --reset) and migrations, dev TLS certificates and the gRPC CA, workload keys and their rotation, the local dev IdP and access tokens (pnpm dev:token), registering and granting admin, calling RPCs with pnpm grpc:call and buf curl over TLS, watch mode, logs with request ids, health checks, event-bus-service and pnpm events:status/redrive/replay/drop (event lag, dead letters, backfills, retired types), OpenTelemetry tracing, Docker images, and troubleshooting (ports, pnpm release-age gate, PM2, Postgres roles, 401/403/503 auth errors, CALLER_*/PRINCIPAL_* rejections, TLS and key errors, events that do not arrive). Use it whenever someone wants to start, restart, inspect or debug services locally, get a token, reproduce a bug across services, read logs, call a gRPC method by hand, see why an event or a cleanup did not happen, or when something fails to boot.
 ---
 
 # Local stack
@@ -19,12 +19,14 @@ pnpm test:e2e         # prove it works end to end
 
 `pnpm stack:up` creates what is missing in `.certs/` (git-ignored): the gateway's HTTPS
 certificate, a local gRPC CA with a server certificate for `localhost` (`pnpm certs`), and
-an Ed25519 key per workload plus the public key map (`pnpm keys`). PM2 runs every service,
-the gateway and `dev-idp`, a local OIDC provider on `http://127.0.0.1:8090`
-(`services.json` `devIdp.port`) that signs any subject it is asked for; it listens on
-loopback only and refuses `NODE_ENV=production`. The command waits until every service is
-SERVING and the gateway's `/readyz` is 200 with `status: "ok"` (it reaches every service
-itself) and `identityProvider: "ok"` (its IdP keys are loaded), then prints the URLs: API `https://localhost:8443/v1/...`, docs
+an Ed25519 key per workload plus the public key map (`pnpm keys`). PM2 runs every service
+(`event-bus-service` on 50050 included), the gateway and `dev-idp`, a local OIDC provider
+on `http://127.0.0.1:8090` (`services.json` `devIdp.port`) that signs any subject it is
+asked for; it listens on loopback only and refuses `NODE_ENV=production`. The command
+waits until every service is SERVING and the gateway's `/readyz` is 200 with
+`status: "ok"` (it probes the services it calls; `event-bus-service`, which it does not
+call, is covered by the stack's own SERVING check) and `identityProvider: "ok"` (its IdP
+keys are loaded), then prints the URLs: API `https://localhost:8443/v1/...`, docs
 `https://localhost:8443/docs`, each service's `grpcs://localhost:<port>`. Everything binds
 to 127.0.0.1, and gRPC runs TLS on every hop.
 
@@ -80,6 +82,57 @@ service registered by the generator is started automatically, with `GRPC_PORT`,
 `DATABASE_URL`, every `*_SERVICE_URL` (`localhost:<port>`), the gRPC TLS files and its
 workload key files injected; the gateway also gets `AUTH_ISSUERS` pointing at the dev IdP.
 Values in a service's `.env` are used only for variables PM2 does not set.
+
+## Events (ADR-0005)
+
+`event-bus-service` (`grpcs://localhost:50050`, database `ga_event_bus`) is a service like
+the others: PM2 starts it and injects `EVENT_BUS_SERVICE_URL` into every process. Each
+producer's relay publishes its `outbox` rows within about half a second
+(`EVENTS_POLL_MS`, default 500), and each consumer pulls at the same pace, so a cleanup
+reaches the next service in about a second and user -> house -> booking in two to three.
+
+```bash
+pnpm events:status                                                     # pending, dead, oldest pending age per subscriber and type
+pnpm events:redrive --subscriber booking-service [--type ga.house.v1.HouseDeletedEvent]   # dead letters back to pending, fresh attempts
+pnpm events:replay --subscriber house-service --type ga.user.v1.UserDeletedEvent --since 2026-10-01T00:00:00Z   # backfill retained events (last 21 days)
+pnpm events:drop --subscriber <workload> --type <fqn>                  # delete the rows of a pair the catalog no longer lists
+```
+
+They run against the bus's own database (`apps/event-bus-service/.env`), print one line
+per change (keep it, it is the only record), and check the catalog of the build they run
+from: `replay` and `redrive --type` refuse a pair it does not list (`redrive` without
+`--type` skips and counts those rows), `drop` refuses a pair it lists. Retention keeps
+delivered events for `EVENT_BUS_RETENTION_DAYS` (7, at most 21: consumers remember
+processed event ids for 30 days); dead letters keep their event until redriven, so
+`replay` queues only events from the last 21 days and skips (and counts) older ones; run
+it while the subscriber consumes (a replayed delivery unprocessed 9 days later could run
+twice). `--since` takes a full ISO time with a zone, e.g. `2026-10-01T00:00:00Z`.
+- **Lag** shows in `events:status` (bus side) and in the producer's `outbox` table: a row
+  that stays has `last_error` and a future `available_at` (`ga-database` has the query).
+- **Dead letters**: a delivery is dead after `EVENT_BUS_MAX_ATTEMPTS` (10) leases, or at
+  once for a deterministic failure. Only the deterministic ones log
+  `dead-lettered <type> <id>: <reason>` in the consumer; one that used up its retries shows
+  as the consumer's last `... will retry` warning, and a `LEASE_EXPIRED` one only in
+  `events:status` (its `last_error`).
+  Fix the cause, then `events:redrive`. A failed handler rolled back, so that dead letter
+  runs once. A `LEASE_EXPIRED` one may have been applied: the consumer acks a batch only
+  at its end, so the batch-mates of a delivery that crashes the process commit but are
+  never acked. The consumer's `processed_events` skips them on redrive only while it
+  remembers their ids (30 days).
+- **Orphaned rows**: `events:status` marks `orphaned` the deliveries of a pair the catalog
+  no longer lists (a retired type, a subscriber moved to a v2 type or removed from a
+  topic). Nothing leases or redrives them (the subscriber's next pull still turns one
+  whose last lease ran out into a dead letter), and they keep their events from
+  retention: `pnpm events:drop --subscriber <name> --type <fqn>` deletes them.
+- **Shutdown**: relay and consumer stop claiming and wait for the in-flight round at most
+  `EVENTS_DRAIN_MS` (5000). Keep `EVENTS_DRAIN_MS` + `SHUTDOWN_DELAY_MS` below PM2's
+  `kill_timeout` (15000), or the process is killed mid-publish (harmless: the row is
+  published again, the delivery redelivered).
+- A service run outside PM2 (`pnpm --filter ... dev`) reads its own `.env`: files created
+  before events existed need `EVENT_BUS_SERVICE_URL=localhost:50050` added by hand
+  (`db:setup` creates only missing `.env` files).
+- Asynchronous parts register no health checks: a bus outage leaves every API SERVING and
+  only grows outbox rows and consumer lag.
 
 ## Following one request through the system
 
@@ -163,27 +216,34 @@ same image as a release job.
 
 ## Troubleshooting
 
-| Symptom                                                                                            | Cause / fix                                                                                                                                                                 |
-| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install` fails with `ERR_PNPM_NO_MATURE_MATCHING_VERSION`                                    | a version is younger than the 24 h `minimumReleaseAge`; pin the previous version in the catalog                                                                             |
-| `ERR_PNPM_IGNORED_BUILDS`                                                                          | a new dependency has an install script; decide in `allowBuilds` (pnpm-workspace.yaml)                                                                                       |
-| `npm` errors with `EBADDEVENGINES` inside the repo                                                 | use pnpm; npm enforces `devEngines` and the system Node is older                                                                                                            |
-| `Invalid configuration: - GRPC_PORT ...` at boot                                                   | env validation; see the service's `src/config.ts` and `.env.example`                                                                                                        |
-| `/readyz` `degraded` with a service `UNREACHABLE`                                                  | that process is down or still starting: `pnpm exec pm2 logs <name> --lines 50`                                                                                              |
-| service `NOT_SERVING`                                                                              | its `select 1` check fails: Postgres down or wrong `DATABASE_URL`                                                                                                           |
-| `cannot create a test schema` in tests                                                             | run `pnpm db:setup` (creates `ga_test`)                                                                                                                                     |
-| `EADDRINUSE`                                                                                       | another process holds the port: `lsof -nP -iTCP:<port> -sTCP:LISTEN`                                                                                                        |
-| gateway: `TLS is enabled but ... cannot be read`; service: `GRPC_TLS_CERT_FILE=... cannot be read` | `pnpm certs`                                                                                                                                                                |
-| `WORKLOAD_KEY_FILE=... cannot be read`, or `WORKLOAD_KEYS_FILE has no public key ...`              | `pnpm keys` (after `--rotate`, let it finish before restarting)                                                                                                             |
-| browser warns about the certificate                                                                | install `mkcert` and run `pnpm certs --force` for a trusted cert                                                                                                            |
-| 401 `AUTH_TOKEN_MISSING` / `AUTH_TOKEN_INVALID` / `AUTH_TOKEN_EXPIRED`                             | no `authorization: Bearer` header, a token that is not from the dev IdP (issuer `http://127.0.0.1:8090`, audience `ga-api`), or an expired one: `pnpm dev:token` again      |
-| 403 `USER_NOT_REGISTERED`                                                                          | the login has no user yet: `POST /v1/users` with that token                                                                                                                 |
-| 403 `EMAIL_NOT_VERIFIED` on `POST /v1/users`                                                       | the token has no verified email: `pnpm dev:token <sub> --email <address>`                                                                                                   |
-| 503 `IDENTITY_PROVIDER_UNAVAILABLE`                                                                | the gateway has no usable IdP keys: dev-idp is down (`pnpm exec pm2 logs dev-idp`)                                                                                          |
-| a service answers `CALLER_*` / `PRINCIPAL_*` / `ACCESS_NOT_DECLARED` (500 at the gateway)          | a platform bug (missing `via` entry, wrong client `target`, an undeclared method) or a key mismatch (keys recreated while processes ran): `pnpm keys`, then `pnpm stack:up` |
-| `refusing to serve plaintext gRPC on <host>`                                                       | `GRPC_HOST` is not loopback: set `GRPC_TLS_CERT_FILE` and `GRPC_TLS_KEY_FILE`                                                                                               |
-| `refusing to call <target> over plaintext gRPC`                                                    | a non-loopback target needs `GRPC_TLS_CA_FILE`                                                                                                                              |
-| `cannot verify TLS for 127.0.0.1:<port> ... IP address`                                            | with TLS, targets are host names: `*_SERVICE_URL=localhost:<port>`                                                                                                          |
-| migration fails: `bookings has rows from before ADR-0004`                                          | dev data from before `host_id`: `pnpm db:setup --reset ga_booking --yes --adopt` (`--adopt`: that database predates the reset marker), then `pnpm stack:up`                 |
-| `Nest can't resolve dependencies of X (?, ...)`                                                    | a constructor class was imported with `import type`, or a circular import; see `ga-architecture`                                                                            |
-| `does not provide an export named ...` at startup                                                  | a type imported as a value; `pnpm build` runs `check-esm` to catch it                                                                                                       |
+| Symptom                                                                                            | Cause / fix                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install` fails with `ERR_PNPM_NO_MATURE_MATCHING_VERSION`                                    | a version is younger than the 24 h `minimumReleaseAge`; pin the previous version in the catalog                                                                                                               |
+| `ERR_PNPM_IGNORED_BUILDS`                                                                          | a new dependency has an install script; decide in `allowBuilds` (pnpm-workspace.yaml)                                                                                                                         |
+| `npm` errors with `EBADDEVENGINES` inside the repo                                                 | use pnpm; npm enforces `devEngines` and the system Node is older                                                                                                                                              |
+| `Invalid configuration: - GRPC_PORT ...` at boot                                                   | env validation; see the service's `src/config.ts` and `.env.example`                                                                                                                                          |
+| `/readyz` `degraded` with a service `UNREACHABLE`                                                  | that process is down or still starting: `pnpm exec pm2 logs <name> --lines 50`                                                                                                                                |
+| service `NOT_SERVING`                                                                              | its `select 1` check fails: Postgres down or wrong `DATABASE_URL`                                                                                                                                             |
+| `cannot create a test schema` in tests                                                             | run `pnpm db:setup` (creates `ga_test`)                                                                                                                                                                       |
+| `EADDRINUSE`                                                                                       | another process holds the port: `lsof -nP -iTCP:<port> -sTCP:LISTEN`                                                                                                                                          |
+| gateway: `TLS is enabled but ... cannot be read`; service: `GRPC_TLS_CERT_FILE=... cannot be read` | `pnpm certs`                                                                                                                                                                                                  |
+| `WORKLOAD_KEY_FILE=... cannot be read`, or `WORKLOAD_KEYS_FILE has no public key ...`              | `pnpm keys` (after `--rotate`, let it finish before restarting)                                                                                                                                               |
+| browser warns about the certificate                                                                | install `mkcert` and run `pnpm certs --force` for a trusted cert                                                                                                                                              |
+| 401 `AUTH_TOKEN_MISSING` / `AUTH_TOKEN_INVALID` / `AUTH_TOKEN_EXPIRED`                             | no `authorization: Bearer` header, a token that is not from the dev IdP (issuer `http://127.0.0.1:8090`, audience `ga-api`), or an expired one: `pnpm dev:token` again                                        |
+| 403 `USER_NOT_REGISTERED`                                                                          | the login has no user yet: `POST /v1/users` with that token                                                                                                                                                   |
+| 403 `EMAIL_NOT_VERIFIED` on `POST /v1/users`                                                       | the token has no verified email: `pnpm dev:token <sub> --email <address>`                                                                                                                                     |
+| 503 `IDENTITY_PROVIDER_UNAVAILABLE`                                                                | the gateway has no usable IdP keys: dev-idp is down (`pnpm exec pm2 logs dev-idp`)                                                                                                                            |
+| a service answers `CALLER_*` / `PRINCIPAL_*` / `ACCESS_NOT_DECLARED` (500 at the gateway)          | a platform bug (missing `via` entry, wrong client `target`, an undeclared method) or a key mismatch (keys recreated while processes ran): `pnpm keys`, then `pnpm stack:up`                                   |
+| `refusing to serve plaintext gRPC on <host>`                                                       | `GRPC_HOST` is not loopback: set `GRPC_TLS_CERT_FILE` and `GRPC_TLS_KEY_FILE`                                                                                                                                 |
+| `refusing to call <target> over plaintext gRPC`                                                    | a non-loopback target needs `GRPC_TLS_CA_FILE`                                                                                                                                                                |
+| `cannot verify TLS for 127.0.0.1:<port> ... IP address`                                            | with TLS, targets are host names: `*_SERVICE_URL=localhost:<port>`                                                                                                                                            |
+| migration fails: `bookings has rows from before ADR-0004`                                          | dev data from before `host_id`: `pnpm db:setup --reset ga_booking --yes --adopt` (`--adopt`: that database predates the reset marker), then `pnpm stack:up`                                                   |
+| `Nest can't resolve dependencies of X (?, ...)`                                                    | a constructor class was imported with `import type`, or a circular import; see `ga-architecture`                                                                                                              |
+| `does not provide an export named ...` at startup                                                  | a type imported as a value; `pnpm build` runs `check-esm` to catch it                                                                                                                                         |
+| `EventsModule: table outbox is missing or differs` (or `processed_events`) at boot                 | migrations not applied (`pnpm stack:up`), or the copy in `schema.ts` lacks a column the kit uses (see `ga-database`)                                                                                          |
+| `EventsModule: the service config lacks the events variables`                                      | spread `...eventsConfigSchema.shape` into the service's `ConfigSchema`                                                                                                                                        |
+| `Invalid configuration: - EVENT_BUS_SERVICE_URL ...` with `pnpm dev`                               | its `.env` predates events: add `EVENT_BUS_SERVICE_URL=localhost:50050`                                                                                                                                       |
+| a cleanup never happens; producer logs `event ... not published ...: REJECTED EVENT_TYPE_UNKNOWN`  | the bus catalog lacks the type (or the bus runs an old build): add it to `topics.ts`, rebuild and restart `event-bus-service`; the row goes out on its own                                                    |
+| `pnpm events:status` shows dead deliveries                                                         | read the consumer's last `dead-lettered ...` or `... will retry` line for that event (a `LEASE_EXPIRED` one has no line: the consumer crashed), fix the cause, then `pnpm events:redrive --subscriber <name>` |
+| `pnpm events:status` shows `orphaned` rows, or `events:redrive` reports skipped ones               | the catalog no longer lists that pair: restore the entry if it should, else `pnpm events:drop --subscriber <name> --type <fqn>` (retention then purges the events)                                            |
+| `Invalid configuration: - EVENT_BUS_RETENTION_DAYS ...`                                            | at most 21: consumers forget processed event ids after 30 days, so `events:replay` never queues older events                                                                                                  |

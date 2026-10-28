@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto';
+import {
+  type EventBusServiceClient,
+  PublishOutcome,
+} from '@ga/contracts/ga/event_bus/v1/event_bus';
 import type { HouseServiceClient } from '@ga/contracts/ga/house/v1/house';
 import type { UserServiceClient } from '@ga/contracts/ga/user/v1/user';
 import { createGrpcTestClient, grpcError } from '@ga/service-kit/testing';
@@ -132,10 +137,57 @@ describe('access control (e2e)', () => {
       users.close();
     });
 
+    const bus = serviceTarget('event-bus-service');
+    const events = createGrpcTestClient<EventBusServiceClient>(
+      bus.grpcService,
+      [bus.protoFile],
+      bus.url,
+      { caFile: GRPC_CA },
+    );
+
+    afterAll(() => events.close());
+
     const reasonOf = async (call: Promise<unknown>) => {
       const error = await grpcError(call);
       return [error.code, error.details?.errorInfo?.reason];
     };
+    const asWorkload = async (workload: string) =>
+      metadataOf({ 'x-ga-caller': await callerToken(workload, 'event-bus-service') });
+    const userDeleted = () => ({
+      id: randomUUID(),
+      type: 'ga.user.v1.UserDeletedEvent',
+      aggregateId: owner.userId,
+      occurTime: new Date(),
+      payload: Buffer.alloc(0),
+      requestId: '',
+      traceparent: '',
+    });
+
+    it('opens the event bus only to the workloads its catalog names', async () => {
+      for (const workload of ['gateway', 'booking-service']) {
+        expect(
+          await reasonOf(events.publish({ events: [userDeleted()] }, await asWorkload(workload))),
+        ).toEqual([status.PERMISSION_DENIED, 'CALLER_NOT_ALLOWED']);
+      }
+      expect(
+        await reasonOf(
+          events.pull(
+            { types: ['ga.user.v1.UserDeletedEvent'], maxDeliveries: 1 },
+            await asWorkload('user-service'),
+          ),
+        ),
+      ).toEqual([status.PERMISSION_DENIED, 'CALLER_NOT_ALLOWED']);
+    });
+
+    it("refuses to let a workload publish another workload's events", async () => {
+      const { results } = await events.publish(
+        { events: [userDeleted()] },
+        await asWorkload('house-service'),
+      );
+      expect(results.map((r) => [r.outcome, r.reason])).toEqual([
+        [PublishOutcome.PUBLISH_OUTCOME_REJECTED, 'EVENT_TYPE_NOT_OWNED'],
+      ]);
+    });
 
     it('rejects a call without a caller assertion', async () => {
       expect(

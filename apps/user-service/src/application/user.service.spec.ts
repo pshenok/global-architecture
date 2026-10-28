@@ -5,6 +5,7 @@ import {
   FixedClock,
   InMemoryUserRepository,
   PassThroughUnitOfWork,
+  RecordingUserEvents,
   SequentialIds,
 } from '../../test/fakes.ts';
 import { UserService } from './user.service.ts';
@@ -12,14 +13,17 @@ import { UserService } from './user.service.ts';
 describe('UserService', () => {
   let service: UserService;
   let clock: FixedClock;
+  let events: RecordingUserEvents;
 
   beforeEach(() => {
     clock = new FixedClock();
+    events = new RecordingUserEvents();
     service = new UserService(
       new InMemoryUserRepository(),
       new SequentialIds(),
       clock,
       new PassThroughUnitOfWork(),
+      events,
     );
   });
 
@@ -105,8 +109,10 @@ describe('UserService', () => {
     await expect(service.delete(userActor('someone-else'), user.id)).rejects.toBeInstanceOf(
       NotFoundError,
     );
+    expect(events.deletedUsers).toEqual([]);
     await service.delete(userActor(user.id), user.id);
     await expect(service.resolve(ann)).rejects.toMatchObject({ reason: 'USER_NOT_REGISTERED' });
+    expect(events.deletedUsers).toEqual([user.id]);
   });
 
   it('reports NOT_FOUND for unknown ids', async () => {

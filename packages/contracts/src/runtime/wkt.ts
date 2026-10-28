@@ -1,6 +1,13 @@
 import { createRequire } from 'node:module';
+import type * as ProtobufJs from 'protobufjs';
 
 const require = createRequire(import.meta.url);
+
+/** The protobufjs copy @grpc/proto-loader encodes RPC messages with. */
+function protoLoaderProtobuf(): typeof ProtobufJs {
+  const protoLoaderPath = require.resolve('@grpc/proto-loader');
+  return require(require.resolve('protobufjs', { paths: [protoLoaderPath] })) as typeof ProtobufJs;
+}
 
 interface ProtobufWrapper {
   fromObject(this: { fromObject(object: unknown): unknown }, value: unknown): unknown;
@@ -23,8 +30,7 @@ let installed = false;
  */
 export function installWellKnownTypes(): void {
   if (installed) return;
-  const protoLoaderPath = require.resolve('@grpc/proto-loader');
-  const protobuf = require(require.resolve('protobufjs', { paths: [protoLoaderPath] })) as {
+  const protobuf = protoLoaderProtobuf() as unknown as {
     wrappers: Record<string, ProtobufWrapper>;
   };
 
@@ -52,4 +58,14 @@ export function installWellKnownTypes(): void {
   };
 
   installed = true;
+}
+
+/**
+ * The protobufjs copy RPC messages go through, with the wrappers above installed. Codecs
+ * that encode outside gRPC (event payloads) use it, so a Timestamp or FieldMask converts
+ * exactly as it does in an RPC, whichever protobufjs copy other packages resolve.
+ */
+export function wellKnownProtobuf(): typeof ProtobufJs {
+  installWellKnownTypes();
+  return protoLoaderProtobuf();
 }

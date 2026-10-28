@@ -1,7 +1,7 @@
 ---
 
 name: ga-service-communication
-description: How global-architecture services call each other - typed gRPC clients via GrpcClientsModule (target workload, TLS, host-name URLs), signed caller assertions and forwarded user principals, callee @Access via lists and service-to-service access, ports and anti-corruption adapters, deadlines, retries, request-id propagation, mapping downstream gRPC errors (NOT_FOUND, UNAVAILABLE, UNAUTHENTICATED, PERMISSION_DENIED) to domain errors, snapshots for authorization, avoiding call cycles and distributed transactions, and when an event would be the better tool. Use it whenever a service needs data or an action from another service, when adding a dependency between services, or when debugging timeouts, UNAVAILABLE, DEADLINE_EXCEEDED, CALLER_NOT_ALLOWED or TLS errors between services.
+description: How global-architecture services call each other - typed gRPC clients via GrpcClientsModule (target workload, TLS, host-name URLs), signed caller assertions and forwarded user principals, callee @Access via lists and service-to-service access, ports and anti-corruption adapters, deadlines, retries, request-id propagation, mapping downstream gRPC errors (NOT_FOUND, UNAVAILABLE, UNAUTHENTICATED, PERMISSION_DENIED) to domain errors, snapshots for authorization, avoiding call cycles and distributed transactions, and asynchronous events through event-bus-service (Outbox.add in a domain-named port, @OnEvent handlers, the topic catalog, idempotent and commutative reactions). Use it whenever a service needs data or an action from another service, when one service must react to something that happened in another (a delete, a change), when adding a dependency, a producer or a consumer between services, or when debugging timeouts, UNAVAILABLE, DEADLINE_EXCEEDED, CALLER_NOT_ALLOWED, RemoteCallInTransactionError, event lag, dead letters or TLS errors between services.
 ---
 
 # Calling another service
@@ -118,11 +118,11 @@ and the callee's `@Access` declaration that lets it in.
 
 ## With or without a user
 
-| The call happens                                | Callee declares                                                       | The callee sees                                                             |
-| ----------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| while serving a user's request (the usual case) | `@Access.user({ via: ['<you>'] })` or `@Access.admin({ via: [...] })` | the same user (`currentUser()`)                                             |
-| for public data                                 | `@Access.public('<reason>')`                                          | an anonymous call; any workload may call                                    |
-| with no user: jobs, future event consumers      | `@Access.service(['<you>'])`                                          | a `ServiceActor` named after you (`currentActor()`); principals are ignored |
+| The call happens                                | Callee declares                                                       | The callee sees                                                               |
+| ----------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| while serving a user's request (the usual case) | `@Access.user({ via: ['<you>'] })` or `@Access.admin({ via: [...] })` | the same user (`currentUser()`)                                               |
+| for public data                                 | `@Access.public('<reason>')`                                          | an anonymous call; any workload may call                                      |
+| with no user: jobs                              | `@Access.service(['<you>'])`                                          | a `ServiceActor` named after you (`currentService()`); principals are ignored |
 
 Only edges (the gateway, `PRINCIPAL_ISSUERS`) sign principals, so a service can never act
 for a user who did not send the current request. A forwarded call is authorized as that
@@ -155,9 +155,12 @@ API's errors are part of your contract.
 ## Design rules for a system of hundreds of services
 
 - **No cycles.** Dependencies form a DAG (see `docs/architecture/overview.md`). If A must react to something in B and B already calls A, that reaction is an
-  event, not a call.
+  event, not a call. `tools/check-call-graph.ts` (in `pnpm lint`) reads every client
+  `target` and fails on a cycle; a `target` must be a string literal.
 - **No distributed transactions.** Do remote reads first, then one local transaction.
-  Never call another service while a database transaction is open.
+  Never call another service while a database transaction is open: every
+  `GrpcClientsModule` client refuses such a call with `RemoteCallInTransactionError`
+  before anything is sent (it surfaces as INTERNAL; in an event handler it dead-letters).
 - **Parallelize independent calls** (`Promise.all`), as booking-service does for the
   guest and house checks.
 - **Keep fan-out shallow.** A request that crosses more than about three hops will be slow
@@ -170,15 +173,118 @@ API's errors are part of your contract.
   booking" needs no call to house-service on every read. If such a fact ever becomes
   mutable, an event must update the snapshots (ADR-0005).
 - **Know what a check is worth.** "The user exists" is true at check time only; the user
-  can be deleted a second later. Such references are eventually consistent until the
-  event-driven cleanup in `docs/architecture/adr/0005-asynchronous-events.md` exists.
+  can be deleted a second later. Such references are eventually consistent: deleting a
+  user or a house cleans up what references it within seconds (ADR-0005), but a house or
+  booking created between the check and the cleanup can stay orphaned.
 
-## Asynchronous events (planned, not built yet)
+## Asynchronous events (ADR-0005)
 
-Use an event, not a call, when: the producer should not know the consumers, the work can
-happen later, or the reaction would create a call cycle. The proposed design (ADR-0005,
-not yet accepted; the broker is an open decision):
-transactional outbox table per service, a relay publishing to a broker, consumers
-deduplicating by event id. Events carry no user principal; consumers will call other
-services as themselves (`@Access.service([...])`). Until that lands, do not invent ad-hoc
-queues; raise it.
+Use an event, not a call, when the producer should not know its consumers, the reaction
+can happen a little later, or a call would close a cycle (house-service must not call
+booking-service, which already calls it). Events go through `event-bus-service`, the
+platform's pub/sub workload; no service ever talks to a queue, so the backend behind the
+bus can change without touching services. Delivery is **at least once and unordered**.
+
+### Producer (house-service -> `HouseDeletedEvent` is the reference)
+
+1. **Payload** `ga.house.v1.HouseDeletedEvent` in `ga/house/v1/house_events.proto`, owned
+   by the producer (`ga-grpc-contracts`), then `pnpm --filter @ga/contracts codegen`.
+2. **Port** in the application layer, named in domain terms:
+   `abstract class HouseEvents { abstract deleted(house: House): Promise<void> }`.
+3. **Adapter** in `src/infrastructure/events/outbox-house-events.ts`:
+
+   ```ts
+   export const HOUSE_DELETED = defineEvent<HouseDeletedEvent>('ga.house.v1.HouseDeletedEvent', {
+     producer: 'house-service',
+   });
+
+   @Injectable()
+   export class OutboxHouseEvents extends HouseEvents {
+     constructor(private readonly outbox: Outbox) { super(); }
+     deleted(house: House): Promise<void> {
+       return this.outbox.add(HOUSE_DELETED, house.id, { houseId: house.id, ownerId: house.ownerId });
+     }
+   }
+   ```
+
+   `defineEvent` checks the name and builds the payload codec at once, so a typo or a
+   missing message fails at import. `Outbox.add(event, aggregateId, payload)` inserts an
+   `outbox` row in the current transaction and throws outside `UnitOfWork.run`, for an
+   event another workload owns, for an aggregate id outside 1..128 chars, or for a payload
+   over 64 KiB. The use case calls the port inside the same `UnitOfWork.run` as the change
+   (`house.service.ts` `delete`): the event exists if and only if the change committed.
+   The kit's relay publishes it afterwards. Never call the bus from a use case.
+4. **Wiring**: `EventsModule.forRoot({ publish: true })` in `app.module.ts`,
+   `{ provide: HouseEvents, useClass: OutboxHouseEvents }`, `...eventsConfigSchema.shape`
+   in `config.ts`, `EVENT_BUS_SERVICE_URL=localhost:50050` in `.env(.example)`, and the
+   `outbox` table in `schema.ts` (`ga-database`).
+
+### Consumer (booking-service reacting to `HouseDeletedEvent`)
+
+```ts
+// src/transport/events/house-events.consumer.ts
+const HOUSE_DELETED = defineEvent<HouseDeletedEvent>('ga.house.v1.HouseDeletedEvent', {
+  producer: 'house-service',
+});
+
+@Injectable()
+export class HouseEventsConsumer {
+  constructor(private readonly bookings: BookingService) {}
+
+  @OnEvent(HOUSE_DELETED)
+  async houseDeleted(event: HouseDeletedEvent): Promise<void> {
+    await this.bookings.cancelOpenStaysOfHouse(currentService(), event.houseId);
+  }
+}
+```
+
+- Each consumer declares its own descriptor copy (with the producer); the kit
+  dead-letters a delivery published by anyone else (`UNEXPECTED_PRODUCER`).
+- One handler per event type per service; boot fails on two. A handler calls one use
+  case and passes `currentService()` (this service itself); never take an actor
+  parameter (check-access refuses it). `currentEvent()` gives the id, producer, aggregate
+  id, occur time and attempt.
+- The kit runs the handler in one transaction together with the `processed_events`
+  insert of the event id, so a redelivery skips it and a failure leaves nothing behind.
+  **No remote calls** in a handler: they are refused inside the transaction. Take what
+  you need from the payload, or react to another event.
+- Handlers must be **idempotent and commutative**: filter by state ("cancel what is still
+  CONFIRMED", "delete what still exists"), never assume order. A handler that records
+  events of its own does it through its port in the same transaction (house-service's
+  `removeAllOf` announces each deleted house).
+- Failures: transient domain errors (`ConcurrencyError`, `DependencyUnavailableError`,
+  `RateLimitedError`, database conflicts and timeouts) and unknown errors retry with the
+  bus's backoff; other domain errors dead-letter at once (the same input fails the same
+  way). After 10 attempts a delivery is a dead letter (`pnpm events:status`,
+  `events:redrive`; `ga-local-stack`).
+- Wiring: `EventsModule.forRoot({ consume: true })` (or both sides), the consumer in
+  `providers`, the config and env as above, and the `processed_events` table.
+- Use cases a consumer calls take `actor: ServiceActor` first, so no user request can
+  reach them; no controller exposes them.
+
+### Registering a topic, a producer or a subscriber
+
+Every new type, producer or subscriber changes the catalog entry in
+`apps/event-bus-service/src/domain/topics.ts` (one producer, its subscribers). Only when
+a workload joins or leaves the bus do two more reviewed places change: the
+`@Access.service([...])` lists in
+`apps/event-bus-service/src/transport/grpc/event-bus.grpc-controller.ts` (Publish for
+producers; Pull, Ack and Nack for subscribers) and the same lists in
+`security/public-endpoints.json`. A bus test and `check-access` keep the three in
+agreement. A service handles at most 50 event types: one Pull carries at most 50, and
+the kit fails boot with more.
+
+Until the catalog lists a type, the producer's relay keeps retrying it (logged as an
+error) and never drops it. Deploy the catalog before a consumer that handles a new type:
+Pull refuses the whole request (`EVENT_TYPE_NOT_SUBSCRIBED`) while any requested type
+does not list the consumer, so none of its events arrive. A new subscriber receives only
+events published after it is listed; `pnpm events:replay` backfills retained ones from
+the last 21 days.
+
+Retiring goes the other way round (a v1 type every subscriber replaced with v2, or a
+subscriber leaving a topic; the steps are also in `apps/event-bus-service/README.md`):
+when `pnpm events:status` shows nothing pending for the pair, deploy the consumer without
+its handler first, then remove the pair from the catalog (and the workload from the
+`@Access` lists if it leaves the bus) and deploy the bus. Leftover rows show as
+`orphaned` in `events:status`; nothing pulls or redrives them and they keep their events
+from retention, so delete them with `pnpm events:drop --subscriber <it> --type <fqn>`.

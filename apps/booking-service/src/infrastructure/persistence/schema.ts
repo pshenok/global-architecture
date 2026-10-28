@@ -7,6 +7,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -55,3 +56,23 @@ export type BookingRow = typeof bookings.$inferSelect;
 
 /** Name of the exclusion constraint created by the `no_overlap` migration. */
 export const NO_OVERLAP_CONSTRAINT = 'bookings_no_overlap';
+
+/**
+ * Events this service's handlers have applied, so a redelivery is skipped (ADR-0005).
+ * Copied verbatim from the ga-database skill; EventsModule checks it.
+ */
+export const processedEvents = pgTable(
+  'processed_events',
+  {
+    subscription: text('subscription').notNull(),
+    eventId: uuid('event_id').notNull(),
+    type: text('type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.subscription, table.eventId] }),
+    index('processed_events_processed_at_idx').on(table.processedAt),
+  ],
+);

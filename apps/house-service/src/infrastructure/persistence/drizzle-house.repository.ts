@@ -83,4 +83,9 @@ export class DrizzleHouseRepository extends HouseRepository {
       .returning({ id: houses.id });
     return rows.length > 0;
   }
+
+  async deleteByOwner(ownerId: string): Promise<readonly House[]> {
+    const rows = await this.db.tx.delete(houses).where(eq(houses.ownerId, ownerId)).returning();
+    return rows.map(toDomain);
+  }
 }

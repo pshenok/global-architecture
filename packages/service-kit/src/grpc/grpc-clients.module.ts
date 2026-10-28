@@ -16,6 +16,7 @@ import { CALLER_METADATA_KEY, PRINCIPAL_METADATA_KEY } from '../auth/tokens.ts';
 import { WorkloadIdentity } from '../auth/workload-identity.ts';
 import { CONFIG } from '../config/config.ts';
 import { currentRequestId, REQUEST_ID_KEY } from '../context/request-context.ts';
+import { DbContext } from '../database/db-context.ts';
 import { channelCredentials } from './tls.ts';
 
 export interface GrpcClientDefinition {
@@ -54,16 +55,32 @@ const SERVICE_CONFIG = JSON.stringify({
 const logger = new Logger('GrpcClients');
 
 /**
+ * A remote call made while a database transaction is open (ADR-0002). It would hold row
+ * locks for a network round trip, and the callee's effect cannot roll back with ours.
+ * Make the call before `UnitOfWork.run()`, or record an event and react to it instead.
+ */
+export class RemoteCallInTransactionError extends Error {
+  override readonly name = 'RemoteCallInTransactionError';
+
+  constructor(target: string) {
+    super(`remote call to ${target} inside an open transaction (ADR-0002)`);
+  }
+}
+
+/**
  * On every outbound call: a default deadline, the request id, a caller assertion signed
  * by this workload for `target`, and the principal of the current request (if any).
  * Identity metadata is never taken from the call site: anything set there is replaced.
+ * `inTransaction` refuses the call before anything is sent while a transaction is open.
  */
 export function outboundContextInterceptor(
   timeoutMs: number,
   target: string,
   identity: Pick<WorkloadIdentity, 'callerToken'>,
+  inTransaction: () => boolean = () => false,
 ): Interceptor {
   return (callOptions, nextCall) => {
+    if (inTransaction()) throw new RemoteCallInTransactionError(target);
     const options =
       callOptions.deadline === undefined
         ? { ...callOptions, deadline: Date.now() + timeoutMs }
@@ -113,19 +130,24 @@ class GrpcClientsLifecycle implements OnApplicationShutdown {
  * Typed gRPC clients for calling other services.
  *
  *   GrpcClientsModule.register([{ token: USER_SERVICE, service: 'ga.user.v1.UserService',
- *     protoFiles: ['ga/user/v1/user.proto'], url: (c) => c.USER_SERVICE_URL as string }])
+ *     target: 'user-service', protoFiles: ['ga/user/v1/user.proto'],
+ *     url: (c) => c.USER_SERVICE_URL as string }])
  *
  *   constructor(@Inject(USER_SERVICE) private readonly users: UserServiceClient) {}
  *   await firstValueFrom(this.users.getUser({ id }))
  *
  * Every call gets a deadline, the current x-request-id, a caller assertion for `target`,
- * the current request's principal, and retries on UNAVAILABLE.
+ * the current request's principal, and retries on UNAVAILABLE. A call made inside
+ * `UnitOfWork.run()` fails with RemoteCallInTransactionError and is never sent.
  * Calls use TLS when the config has GRPC_TLS_CA_FILE (required for non-loopback targets).
  * Connections are lazy, so a service starts even when its dependencies are down.
  */
 @Module({})
 export class GrpcClientsModule {
-  static register(definitions: readonly GrpcClientDefinition[]): DynamicModule {
+  static register(given: readonly GrpcClientDefinition[]): DynamicModule {
+    // Frozen copies first, used for everything after: the target validated here (and read
+    // by check-call-graph) is the one signed for, and a url() that writes to `this` throws.
+    const definitions = given.map((definition) => Object.freeze({ ...definition }));
     for (const { service, target } of definitions) {
       if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(target)) {
         throw new TypeError(`client of ${service}: target "${target}" is not a workload name`);
@@ -134,12 +156,19 @@ export class GrpcClientsModule {
     const proxyTokens = definitions.map((d) => Symbol(`${d.service}:proxy`));
     const providers: Provider[] = definitions.flatMap((definition, index) => {
       const { pkg, name } = splitService(definition.service);
+      const { target } = definition;
+      const protoFiles = [...definition.protoFiles];
+      const timeoutMs = definition.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       const proxyToken = proxyTokens[index] as symbol;
       return [
         {
           provide: proxyToken,
-          inject: [CONFIG, WorkloadIdentity],
-          useFactory: (config: Record<string, unknown>, identity: WorkloadIdentity) => {
+          inject: [CONFIG, WorkloadIdentity, { token: DbContext, optional: true }],
+          useFactory: (
+            config: Record<string, unknown>,
+            identity: WorkloadIdentity,
+            db: DbContext | undefined,
+          ) => {
             const url = definition.url(config);
             const caFile = config.GRPC_TLS_CA_FILE;
             return ClientProxyFactory.create({
@@ -151,15 +180,16 @@ export class GrpcClientsModule {
                   typeof caFile === 'string' ? caFile : undefined,
                 ),
                 package: pkg,
-                packageDefinition: loadProtoPackage(definition.protoFiles),
+                packageDefinition: loadProtoPackage(protoFiles),
                 channelOptions: {
                   'grpc.service_config': SERVICE_CONFIG,
                   'grpc.keepalive_time_ms': 30_000,
                   interceptors: [
                     outboundContextInterceptor(
-                      definition.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-                      definition.target,
+                      timeoutMs,
+                      target,
                       identity,
+                      () => db?.inTransaction() ?? false,
                     ),
                   ],
                 },

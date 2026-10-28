@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ga.user.v1;
+
+// Events user-service publishes through event-bus-service (ADR-0005). Each message
+// is the payload of one event type; ids, time and correlation travel in the envelope.
+
+// UserDeletedEvent: a user account was deleted. Aggregate id: the user id.
+// Subscribers: house-service (deletes the user's houses), booking-service (cancels
+// the user's open stays as a guest).
+message UserDeletedEvent {
+  // Id of the deleted user.
+  string user_id = 1;
+}
