@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "catalog:",
+    "grpc-health-check": "catalog:",
     "undici": "catalog:"
   }
 }

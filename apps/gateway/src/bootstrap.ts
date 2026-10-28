@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { constants as http2 } from 'node:http2';
 import { closeHealthClients, requestIdFromHttp } from '@ga/service-kit';
 import type { AbstractHttpAdapter } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -7,6 +8,11 @@ import { Logger } from 'nestjs-pino';
 import type { Config } from './config.ts';
 import { setupOpenApi } from './http/openapi.ts';
 import { ProblemDetailsFilter } from './http/problem-details.ts';
+import {
+  http2StreamOf,
+  isPastDeadline,
+  RequestDeadlineInterceptor,
+} from './http/request-deadline.ts';
 import { validationPipe } from './http/validation.ts';
 
 /** Fastify adapter: HTTPS with HTTP/2 and HTTP/1.1 fallback (ALPN), request ids, body limit. */
@@ -16,7 +22,12 @@ export function createAdapter(config: Config): AbstractHttpAdapter {
     genReqId: requestIdFromHttp,
     bodyLimit: config.BODY_LIMIT_BYTES,
     trustProxy: config.TRUST_PROXY,
-    requestTimeout: 30_000,
+    // Node applies requestTimeout only to a plain HTTP/1 server (TLS off). handlerTimeout is
+    // Fastify's own deadline per request, from routing through upload and handler, so HTTP/2
+    // and HTTP/1.1 over TLS get one too. configureGateway turns it into a 504 and frees the
+    // request when it fires.
+    requestTimeout: config.REQUEST_TIMEOUT_MS,
+    handlerTimeout: config.REQUEST_TIMEOUT_MS,
   };
   if (!config.TLS_ENABLED) return new FastifyAdapter(common);
   let key: Buffer;
@@ -49,12 +60,20 @@ export function configureGateway(app: NestFastifyApplication, config: Config): v
     });
   app.useGlobalPipes(validationPipe);
   app.useGlobalFilters(new ProblemDetailsFilter());
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .addHook('onSend', async (request, reply) => {
-      void reply.header('x-request-id', request.id);
-    });
+  app.useGlobalInterceptors(new RequestDeadlineInterceptor());
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('onSend', async (request, reply) => {
+    void reply.header('x-request-id', request.id);
+    // A request past its deadline may still be uploading, and without this its stream and
+    // buffered body stay open as long as the client keeps trickling bytes. HTTP/1.1: the
+    // connection closes after the 504. HTTP/2 (RFC 9113 section 8.1): once the 504 is out the
+    // server stops the upload with RST_STREAM(NO_ERROR). The stream's own 'finish' is the
+    // moment: the response's 'finish' (and so onResponse) waits for the stream to close.
+    if (!isPastDeadline(request) || request.raw.complete) return;
+    const stream = http2StreamOf(request);
+    if (stream) stream.once('finish', () => stream.close(http2.NGHTTP2_NO_ERROR));
+    else void reply.header('connection', 'close');
+  });
   if (config.DOCS_ENABLED) setupOpenApi(app);
   app.enableShutdownHooks();
   app

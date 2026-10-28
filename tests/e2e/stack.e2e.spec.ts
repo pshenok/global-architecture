@@ -24,8 +24,10 @@ describe('global-architecture stack (e2e)', () => {
   let houseId: string;
 
   beforeAll(async () => {
-    const ready = await api<{ identityProvider: string }>('GET', '/readyz');
+    const ready = await api<{ status: string; identityProvider: string }>('GET', '/readyz');
     expect(ready.status, `stack not ready: ${JSON.stringify(ready.body)}`).toBe(200);
+    // Readiness does not depend on the services; `status` says whether all of them answer.
+    expect(ready.body.status, `stack degraded: ${JSON.stringify(ready.body)}`).toBe('ok');
     expect(ready.body.identityProvider).toBe('ok');
   });
 

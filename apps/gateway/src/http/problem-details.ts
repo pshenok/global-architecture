@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { isPastDeadline } from './request-deadline.ts';
 
 /** RFC 9457 problem details, plus machine-readable extensions shared by every error. */
 export const ProblemDetails = z
@@ -133,6 +134,14 @@ export function toProblemDetails(
   return { ...base(500, instance, requestId), code: 'INTERNAL' };
 }
 
+/**
+ * The gateway's own deadline (REQUEST_TIMEOUT_MS) passed. 504, not 503: the request may
+ * have reached a service already, so the outcome is unknown and a blind retry is unsafe.
+ */
+export function requestTimeoutProblem(instance: string, requestId: string): ProblemDetails {
+  return { ...base(504, instance, requestId), code: 'REQUEST_TIMEOUT' };
+}
+
 /** The gateway's only exception filter: every error leaves as application/problem+json. */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
@@ -142,11 +151,19 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const request = http.getRequest<FastifyRequest>();
     const reply = http.getResponse<FastifyReply>();
-    const problem = toProblemDetails(
-      error,
-      request.url.split('?')[0] ?? request.url,
-      String(request.id),
-    );
+    // An error that comes after the answer (work that outlived the deadline) has no one to
+    // go to; the deadline was already logged.
+    if (reply.sent) return;
+    const instance = request.url.split('?')[0] ?? request.url;
+    if (isPastDeadline(request)) {
+      this.logger.warn(`request outlived REQUEST_TIMEOUT_MS: ${request.method} ${instance}`);
+      void reply
+        .status(504)
+        .header('content-type', 'application/problem+json')
+        .send(requestTimeoutProblem(instance, String(request.id)));
+      return;
+    }
+    const problem = toProblemDetails(error, instance, String(request.id));
     if (problem.status >= 500 && (!isServiceError(error) || problem.code === 'INTERNAL')) {
       this.logger.error(
         isServiceError(error)

@@ -18,6 +18,12 @@ const BaseConfigSchema = z.object({
   CORS_ORIGINS: z.string().default(''),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(600),
   BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1_048_576),
+  /**
+   * Longest a request may take, from routing through body upload and handler to the reply;
+   * past it the gateway answers 504 REQUEST_TIMEOUT. Capped: Node fires timers longer than
+   * 2^31-1 ms at once, which would time every request out.
+   */
+  REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(600_000).default(30_000),
   /** Trust X-Forwarded-* (only behind a known proxy). */
   TRUST_PROXY: z.stringbool().default(false),
   /** Serve /docs (Scalar) and /openapi.json. Default: on, except when NODE_ENV=production. */

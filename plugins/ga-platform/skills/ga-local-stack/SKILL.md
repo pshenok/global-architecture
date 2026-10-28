@@ -23,8 +23,8 @@ an Ed25519 key per workload plus the public key map (`pnpm keys`). PM2 runs ever
 the gateway and `dev-idp`, a local OIDC provider on `http://127.0.0.1:8090`
 (`services.json` `devIdp.port`) that signs any subject it is asked for; it listens on
 loopback only and refuses `NODE_ENV=production`. The command waits until every service is
-SERVING and the gateway's `/readyz` is 200 with `identityProvider: "ok"` (its IdP keys
-are loaded), then prints the URLs: API `https://localhost:8443/v1/...`, docs
+SERVING and the gateway's `/readyz` is 200 with `status: "ok"` (it reaches every service
+itself) and `identityProvider: "ok"` (its IdP keys are loaded), then prints the URLs: API `https://localhost:8443/v1/...`, docs
 `https://localhost:8443/docs`, each service's `grpcs://localhost:<port>`. Everything binds
 to 127.0.0.1, and gRPC runs TLS on every hop.
 
@@ -169,7 +169,7 @@ same image as a release job.
 | `ERR_PNPM_IGNORED_BUILDS`                                                                          | a new dependency has an install script; decide in `allowBuilds` (pnpm-workspace.yaml)                                                                                       |
 | `npm` errors with `EBADDEVENGINES` inside the repo                                                 | use pnpm; npm enforces `devEngines` and the system Node is older                                                                                                            |
 | `Invalid configuration: - GRPC_PORT ...` at boot                                                   | env validation; see the service's `src/config.ts` and `.env.example`                                                                                                        |
-| `/readyz` 503 with a service `UNREACHABLE`                                                         | that process is down or still starting: `pnpm exec pm2 logs <name> --lines 50`                                                                                              |
+| `/readyz` `degraded` with a service `UNREACHABLE`                                                  | that process is down or still starting: `pnpm exec pm2 logs <name> --lines 50`                                                                                              |
 | service `NOT_SERVING`                                                                              | its `select 1` check fails: Postgres down or wrong `DATABASE_URL`                                                                                                           |
 | `cannot create a test schema` in tests                                                             | run `pnpm db:setup` (creates `ga_test`)                                                                                                                                     |
 | `EADDRINUSE`                                                                                       | another process holds the port: `lsof -nP -iTCP:<port> -sTCP:LISTEN`                                                                                                        |

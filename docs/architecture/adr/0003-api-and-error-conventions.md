@@ -24,19 +24,20 @@ details (`ErrorInfo` with reason, domain = service name, metadata; `BadRequest` 
 violations) in `grpc-status-details-bin`. Unknown errors become `INTERNAL` with a generic
 message. Domain error messages and metadata are client-facing by contract.
 
-| Kind                       | gRPC                | HTTP |
-| -------------------------- | ------------------- | ---- |
-| ValidationError            | INVALID_ARGUMENT    | 400  |
-| NotFoundError              | NOT_FOUND           | 404  |
-| ConflictError              | ALREADY_EXISTS      | 409  |
-| PreconditionFailedError    | FAILED_PRECONDITION | 400  |
-| ConcurrencyError           | ABORTED             | 409  |
-| PermissionDeniedError      | PERMISSION_DENIED   | 403  |
-| UnauthenticatedError       | UNAUTHENTICATED     | 401  |
-| RateLimitedError           | RESOURCE_EXHAUSTED  | 429  |
-| DependencyUnavailableError | UNAVAILABLE         | 503  |
-| (deadline)                 | DEADLINE_EXCEEDED   | 504  |
-| (unexpected)               | INTERNAL            | 500  |
+| Kind                       | gRPC                | HTTP                  |
+| -------------------------- | ------------------- | --------------------- |
+| ValidationError            | INVALID_ARGUMENT    | 400                   |
+| NotFoundError              | NOT_FOUND           | 404                   |
+| ConflictError              | ALREADY_EXISTS      | 409                   |
+| PreconditionFailedError    | FAILED_PRECONDITION | 400                   |
+| ConcurrencyError           | ABORTED             | 409                   |
+| PermissionDeniedError      | PERMISSION_DENIED   | 403                   |
+| UnauthenticatedError       | UNAUTHENTICATED     | 401                   |
+| RateLimitedError           | RESOURCE_EXHAUSTED  | 429                   |
+| DependencyUnavailableError | UNAVAILABLE         | 503                   |
+| (deadline)                 | DEADLINE_EXCEEDED   | 504                   |
+| (gateway's own deadline)   | n/a                 | 504 `REQUEST_TIMEOUT` |
+| (unexpected)               | INTERNAL            | 500                   |
 
 **Authentication and authorization (ADR-0004)**: the gateway answers 401 with
 `AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID` or `AUTH_TOKEN_EXPIRED` and a
@@ -47,6 +48,15 @@ caller may not see is a 404 with the same reason as a missing one. Between gatew
 services, `UNAUTHENTICATED` and the platform reasons of `PERMISSION_DENIED`
 (`CALLER_NOT_ALLOWED`, `ACCESS_NOT_DECLARED`, `PRINCIPAL_NOT_REGISTERED`,
 `IDENTITY_PRINCIPAL_REQUIRED`) are server faults: the gateway reports them as 500.
+
+**Deadlines**: a request that outlives `REQUEST_TIMEOUT_MS` (30 s, body upload included)
+gets 504 `REQUEST_TIMEOUT`, like a downstream `DEADLINE_EXCEEDED`: work may already have
+reached a service, so the outcome is unknown and a client must not blindly retry a write.
+A request whose deadline passed before its controller started never starts it.
+Services answer deadlocks and serialization failures as ABORTED `TRANSACTION_CONFLICT`
+(409) and statement timeouts as UNAVAILABLE `DATABASE_TIMEOUT` (503) from any query;
+`DB_STATEMENT_TIMEOUT_MS` stays below the shortest caller deadline so the database gives
+up first.
 
 **REST (public)**: versioned paths (`/v1`), plural resources, camelCase JSON, ISO-8601
 times, `{ items, nextPageToken }` lists, 201 + `Location` on create, 204 on delete,

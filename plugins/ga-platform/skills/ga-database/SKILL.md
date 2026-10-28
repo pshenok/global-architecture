@@ -57,9 +57,13 @@ try {
 }
 ```
 
-`translateDbError` also maps serialization failures/deadlocks to `ConcurrencyError` and
-statement timeouts to `DependencyUnavailableError`; anything unmapped stays an internal
-error. booking-service shows the strongest form: an exclusion constraint
+`translateDbError` also maps serialization failures/deadlocks to `ConcurrencyError`
+(ABORTED `TRANSACTION_CONFLICT`) and statement timeouts to `DependencyUnavailableError`
+(UNAVAILABLE `DATABASE_TIMEOUT`); anything unmapped stays an internal error. You only need
+to call it for named constraints: the kit's `GrpcErrorFilter` applies the same three
+mappings to every error that reaches it, so a deadlock or timeout in a read,
+`SELECT ... FOR UPDATE` or the commit already gets its status without a `try` around the
+query. booking-service shows the strongest form: an exclusion constraint
 (`EXCLUDE USING gist (house_id WITH =, daterange(check_in, check_out, '[)') WITH &&)
 WHERE (status = 'CONFIRMED')`) makes double booking impossible under any concurrency.
 
@@ -169,8 +173,10 @@ Changing a live schema without downtime (expand -> migrate -> contract):
 
 ## Configuration and pooling
 
-`DATABASE_URL`, `DB_POOL_MAX` (default 10) and `DB_STATEMENT_TIMEOUT_MS` (default 5000)
-are validated by the kit. Budget connections: replicas x `DB_POOL_MAX` per service must
+`DATABASE_URL`, `DB_POOL_MAX` (default 10) and `DB_STATEMENT_TIMEOUT_MS` (default 1500)
+are validated by the kit. Keep the statement timeout below the shortest deadline of the
+service's callers (2 s between services): then a slow query or a lock wait ends as
+UNAVAILABLE `DATABASE_TIMEOUT` before the caller gives up with a bare DEADLINE_EXCEEDED. Budget connections: replicas x `DB_POOL_MAX` per service must
 stay below the server's `max_connections`; beyond that, put PgBouncer in front and keep
 migrations on a direct connection. A `select 1` health check flips the service to
 NOT_SERVING when the database is unreachable.

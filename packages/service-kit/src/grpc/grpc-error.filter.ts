@@ -4,6 +4,7 @@ import { Metadata, status } from '@grpc/grpc-js';
 import { type ArgumentsHost, Catch, Logger, type RpcExceptionFilter } from '@nestjs/common';
 import { GrpcException, RpcException } from '@nestjs/microservices';
 import { type Observable, throwError } from 'rxjs';
+import { pgErrorInfo, translateDbError } from '../database/pg-errors.ts';
 import { KIND_TO_GRPC_STATUS } from './error-mapping.ts';
 
 /** gRFC A6 server pushback trailer; a negative value disables client retries for the call. */
@@ -23,6 +24,10 @@ interface GrpcErrorPayload {
  *   with ErrorInfo (reason, domain, metadata) and BadRequest field violations.
  *   UNAVAILABLE from a DomainError also carries `grpc-retry-pushback-ms: -1`, because
  *   the work was attempted and an automatic retry would only amplify the outage.
+ * - A Postgres deadlock or serialization failure -> ABORTED TRANSACTION_CONFLICT, and a
+ *   statement timeout -> UNAVAILABLE DATABASE_TIMEOUT, whichever query raised it (a read,
+ *   SELECT ... FOR UPDATE, the commit). Repositories still translate their named
+ *   constraints themselves; this catches what no repository wrapped.
  * - Nest GrpcException / RpcException({ code }) -> passed through.
  * - Anything else -> INTERNAL with a generic message. The original message and
  *   stack never leave the process (they are logged by the RPC logger).
@@ -37,7 +42,13 @@ export class GrpcErrorFilter implements RpcExceptionFilter<unknown> {
     return throwError(() => this.toPayload(error));
   }
 
-  toPayload(error: unknown): GrpcErrorPayload {
+  toPayload(raised: unknown): GrpcErrorPayload {
+    const error = isDomainError(raised) ? raised : translateDbError(raised);
+    if (error !== raised) {
+      this.logger.warn(
+        `database ${pgErrorInfo(raised)?.code}: ${raised instanceof Error ? (raised.stack ?? raised.message) : String(raised)}`,
+      );
+    }
     if (isDomainError(error)) {
       const code = KIND_TO_GRPC_STATUS[error.kind];
       const metadata = new Metadata();
